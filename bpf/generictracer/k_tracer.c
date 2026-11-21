@@ -54,6 +54,9 @@
 #include <maps/filter_ports.h>
 #include <maps/fd_to_connection.h>
 #include <maps/msg_buffers.h>
+#include <maps/node_manual_ctx_shadow.h>
+#include <maps/rust_protocol.h>
+#include <maps/rust_tasks.h>
 #include <maps/sock_pids.h>
 #include <maps/unreadable_buffer_ports.h>
 #include <pid/pid.h>
@@ -1136,7 +1139,6 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
     }
 
     unsigned char *buf = 0;
-    const void *user_buf = NULL;
     const u32 received_len = copied_len;
     if (args) {
         iovec_iter_ctx *iov_ctx = (iovec_iter_ctx *)&args->iovec_ctx;
@@ -1152,8 +1154,6 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
             copied_len = read_iovec_ctx(iov_ctx, buf, copied_len);
             if (!copied_len) {
                 bpf_dbg_printk("Not copied anything");
-            } else if ((u32)copied_len < received_len) {
-                user_buf = iovec_user_buf(iov_ctx);
             }
         }
     }
@@ -1200,13 +1200,22 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
             bpf_dbg_printk("buf=[%llx], copied_len=%d", buf, copied_len);
 
             if (buf && copied_len) {
+                const void *source_buf = NULL;
+                if (args) {
+                    const bool truncated = received_len > (u32)copied_len;
+                    if (truncated || rust_process_instrumented(id)) {
+                        const iovec_iter_ctx *iov_ctx = (const iovec_iter_ctx *)&args->iovec_ctx;
+                        source_buf = iovec_user_buf(iov_ctx);
+                    }
+                }
+
                 bpf_map_delete_elem(&active_recv_args, &id);
                 // doesn't return must be logically last statement
                 handle_user_buf_with_connection(ctx,
                                                 &info,
                                                 buf,
                                                 copied_len,
-                                                user_buf,
+                                                source_buf,
                                                 received_len,
                                                 NO_SSL,
                                                 TCP_RECV,
@@ -1559,6 +1568,24 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_exit, int status) {
     // stale entry that would re-key a future thread reusing this tid.
     bpf_map_delete_elem(&java_vt_threads, &task.p_key);
 
+    return 0;
+}
+
+// Clean up Node.js manual context, Rust worker state, and shared trace context
+// on every exiting thread. This also covers exit_group and fatal signals, which
+// sys_exit misses. Do not check valid_pid(): entries can remain after a process
+// stops matching the filter.
+SEC("tracepoint/sched/sched_process_exit")
+int GUARDED_PROG(obi_tp_sched_process_exit, void *, ctx) {
+    (void)ctx;
+
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    bpf_map_delete_elem(&node_manual_ctx_shadow, &pid_tgid);
+    bpf_map_delete_elem(&rust_threads, &pid_tgid);
+    bpf_map_delete_elem(&rust_h2_senders, &pid_tgid);
+    // not obi_ctx__del(): the manual span override writes the entry even when
+    // trace context population is off
+    bpf_map_delete_elem(&traces_ctx_v1, &pid_tgid);
     return 0;
 }
 

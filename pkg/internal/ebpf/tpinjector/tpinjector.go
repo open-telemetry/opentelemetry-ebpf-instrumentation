@@ -368,7 +368,7 @@ func (p *Tracer) detach() {
 
 	// once detached is set, Run cannot register the writer again before the maps close
 	if filter, ok := p.pidsFilter.(*ebpfcommon.PIDsFilter); ok {
-		filter.RemoveOTelTracesPIDFilter()
+		filter.RemoveOTelTracesPIDFilter(p.otelTracesPIDFilter())
 	}
 
 	p.closeAllReverse(closers)
@@ -523,20 +523,12 @@ func (p *Tracer) registerOTelTracesPIDFilter() {
 		return
 	}
 
-	filter.SetOTelTracesPIDFilter(otelTracesPIDFilter{tracer: p})
+	filter.SetOTelTracesPIDFilter(p.otelTracesPIDFilter())
 }
 
 // otel_traces_pids, as PIDsFilter marks the processes exporting OTLP traces in it
-type otelTracesPIDFilter struct {
-	tracer *Tracer
-}
-
-func (f otelTracesPIDFilter) Marked(pid app.PID) bool {
-	return f.tracer.otelTracesPids.Contains(pid)
-}
-
-func (f otelTracesPIDFilter) Mark(pid app.PID, exportsTraces bool) error {
-	return f.tracer.otelTracesPids.Set(f.tracer.bpfObjects.OtelTracesPids, pid, exportsTraces)
+func (p *Tracer) otelTracesPIDFilter() ebpfcommon.OTelTracesPIDMap {
+	return ebpfcommon.NewOTelTracesPIDMap(&p.otelTracesPids, p.bpfObjects.OtelTracesPids)
 }
 
 func (p *Tracer) SetEventContext(_ *ebpfcommon.EBPFEventContext) {}

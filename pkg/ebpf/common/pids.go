@@ -5,6 +5,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -108,8 +109,11 @@ type PIDsFilter struct {
 	defaultOtlpGRPCPort int
 	metrics             imetrics.Reporter
 	// readers only Peek it under the read lock: Get would reorder it
-	forked              *simplelru.LRU[forkedChildKey, forkedChild]
-	otelTracesPIDFilter OTelTracesPIDFilter
+	forked *simplelru.LRU[forkedChildKey, forkedChild]
+	// every tracer that reads the trace-exporter map registers, and the first one
+	// writes it: each mirrors the map in its own bitmap, so two writers would clear
+	// each other's bits. The next one takes over when the writer leaves.
+	otelTracesPIDFilters []OTelTracesPIDFilter
 }
 
 func NewPIDsFilter(c *services.DiscoveryConfig, log *slog.Logger, metrics imetrics.Reporter) *PIDsFilter {
@@ -140,28 +144,51 @@ func (pf *PIDsFilter) BlockPID(pid app.PID, ns uint32) {
 	pf.removePID(pid, ns)
 }
 
-// SetOTelTracesPIDFilter installs the BPF filter of trace-exporting processes and
-// writes every live process to it. The filter must not call back into PIDsFilter.
+// SetOTelTracesPIDFilter registers a tracer's BPF filter of trace-exporting processes.
+// The first registered filter writes every live process to it and keeps it updated.
+// The filter must not call back into PIDsFilter.
 func (pf *PIDsFilter) SetOTelTracesPIDFilter(filter OTelTracesPIDFilter) {
 	pf.mux.Lock()
 	defer pf.mux.Unlock()
 
-	pf.otelTracesPIDFilter = filter
-	pf.forEachLiveProcess(pf.updateOTelTracesPID)
+	pf.otelTracesPIDFilters = append(pf.otelTracesPIDFilters, filter)
+	if len(pf.otelTracesPIDFilters) == 1 {
+		pf.forEachLiveProcess(pf.updateOTelTracesPID)
+	}
 }
 
-func (pf *PIDsFilter) RemoveOTelTracesPIDFilter() {
+// RemoveOTelTracesPIDFilter stops updating the filter, before its tracer closes the map.
+// When it was the writer, the next registered filter is brought up to date.
+func (pf *PIDsFilter) RemoveOTelTracesPIDFilter(filter OTelTracesPIDFilter) {
 	pf.mux.Lock()
-	pf.otelTracesPIDFilter = nil
-	pf.mux.Unlock()
+	defer pf.mux.Unlock()
+
+	index := slices.Index(pf.otelTracesPIDFilters, filter)
+	if index < 0 {
+		return
+	}
+
+	pf.otelTracesPIDFilters = slices.Delete(pf.otelTracesPIDFilters, index, index+1)
+	if index == 0 && len(pf.otelTracesPIDFilters) > 0 {
+		pf.forEachLiveProcess(pf.updateOTelTracesPID)
+	}
+}
+
+func (pf *PIDsFilter) activeOTelTracesPIDFilter() OTelTracesPIDFilter {
+	if len(pf.otelTracesPIDFilters) == 0 {
+		return nil
+	}
+
+	return pf.otelTracesPIDFilters[0]
 }
 
 func (pf *PIDsFilter) updateOTelTracesPID(pid app.PID, fi *exec.FileInfo) {
-	if pf.otelTracesPIDFilter == nil {
+	filter := pf.activeOTelTracesPIDFilter()
+	if filter == nil {
 		return
 	}
 	exportsTraces := pf.ignoreOtel && fi != nil && fi.ExportsOTelTraces()
-	if err := pf.otelTracesPIDFilter.Mark(pid, exportsTraces); err != nil {
+	if err := filter.Mark(pid, exportsTraces); err != nil {
 		pf.log.Debug("updating the trace-exporting PID filter", "pid", pid, "error", err)
 	}
 }
@@ -170,7 +197,7 @@ func (pf *PIDsFilter) updateOTelTracesPID(pid app.PID, fi *exec.FileInfo) {
 // It scans once, when the classification is first detected as
 // exporting, and again only to retry an exporter whose mark failed.
 func (pf *PIDsFilter) syncOTelTracesPIDs(span *request.Span, fi *exec.FileInfo, detected bool) {
-	if pf.otelTracesPIDFilter == nil {
+	if pf.activeOTelTracesPIDFilter() == nil {
 		return
 	}
 
@@ -192,7 +219,7 @@ func (pf *PIDsFilter) unmarkedExporter(span *request.Span, fi *exec.FileInfo) bo
 	}
 
 	// other known pids first element should be the highest visible PID
-	return !pf.otelTracesPIDFilter.Marked(info.otherKnownPids[0])
+	return !pf.activeOTelTracesPIDFilter().Marked(info.otherKnownPids[0])
 }
 
 func (pf *PIDsFilter) forEachLiveProcess(fn func(app.PID, *exec.FileInfo)) {

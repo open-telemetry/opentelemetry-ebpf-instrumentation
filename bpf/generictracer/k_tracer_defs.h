@@ -66,8 +66,7 @@ static __always_inline call_protocol_args_t *make_protocol_args(const pid_connec
     args->orig_dport = orig_dport;
     args->sock_ptr = (u64)sk;
     args->u_buf = (u64)u_buf;
-    args->user_buf = 0;
-    args->user_len = 0;
+    set_protocol_user_buffer(args, NULL, 0);
     args->lw_thread = lw_thread;
     args->protocols = protocols;
     args->protocol_type = protocol_type_for_conn_info(info);
@@ -81,13 +80,13 @@ static __always_inline call_protocol_args_t *make_protocol_args(const pid_connec
     return args;
 }
 
-// user_buf is the user buffer that u_buf holds a truncated copy of, or NULL.
+// source_buf is the original contiguous user buffer, even when u_buf holds a complete copy.
 static __always_inline void handle_user_buf_with_connection(void *ctx,
                                                             pid_connection_info_t *pid_conn,
                                                             void *u_buf,
                                                             int bytes_len,
-                                                            const void *user_buf,
-                                                            u32 user_len,
+                                                            const void *source_buf,
+                                                            u32 source_len,
                                                             u8 ssl,
                                                             u8 direction,
                                                             u16 orig_dport,
@@ -105,10 +104,7 @@ static __always_inline void handle_user_buf_with_connection(void *ctx,
         return;
     }
 
-    if (user_buf && user_len > (u32)bytes_len) {
-        args->user_buf = (u64)user_buf;
-        args->user_len = user_len;
-    }
+    set_protocol_user_buffer(args, source_buf, source_len);
 
     preempt_guarded_tail_call(ctx, &jump_table, k_tail_handle_buf_with_args);
 }

@@ -8,6 +8,7 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <common/preempt_guard.h>
+#include <common/rust_task.h>
 #include <common/protocol_http2_helpers.h>
 #include <common/sampling.h>
 #include <common/tc_common.h>
@@ -31,11 +32,37 @@ static __always_inline bool http1_header_scan_enabled(const call_protocol_args_t
            capture_header_buffer && args->protocols.http;
 }
 
+static __always_inline void rust_track_io(const call_protocol_args_t *args) {
+    const u64 id = bpf_get_current_pid_tgid();
+    if (!rust_process_instrumented(id)) {
+        return;
+    }
+
+    rust_save_io_connection(id, &args->pid_conn, args->orig_dport);
+    if (!args->ssl && args->direction == TCP_SEND) {
+        rust_tls_flush_t *flush = bpf_map_lookup_elem(&rust_tls_flushes, &id);
+        if (flush) {
+            flush->connection.p_conn = args->pid_conn;
+            flush->connection.orig_dport = args->orig_dport;
+        }
+    }
+
+    if (!args->ssl && args->direction == TCP_RECV) {
+        rust_save_read_range(id,
+                             args->source_buf ? args->source_buf : args->u_buf,
+                             args->source_buf ? args->source_len : args->bytes_len,
+                             &args->pid_conn,
+                             args->orig_dport);
+    }
+}
+
 static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
     }
+
+    rust_track_io(args);
 
     if (http1_header_scan_enabled(args, use_bpf_loop)) {
         http1_header_scan_t *scan = bpf_map_lookup_elem(&http1_header_scans, &args->pid_conn);

@@ -30,6 +30,7 @@
 #include <generictracer/maps/http2_info_mem.h>
 
 #include <maps/ongoing_http2_grpc.h>
+#include <common/h2_capture.h>
 
 #include <maps/active_ssl_connections.h>
 #include <maps/ongoing_http2_connections.h>
@@ -181,18 +182,27 @@ static __always_inline u8 http2_emit_hpack_event(grpc_frames_ctx_t *g_ctx,
                              (conn->resp_hpack_poisoned * h2_hpack_resp_unreliable);
         if (http2_flag_new(conn->flags)) {
             event->hpack_flags |= h2_hpack_new_connection;
-            conn->flags &= ~http2_conn_flag_new;
         }
     } else {
         event->hpack_flags |= h2_hpack_req_unreliable | h2_hpack_resp_unreliable;
     }
 
     const void *buf = (const unsigned char *)g_ctx->args.u_buf + g_ctx->pos;
-    if (event_type == k_event_type_k_http2_request_headers) {
-        bpf_probe_read(event->data, sizeof(event->data), buf);
-    } else {
-        bpf_probe_read(event->ret_data, sizeof(event->ret_data), buf);
+    const u32 available = event->len > 0 ? (u32)event->len : 0;
+    const long result =
+        event_type == k_event_type_k_http2_request_headers
+            ? h2_capture_bytes(event->data, sizeof(event->data), buf, available)
+            : h2_capture_bytes(event->ret_data, sizeof(event->ret_data), buf, available);
+
+    if (!available || result != 0) {
+        bpf_ringbuf_discard(event, 0);
+        return 0;
     }
+
+    if (conn) {
+        conn->flags &= ~http2_conn_flag_new;
+    }
+
     bpf_ringbuf_submit(event, get_flags());
     return 1;
 }
@@ -224,6 +234,12 @@ static __always_inline void http2_grpc_start_finalize_server(http2_conn_stream_t
                            orig_dport,
                            0,
                            BPF_ANY);
+
+    // One socket read can carry many streams. Only decoded dispatch owns a task parent.
+    rust_task_key_t rust_task = {};
+    if (rust_current_task(bpf_get_current_pid_tgid(), &rust_task)) {
+        bpf_map_delete_elem(&rust_task_context, &rust_task);
+    }
 
     trace_key_t t_key = {0};
     task_tid(&t_key.p_key);
@@ -295,10 +311,7 @@ static __always_inline void http2_grpc_start(void *ctx,
     fixup_connection_info(&h2g_info->conn_info, is_client, orig_dport);
 
     // past the end of the read the buffer holds stale bytes, e.g. an older request's traceparent
-    bpf_memset(h2g_info->data, 0, sizeof(h2g_info->data));
-    u32 captured = len;
-    bpf_clamp_umax(captured, k_kprobes_http2_buf_size);
-    bpf_probe_read(h2g_info->data, captured, u_buf);
+    h2_capture_bytes(h2g_info->data, sizeof(h2g_info->data), u_buf, len > 0 ? (u32)len : 0);
 
     tp_info_pid_t *tp_p = tp_info_mem();
     if (!tp_p) {
@@ -320,6 +333,16 @@ static __always_inline void http2_grpc_start(void *ctx,
     urand_bytes(tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
 
     if (!is_client) {
+        const rust_protocol_config_t *rust = rust_protocol_config(bpf_get_current_pid_tgid());
+        // Only skip HPACK parsing when the decoded request hook can find this stream.
+        if (rust && rust->h2_server && rust_task_has_io_connection(bpf_get_current_pid_tgid())) {
+            // Rust's decoded request hook replaces this with a header parent before
+            // dispatch. Headerless requests keep the parent known for the connection.
+            const u8 found_tp = find_trace_for_server_request(
+                &s_key->pid_conn.conn, &tp_p->tp, k_event_type_http_request);
+            http2_grpc_start_finalize_server(s_key, h2g_info, tp_p, found_tp, ssl, orig_dport);
+            return;
+        }
         // Server finalize tail-called to stay under verifier insn limit on 5.15
         preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server);
@@ -336,13 +359,35 @@ static __always_inline void http2_grpc_start(void *ctx,
         cp->t_key.extra_id = extra_runtime_id();
         cp->ts = bpf_ktime_get_ns();
     }
-    u8 found_tp =
-        find_trace_for_client_request(&s_key->pid_conn, orig_dport, k_lw_thread_none, &tp_p->tp);
+
+    u8 found_tp = rust_task_context_enabled(bpf_get_current_pid_tgid())
+                      ? 0
+                      : find_trace_for_client_request(
+                            &s_key->pid_conn, orig_dport, k_lw_thread_none, &tp_p->tp);
     h2g_info->parent_status = found_tp;
-    if (adopt_injected_trace(s_key, &tp_p->tp)) {
+
+    const bool injected = adopt_injected_trace(s_key, &tp_p->tp);
+    if (injected) {
         // the uprobe's context comes from the running request itself
         h2g_info->parent_status = k_parent_status_live;
     }
+
+    rust_http_request_t *rust_request =
+        rust_current_h2_request(bpf_get_current_pid_tgid(), s_key->stream_id);
+    if (rust_request) {
+        if (!injected) {
+            tp_p->tp = rust_request->wire;
+        }
+        if (!injected ||
+            (bpf_memcmp(tp_p->tp.trace_id, rust_request->wire.trace_id, TRACE_ID_SIZE_BYTES) == 0 &&
+             bpf_memcmp(tp_p->tp.span_id, rust_request->wire.span_id, SPAN_ID_SIZE_BYTES) == 0)) {
+            h2g_info->parent_status = rust_request->parent.valid
+                                          ? parent_kind(&rust_request->parent)
+                                          : k_parent_status_none;
+        }
+        rust_request->observed = 1;
+    }
+
     if (valid_trace(tp_p->tp.trace_id)) {
         found_tp = 1;
     }
@@ -369,8 +414,10 @@ static __always_inline void http2_grpc_start(void *ctx,
     bpf_map_update_elem(&ongoing_http2_grpc, s_key, h2g_info, BPF_ANY);
 }
 
-static __always_inline void
-http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, void *u_buf) {
+static __always_inline void http2_grpc_end(http2_conn_stream_t *stream,
+                                           http2_grpc_request_t *prev_info,
+                                           void *u_buf,
+                                           u32 available) {
     bpf_dbg_printk("http2/grpc end prev_info=%llx", prev_info);
     if (prev_info) {
         prev_info->end_monotime_ns = bpf_ktime_get_ns();
@@ -388,7 +435,7 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
 
         http2_grpc_request_t *trace = events_ringbuf_reserve(sizeof(*trace), 0);
         if (trace) {
-            bpf_probe_read(prev_info->ret_data, k_kprobes_http2_ret_buf_size, u_buf);
+            h2_capture_bytes(prev_info->ret_data, sizeof(prev_info->ret_data), u_buf, available);
             __builtin_memcpy(trace, prev_info, sizeof(http2_grpc_request_t));
             bpf_ringbuf_submit(trace, get_flags());
         }
@@ -945,7 +992,9 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_end_frame, void *, ctx) {
         bpf_clamp_umax(buf_pos, k_iovec_max_len);
 
         void *offset = (unsigned char *)g_ctx->args.u_buf + buf_pos;
-        http2_grpc_end(&g_ctx->stream, &g_ctx->prev_info, offset);
+        const s32 available = g_ctx->args.bytes_len - (s32)buf_pos;
+        http2_grpc_end(
+            &g_ctx->stream, &g_ctx->prev_info, offset, available > 0 ? (u32)available : 0);
 
         bpf_map_delete_elem(&active_ssl_connections, &g_ctx->args.pid_conn);
 

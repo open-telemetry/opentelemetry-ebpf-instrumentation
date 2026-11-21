@@ -1,0 +1,227 @@
+{
+  "toolchains": [
+    "1.97.1",
+    "1.98.1",
+    "1.99.1",
+    "1.100.0"
+  ],
+  "targets": [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu"
+  ],
+  "cases": [
+    {
+      "name": "latest",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "features": "",
+      "env": {}
+    },
+    {
+      "name": "tokio-1.53",
+      "tokio": "1.53.3",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "features": "",
+      "env": {}
+    },
+    {
+      "name": "tokio-1.52",
+      "tokio": "1.52.4",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "features": "",
+      "env": {}
+    },
+    {
+      "name": "tokio-1.51",
+      "tokio": "1.51.6",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "features": "",
+      "env": {}
+    },
+    {
+      "name": "reqwest-0.12",
+      "tokio": "1.54.1",
+      "reqwest": "0.12.28",
+      "hyper": "1.12.0",
+      "features": "",
+      "env": {}
+    },
+    {
+      "name": "reqwest-0.11",
+      "tokio": "1.54.1",
+      "reqwest": "0.11.27",
+      "hyper": null,
+      "features": "",
+      "env": {}
+    },
+    {
+      "name": "reqwest-0.10",
+      "tokio": "1.54.1",
+      "reqwest": "0.10.10",
+      "hyper": null,
+      "features": "reqwest_010",
+      "env": {}
+    },
+    {
+      "name": "hyper-1.11",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.11.1",
+      "features": "",
+      "env": {}
+    },
+    {
+      "name": "hyper-1.10",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.10.1",
+      "features": "",
+      "env": {}
+    },
+    {
+      "name": "hyper-1.9",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.9.0",
+      "features": "",
+      "env": {}
+    },
+    {
+      "name": "rustls-client-http1",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "tokio_rustls": "0.26.6",
+      "features": "tls",
+      "env": {
+        "TLS": "1",
+        "INJECT": "1"
+      }
+    },
+    {
+      "name": "rustls-client-http2",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "tokio_rustls": "0.26.6",
+      "features": "tls",
+      "env": {
+        "TLS": "1",
+        "H2": "1",
+        "INJECT": "1"
+      }
+    },
+    {
+      "name": "rustls-server-0.23",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "tokio_rustls": "0.26.6",
+      "features": "server,tls",
+      "env": {
+        "TLS": "1",
+        "SERVER": "1",
+        "H2": "1",
+        "INJECT": "1"
+      }
+    },
+    {
+      "name": "rustls-server-0.22",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "tokio_rustls": "0.25.0",
+      "features": "server",
+      "env": {
+        "H2C": "1",
+        "SERVER": "1",
+        "H2": "1",
+        "INJECT": "1"
+      }
+    },
+    {
+      "name": "rustls-server-0.21",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "tokio_rustls": "0.24.1",
+      "features": "server_legacy",
+      "env": {
+        "H2C": "1",
+        "SERVER": "1",
+        "H2": "1",
+        "INJECT": "1"
+      }
+    },
+    {
+      "name": "rustls-server-0.20",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "tokio_rustls": "0.23.4",
+      "features": "server_legacy",
+      "env": {
+        "H2C": "1",
+        "SERVER": "1",
+        "H2": "1",
+        "INJECT": "1"
+      }
+    },
+    {
+      "name": "rustls-direct-client-0.23",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "tokio_rustls": "0.26.6",
+      "features": "rustls_client",
+      "env": {
+        "TLS": "1",
+        "INJECT": "1",
+        "RUSTLS_CLIENT": "1"
+      }
+    },
+    {
+      "name": "rustls-direct-client-0.22",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "tokio_rustls": "0.25.0",
+      "features": "rustls_client",
+      "env": {
+        "TLS": "1",
+        "INJECT": "1",
+        "RUSTLS_CLIENT": "1"
+      }
+    },
+    {
+      "name": "rustls-direct-client-0.21",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "tokio_rustls": "0.24.1",
+      "features": "rustls_client_legacy",
+      "env": {
+        "TLS": "1",
+        "INJECT": "1",
+        "RUSTLS_CLIENT": "1"
+      }
+    },
+    {
+      "name": "rustls-direct-client-0.20",
+      "tokio": "1.54.1",
+      "reqwest": "0.13.5",
+      "hyper": "1.12.0",
+      "tokio_rustls": "0.23.4",
+      "features": "rustls_client_legacy",
+      "env": {
+        "TLS": "1",
+        "INJECT": "1",
+        "RUSTLS_CLIENT": "1"
+      }
+    }
+  ]
+}

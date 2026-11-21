@@ -60,12 +60,27 @@ typedef struct call_protocol_args {
     u64 self_ref_parent_id;
     u64 sock_ptr;
     lw_thread_t lw_thread;
+    // Original contiguous user buffer, retained for Rustls read association.
+    u64 source_buf;
     // The user buffer u_buf holds a truncated copy of, or 0. Only the HTTP/1
     // header scan reads it, to cover its whole window.
     u64 user_buf;
+    u32 source_len;
     u32 user_len;
-    u8 _pad3[4];
 } call_protocol_args_t;
+
+static __always_inline void
+set_protocol_user_buffer(call_protocol_args_t *args, const void *source_buf, u32 source_len) {
+    args->source_buf = (u64)source_buf;
+    args->source_len = source_buf ? source_len : 0;
+    args->user_buf = 0;
+    args->user_len = 0;
+
+    if (source_buf && source_len > (u32)args->bytes_len) {
+        args->user_buf = (u64)source_buf;
+        args->user_len = source_len;
+    }
+}
 
 static __always_inline void read_request_buf(http_info_t *info, const call_protocol_args_t *args) {
     u32 info_buf_len = (u32)args->bytes_len;

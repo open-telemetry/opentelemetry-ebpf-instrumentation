@@ -25,7 +25,7 @@ jobs:
         go-version: '>=1.25'
         check-latest: true
     - name: "Update offsets"
-      run: make update-offsets update-python-offsets
+      run: make update-go-offsets update-python-offsets docker-update-rust-offsets
     - name: "Check for offset changes"
       id: diff
       run: |
@@ -47,8 +47,8 @@ jobs:
         # not using secrets.GITHUB_TOKEN since pull requests from that token do not run workflows
         GH_TOKEN: ${{ steps.generate-token.outputs.token }}
       run: |
-        message="Update generated Go offsets"
-        body="The generated Go field offsets and runtime ABI facts have been updated."
+        message="Update generated runtime offsets"
+        body="Update Go field offsets and ABI facts, CPython layouts, and Rust compiler/library profiles. Rust profiles cover both architectures and the latest four stable compiler minors."
         branch="otelbot/offset-content-auto-update"
 
         git config user.name otelbot

@@ -13,6 +13,7 @@
 #include <common/event_defs.h>
 #include <common/go_grpc_client_conn.h>
 #include <common/h2_defs.h>
+#include <common/h2_traceparent.h>
 #include <common/http_buf_size.h>
 #include <common/http_types.h>
 #include <common/http_trace_parent.h>
@@ -132,11 +133,6 @@ enum {
 volatile const u32 inject_flags =
     k_inject_http_headers | k_inject_tcp_options; // default: both enabled
 
-// user space marks the processes it saw exporting OTLP traces: OBI's spans of them are dropped
-static __always_inline bool exports_otel_traces() {
-    return pid_selected(&otel_traces_pids, obi_pid(bpf_get_current_pid_tgid()));
-}
-
 static __always_inline bool inject_http_headers() {
     return (inject_flags & k_inject_http_headers) && !exports_otel_traces();
 }
@@ -193,8 +189,17 @@ struct {
         },
 };
 
+// Reserve worst-case tail calls per frame: seven for generic HPACK processing,
+// two when Rust ownership lets us bypass that scan. Charging by cost preserves
+// the generic budget while allowing larger batches of Rust HEADERS frames.
+enum {
+    k_h2_generic_frame_hops = 7,
+    k_h2_rust_frame_hops = 2,
+    k_h2_scan_hops = k_h2_max_frames_per_packet * k_h2_generic_frame_hops,
+};
+
 // State threaded across the tail-call chain via per-CPU scratch memory.
-// Set in obi_packet_extender; read/written by the H2 and HTTP/1 chains.
+// Set in obi_packet_extender. Read/written by the H2 and HTTP/1 chains.
 typedef struct tailcall_ctx {
     pid_connection_info_t p_conn; // sorted connection + caller PID
     tp_info_t parent_tp;          // parent trace context (set by init_tp_ctx_parent_tp)
@@ -208,14 +213,16 @@ typedef struct tailcall_ctx {
     u32 http1_tp_offset;          // start of the HTTP/1 traceparent header
     h2_sniff_state_t h2_framing;  // strict frame rules, carried across detect_h2 hops
     u8 niter;                     // HTTP/1 find-existing scan iteration counter
-    u8 h2_frames;                 // H2 frames already injected this packet (capped)
+    u8 h2_hops_used;              // worst-case tail-call budget charged so far
     u8 h2_tp_retries;             // malformed HPACK traceparent candidates retried this packet
     bool has_parent_tp;           // true if parent_tp holds a valid context
     bool go_grpc_conn;            // Go gRPC egress: use uprobe-stored tps, never create
     bool tp_present;              // frame already carries a traceparent we cannot adopt
     bool scan_exhausted;          // retry budget ran out before the block was walked
+    bool rust_stream;             // Rust proved header ownership or absence before publication
+    bool rust_forwarded;          // HTTP/1 header still names the Rust server's upstream parent
     u8 opener;                    // first HPACK field byte of the frame being considered
-    u8 _pad[4];
+    u8 _pad[2];
 } tailcall_ctx;
 
 SCRATCH_MEM(tailcall_ctx);
@@ -223,11 +230,12 @@ SCRATCH_MEM_SIZED(tp_str_buf, 64);
 SCRATCH_MEM_SIZED(h2_write_expected, k_h2_tp_hpack_size);
 
 // Resume detect_h2 at next_pos for the next batched HEADERS frame.
-// Bumps the per-packet frame counter, then tail-calls back into detect_h2.
+// Charge the worst-case tail calls for this frame before continuing the batch.
 static __always_inline void
 h2_resume_after(struct sk_msg_md *msg, tailcall_ctx *t_ctx, u32 next_pos) {
     t_ctx->h2_scan_pos = next_pos;
-    t_ctx->h2_frames++;
+    t_ctx->h2_hops_used += t_ctx->rust_stream ? k_h2_rust_frame_hops : k_h2_generic_frame_hops;
+    t_ctx->rust_stream = false;
     bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
 }
 
@@ -987,42 +995,7 @@ make_h2_tp_hpack(unsigned char *buf, const tp_info_t *tp, const unsigned char *e
         return;
     }
 
-    *buf++ = k_hpack_literal_no_index;
-    *buf++ = k_hpack_tp_name_len;
-
-    *buf++ = 't';
-    *buf++ = 'r';
-    *buf++ = 'a';
-    *buf++ = 'c';
-    *buf++ = 'e';
-    *buf++ = 'p';
-    *buf++ = 'a';
-    *buf++ = 'r';
-    *buf++ = 'e';
-    *buf++ = 'n';
-    *buf++ = 't';
-
-    *buf++ = k_hpack_value_len_tp;
-
-    // Version
-    *buf++ = '0';
-    *buf++ = '0';
-    *buf++ = '-';
-
-    // Trace ID
-    encode_hex(buf, tp->trace_id, TRACE_ID_SIZE_BYTES);
-    buf += TRACE_ID_CHAR_LEN;
-
-    *buf++ = '-';
-
-    // Span ID
-    encode_hex(buf, tp->span_id, SPAN_ID_SIZE_BYTES);
-    buf += SPAN_ID_CHAR_LEN;
-
-    *buf++ = '-';
-
-    *buf++ = '0';
-    *buf++ = '0' + (tp->flags & k_flag_sampled);
+    make_h2_traceparent(buf, tp);
 }
 
 static __always_inline bool
@@ -1101,7 +1074,6 @@ static __always_inline void write_http_traceparent(struct sk_msg_md *msg, tp_inf
         return;
     }
 
-    tp_pid->written = 1;
     *tp_p = *tp_pid;
 
     bpf_tail_call_static(msg, &extender_jump_table, k_tail_write_msg_traceparent);
@@ -1312,14 +1284,16 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->e_key = e_key;
     t_ctx->niter = 0;
     t_ctx->h2_scan_pos = 0;
-    t_ctx->h2_frames = 0;
+    t_ctx->h2_hops_used = 0;
+    t_ctx->rust_forwarded = false;
     t_ctx->h2_tp_retries = 0;
     bpf_memset(&t_ctx->h2_framing, 0, sizeof(t_ctx->h2_framing));
     t_ctx->go_grpc_conn = false;
+    t_ctx->rust_stream = false;
 
     // skip H2 here — it uses HPACK for per-stream traceparents
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key, t_ctx->p_conn.pid);
-    if (tp_pid && !is_h2_socket(msg) &&
+    if (tp_pid && !rust_current_request(id) && !is_h2_socket(msg) &&
         handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, tp_pid)) {
         return SK_PASS;
     }
@@ -1357,6 +1331,22 @@ int obi_packet_extender(struct sk_msg_md *msg) {
 
     const bool is_http = protocol_detector(msg, id, &conn);
     if (is_http) {
+        const rust_http_request_t *rust = rust_current_request(id);
+        t_ctx->rust_forwarded = rust && rust->forwarded;
+        if (rust && inject_http_headers() && rust_request_has_wire_context(rust)) {
+            bpf_dbg_printk("rust h1 socket preserving owned header result=%u",
+                           rust->injection_result);
+            tp_info_pid_t *trace = tp_info_mem();
+            if (trace) {
+                rust_socket_trace(rust, t_ctx->p_conn.pid, trace);
+                trace->written = 1;
+                set_tp_info_pid(&e_key, trace);
+                if (inject_flags & k_inject_tcp_options) {
+                    schedule_write_tcp_option(msg, trace);
+                }
+            }
+            return SK_PASS;
+        }
         bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
         return SK_PASS;
@@ -1380,8 +1370,26 @@ int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
 
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+
     if (!write_msg_traceparent(msg, &tp_p->tp)) {
         bpf_d_printk("failed to write traceparent [%s]", __FUNCTION__);
+        // Nothing adopts an unwritten entry, so it would outlive this request and
+        // put its trace on the next request sent over this connection. An entry
+        // a TCP option already carries is written and stays.
+        if (t_ctx && !tp_p->written) {
+            clear_tp_info_pid(&t_ctx->e_key);
+        }
+        return SK_PASS;
+    }
+
+    if (t_ctx) {
+        tp_p->written = 1;
+        set_tp_info_pid(&t_ctx->e_key, tp_p);
+        rust_http_request_t *rust = rust_current_request(bpf_get_current_pid_tgid());
+        if (rust) {
+            rust->injection_result = k_rust_injection_succeeded;
+        }
     }
 
     print_tp("written TP to headers", &tp_p->tp);
@@ -1519,6 +1527,7 @@ int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
+    unsigned char *flags = ptr;
     decode_hex((unsigned char *)&tp_p->tp.flags, ptr, FLAGS_CHAR_LEN);
 
     ptr += FLAGS_CHAR_LEN;
@@ -1531,9 +1540,19 @@ int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg) {
     // 'Traceparent: ...' header that we can utilise
 
     tp_p->tp.ts = bpf_ktime_get_ns();
-    init_tp_ctx_parent_tp(t_ctx, &tp_p->tp);
-    bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
-    assign_parent_tp(t_ctx, &tp_p->tp, span_id);
+    if (t_ctx->rust_forwarded) {
+        const rust_http_request_t *rust = rust_current_request(bpf_get_current_pid_tgid());
+        if (!rust || !rust->forwarded || exports_otel_traces()) {
+            return SK_PASS;
+        }
+        rust_socket_trace(rust, t_ctx->p_conn.pid, tp_p);
+        encode_hex(span_id, tp_p->tp.span_id, sizeof(tp_p->tp.span_id));
+        encode_hex(flags, (const unsigned char *)&tp_p->tp.flags, sizeof(tp_p->tp.flags));
+    } else {
+        init_tp_ctx_parent_tp(t_ctx, &tp_p->tp);
+        bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+        assign_parent_tp(t_ctx, &tp_p->tp, span_id);
+    }
 
     tp_p->valid = 1;
     tp_p->written = 1;
@@ -1566,18 +1585,25 @@ int obi_packet_extender_create_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    init_tp_ctx_parent_tp(t_ctx, NULL);
-    if (!create_trace_info(t_ctx, tp_p)) {
-        return SK_PASS;
+    const rust_http_request_t *rust = rust_current_request(bpf_get_current_pid_tgid());
+    if (rust) {
+        bpf_dbg_printk("rust h1 socket using pending context");
+        rust_socket_trace(rust, t_ctx->p_conn.pid, tp_p);
+    } else {
+        init_tp_ctx_parent_tp(t_ctx, NULL);
+        if (!create_trace_info(t_ctx, tp_p)) {
+            return SK_PASS;
+        }
     }
 
-    tp_p->written = 1;
+    tp_p->written = 0;
 
     // associate this tp_info to this request
     set_tp_info_pid(&t_ctx->e_key, tp_p);
 
     if (inject_flags & k_inject_tcp_options) {
         schedule_write_tcp_option(msg, tp_p);
+        set_tp_info_pid(&t_ctx->e_key, tp_p);
     }
 
     if (inject_http_headers()) {
@@ -1599,7 +1625,7 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    if (t_ctx->h2_frames >= k_h2_max_frames_per_packet) {
+    if (t_ctx->h2_hops_used >= k_h2_scan_hops) {
         return SK_PASS;
     }
 
@@ -1734,6 +1760,38 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
             t_ctx->scan_exhausted = false;
             t_ctx->h2_tp_retries = 0;
             t_ctx->opener = facts.opener;
+
+            const rust_http_request_t *rust =
+                rust_current_h2_request(bpf_get_current_pid_tgid(), f.stream_id);
+            if (rust && inject_http_headers() &&
+                (rust->inject || rust->injection_result == k_rust_injection_succeeded ||
+                 rust->injection_result == k_rust_injection_application_owned)) {
+                if (t_ctx->h2_hops_used + k_h2_rust_frame_hops > k_h2_scan_hops) {
+                    return SK_PASS;
+                }
+                tp_info_pid_t *trace = tp_info_mem();
+                if (!trace) {
+                    return SK_PASS;
+                }
+                rust_socket_trace(rust, t_ctx->p_conn.pid, trace);
+                t_ctx->rust_stream = true;
+                if (rust->injection_result == k_rust_injection_succeeded ||
+                    rust->injection_result == k_rust_injection_application_owned) {
+                    bpf_dbg_printk("rust h2 socket preserving owned header stream=%u", f.stream_id);
+                    trace->written = 1;
+                    set_tp_info_pid(&t_ctx->e_key, trace);
+                    h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
+                    return SK_PASS;
+                }
+                set_tp_info_pid(&t_ctx->e_key, trace);
+                bpf_dbg_printk("rust h2 socket using pending context stream=%u", f.stream_id);
+                bpf_tail_call_static(msg, &extender_jump_table, k_tail_write_h2_traceparent);
+                return SK_PASS;
+            }
+
+            if (t_ctx->h2_hops_used + k_h2_generic_frame_hops > k_h2_scan_hops) {
+                return SK_PASS;
+            }
 
             tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key, t_ctx->p_conn.pid);
             if (go_tp && go_tp->valid && go_tp->written) {
@@ -2023,9 +2081,15 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     if (have_existing) {
         bpf_memcpy(tp_p, existing, sizeof(*tp_p));
     } else {
-        init_tp_ctx_parent_tp(t_ctx, NULL);
-        if (!create_trace_info(t_ctx, tp_p)) {
-            return SK_PASS;
+        const rust_http_request_t *rust =
+            rust_current_h2_request(bpf_get_current_pid_tgid(), t_ctx->e_key.stream_id);
+        if (rust) {
+            rust_socket_trace(rust, t_ctx->p_conn.pid, tp_p);
+        } else {
+            init_tp_ctx_parent_tp(t_ctx, NULL);
+            if (!create_trace_info(t_ctx, tp_p)) {
+                return SK_PASS;
+            }
         }
         if (bpf_map_update_elem(&outgoing_trace_map, &t_ctx->e_key, tp_p, BPF_NOEXIST) != 0) {
             existing = get_tp_info_pid(&t_ctx->e_key, t_ctx->p_conn.pid);
@@ -2087,6 +2151,13 @@ int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
     tp_p->written = 1;
     if (bpf_map_update_elem(&outgoing_trace_map, &t_ctx->e_key, tp_p, BPF_ANY) != 0) {
         bpf_d_printk("failed to publish committed h2 traceparent [%s]", __FUNCTION__);
+    }
+    if (t_ctx->rust_stream) {
+        rust_http_request_t *request =
+            rust_current_h2_request(bpf_get_current_pid_tgid(), t_ctx->e_key.stream_id);
+        if (request) {
+            request->injection_result = k_rust_injection_succeeded;
+        }
     }
     print_tp("h2: written TP to HPACK", &tp_p->tp);
 

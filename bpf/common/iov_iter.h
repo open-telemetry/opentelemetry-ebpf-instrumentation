@@ -80,7 +80,8 @@ static __always_inline const void *iovec_user_buf(const iovec_iter_ctx *ctx) {
     return vec.iov_base;
 }
 
-static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *buf, size_t max_len) {
+static __always_inline int
+read_iovec_ctx_memory(iovec_iter_ctx *ctx, unsigned char *buf, size_t max_len, bool user_iov) {
     if (max_len == 0) {
         return 0;
     }
@@ -122,7 +123,9 @@ static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *bu
 
         struct iovec vec;
 
-        if (bpf_probe_read_kernel(&vec, sizeof(vec), &ctx->iov[i]) != 0) {
+        const long result = user_iov ? bpf_probe_read_user(&vec, sizeof(vec), &ctx->iov[i])
+                                     : bpf_probe_read_kernel(&vec, sizeof(vec), &ctx->iov[i]);
+        if (result != 0) {
             break;
         }
 
@@ -141,7 +144,13 @@ static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *bu
         // clamp at the use: verifiers before 5.10 drop the bound when the value
         // is spilled to the stack between the check above and this read
         bpf_clamp_umax(tot_len, k_iovec_max_len);
-        bpf_probe_read(&buf[tot_len], iov_size, vec.iov_base);
+        if (user_iov) {
+            if (bpf_probe_read_user(&buf[tot_len], iov_size, vec.iov_base) != 0) {
+                break;
+            }
+        } else {
+            bpf_probe_read(&buf[tot_len], iov_size, vec.iov_base);
+        }
 
         // bpf_dbg_printk("iov_size=%d, buf=[%s]", iov_size, buf);
 
@@ -153,4 +162,8 @@ static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *bu
     bpf_probe_read_kernel(&read_len, sizeof(read_len), &tot_len);
     bpf_clamp_umax(read_len, k_iovec_max_len);
     return read_len;
+}
+
+static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *buf, size_t max_len) {
+    return read_iovec_ctx_memory(ctx, buf, max_len, false);
 }

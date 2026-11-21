@@ -61,6 +61,25 @@ func (b *PIDBitmap) Contains(pid app.PID) bool {
 	return b.contains(pid)
 }
 
+// OTelTracesPIDMap is the OTelTracesPIDFilter of one tracer: it writes the
+// trace-exporter marks into that tracer's otel_traces_pids map through its bitmap.
+type OTelTracesPIDMap struct {
+	pids *PIDBitmap
+	m    *ebpf.Map
+}
+
+func NewOTelTracesPIDMap(pids *PIDBitmap, m *ebpf.Map) OTelTracesPIDMap {
+	return OTelTracesPIDMap{pids: pids, m: m}
+}
+
+func (f OTelTracesPIDMap) Marked(pid app.PID) bool {
+	return f.pids.Contains(pid)
+}
+
+func (f OTelTracesPIDMap) Mark(pid app.PID, exportsTraces bool) error {
+	return f.pids.Set(f.m, pid, exportsTraces)
+}
+
 // Rebuild sets exactly the bits of the filter's pids of the given types and returns the added ones
 func (b *PIDBitmap) Rebuild(m *ebpf.Map, filter ServiceFilter, types PIDType, log *slog.Logger) ([]app.PID, error) {
 	b.mu.Lock()

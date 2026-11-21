@@ -270,7 +270,10 @@ lint-markdown-fix:
 	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml --fix "**/*.md"
 
 .PHONY: update-offsets
-update-offsets:
+update-offsets: update-go-offsets update-python-offsets update-rust-offsets
+
+.PHONY: update-go-offsets
+update-go-offsets:
 	@echo "### Updating pkg/internal/goexec/offsets.json"
 	go run ./internal/gooffsets -i configs/offsets/tracker_input.json \
 		-abi configs/offsets/go_abi_input.json pkg/internal/goexec/offsets.json
@@ -279,6 +282,25 @@ update-offsets:
 update-python-offsets:
 	@echo "### Updating pkg/internal/cpython/runtime/offsets.json"
 	go run ./scripts/python-offsets
+
+.PHONY: update-rust-offsets
+update-rust-offsets:
+	@echo "### Updating Rust runtime and protocol offsets"
+	python3 scripts/update-rust-offsets.py $(RUST_OFFSETS_FLAGS)
+
+.PHONY: docker-update-rust-offsets
+docker-update-rust-offsets:
+	@echo "### Updating Rust runtime and protocol offsets with Docker"
+	$(OCI_BIN) build \
+		--output type=local,dest=. --target=export \
+		--build-arg RUST_OFFSETS_RUN="$$(date +%s)-$$$$" \
+		--build-arg RUST_OFFSETS_FLAGS="$(RUST_OFFSETS_FLAGS)" \
+		-f rustoffsets.Dockerfile .
+
+.PHONY: test-rust-offsets
+test-rust-offsets:
+	go test ./internal/rustexec ./scripts/rust-offsets
+	python3 -m unittest discover -s scripts -p 'test_rust_*.py'
 
 ### eBPF Code Generation ###########################################################
 #
