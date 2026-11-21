@@ -27,7 +27,7 @@ func TestRustExecutableAnalysisSharedPerFileVersion(t *testing.T) {
 	}
 
 	first := analyzeRustExecutable(cache, open())
-	require.Error(t, first.probeErr, "a file that is not an ELF executable cannot be analyzed")
+	require.Error(t, first.err, "a file that is not an ELF executable cannot be analyzed")
 
 	// Concurrent attaches of one binary, each with its own descriptor, share one analysis.
 	files := make([]*os.File, 8)

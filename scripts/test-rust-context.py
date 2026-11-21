@@ -128,7 +128,8 @@ def main():
                         ("tasks-missing", "rustls-client-http1", {"TLS":"1","PARTIAL_CLIENT":"1"}),
                         ("tasks-missing-h2", "rustls-server-0.23", {"SERVER":"1","PARTIAL_CLIENT":"1"}),
                         ("h2-server", "rustls-server-0.23", {"SERVER":"1","PARTIAL_CLIENT":"1"}),
-                        ("hooks-missing", "latest", {"PARTIAL_CLIENT":"1"})]
+                        ("poll-only", "latest", {"GENERIC_FALLBACK":"1", "APP_HEADER":"1", "INJECT":"1"}),
+                        ("hooks-missing", "latest", {"GENERIC_FALLBACK":"1", "APP_HEADER":"1", "INJECT":"1"})]
             def check_fallback(row):
                 group, name, env = row
                 if name not in binaries:

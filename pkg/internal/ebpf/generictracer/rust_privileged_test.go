@@ -227,7 +227,14 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 	}
 	processTracer.AllowPID(pid, fi.Ns(), fi)
 	var capabilities BpfRustCapabilitiesT
-	require.NoError(t, tracer.bpfObjects.RustCapabilities.Lookup(uint32(pid), &capabilities))
+	lookupErr := tracer.bpfObjects.RustCapabilities.Lookup(uint32(pid), &capabilities)
+	if os.Getenv("OBI_RUST_TEST_GENERIC_FALLBACK") != "" {
+		require.ErrorIs(t, lookupErr, ebpf.ErrKeyNotExist)
+		var protocol BpfRustProtocolConfigT
+		require.ErrorIs(t, tracer.bpfObjects.RustProtocolConfigs.Lookup(uint32(pid), &protocol), ebpf.ErrKeyNotExist)
+	} else {
+		require.NoError(t, lookupErr)
+	}
 	executable, err := fi.OpenExecutable()
 	require.NoError(t, err)
 	defer executable.Close()

@@ -154,13 +154,14 @@ When an HTTP/1 `traceparent` arrives in a later read than the request line, the
 reading task's context switches to the adopted trace. Hyper dispatches the
 handler only after the headers, so no child task holds the provisional trace.
 
-In a process that contains a Tokio runtime, unresolved tasks do not use the
-generic worker-thread parent fallback, even when the task hooks are unavailable.
-This also holds when no Rust hook resolves or attaches: the loader still records
-the Tokio runtime for the process.
-A client request that carries a propagated trace context can still match the
-server request indexed under the same trace ID. Rust processes without Tokio,
-such as thread-per-request servers, use the generic parent lookup.
+When the executable's compiler and architecture have no recorded symbol profile, OBI
+keeps using generic parent lookup and socket propagation. The same fallback
+applies when the attached hooks cannot track tasks or capture protocol data.
+
+Tokio workers can poll unrelated tasks. When Rust instrumentation is active, OBI
+uses a task-owned parent or a server request matching the outgoing wire trace
+ID for Tokio client requests. A missing layout for one library leaves the other
+supported groups active.
 Nested polls are tracked up to eight levels.
 The future passed directly to `Runtime::block_on` has no Tokio task allocation, so
 task-based propagation starts with spawned tasks. Futures multiplexed inside a

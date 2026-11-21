@@ -25,21 +25,24 @@ var rustOffsetDatabase = sync.OnceValues(func() (rustexec.Database, error) {
 	return database, err
 })
 
-func resolveRustProtocolLayouts(f *elf.File, channels ...string) (BpfRustProtocolConfigT, error) {
+func resolveRustProtocolLayouts(f *elf.File, channels ...string) (*BpfRustProtocolConfigT, error) {
 	build, err := rustexec.ReadBuild(f)
 	if err != nil {
-		return BpfRustProtocolConfigT{}, err
+		return nil, err
 	}
 	database, err := rustOffsetDatabase()
 	if err != nil {
-		return BpfRustProtocolConfigT{}, err
+		return nil, err
 	}
 	return selectRustProtocolLayouts(build, database, channels...)
 }
 
-func selectRustProtocolLayouts(build rustexec.Build, database rustexec.Database, channels ...string) (BpfRustProtocolConfigT, error) {
+func selectRustProtocolLayouts(build rustexec.Build, database rustexec.Database, channels ...string) (*BpfRustProtocolConfigT, error) {
 	config, err := rustexec.SelectLayouts(build, database, channels...)
-	return BpfRustProtocolConfigT{
+	if config == nil {
+		return nil, err
+	}
+	return &BpfRustProtocolConfigT{
 		VecPtr:              config.VecPtr,
 		VecLen:              config.VecLen,
 		VecCap:              config.VecCap,

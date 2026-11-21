@@ -145,13 +145,15 @@ func TestRustOffsetSelection(t *testing.T) {
 	}}
 	_, err := selectRustProtocolLayouts(build, database)
 	require.ErrorContains(t, err, "ambiguous")
-	build.Rustc = "unknown"
-	_, err = selectRustProtocolLayouts(build, database)
-	require.ErrorContains(t, err, "no recorded offset profile")
-	build.Rustc = "1.100.0"
-	build.Crates = map[string][]string{"rustls": {"0.23.47"}}
+	build.Rustc = "unrecorded"
 	config, err := selectRustProtocolLayouts(build, database)
 	require.ErrorContains(t, err, "no recorded offset profile")
+	require.Nil(t, config, "an unprofiled compiler must leave the process on generic tracing")
+	build.Rustc = "1.100.0"
+	build.Crates = map[string][]string{"rustls": {"0.23.47"}}
+	config, err = selectRustProtocolLayouts(build, database)
+	require.ErrorContains(t, err, "no recorded offset profile")
+	require.NotNil(t, config, "a missing crate layout must preserve the other probe groups")
 	require.Zero(t, config.Rustls)
 }
 
@@ -208,10 +210,16 @@ func TestPrepareRustAlternativeFixture(t *testing.T) {
 	}
 	for kind := range rustProbeCount {
 		groups["hooks-missing"] = append(groups["hooks-missing"], kind)
+		if kind != rustTaskPoll {
+			groups["poll-only"] = append(groups["poll-only"], kind)
+		}
 	}
 	groups["channels-missing-h2"] = groups["channels-missing"]
 	kinds, ok := groups[group]
 	require.True(t, ok, group)
+	if group == "poll-only" {
+		require.NotEmpty(t, probes.addresses[rustTaskPoll], "the fixture must retain an attachable poll hook")
+	}
 	if group == "poll" {
 		require.NotEmpty(t, probes.addresses[rustTaskHarnessPoll], "the poll fallback must exist")
 	}
@@ -284,6 +292,6 @@ func TestPrepareRustAlternativeFixture(t *testing.T) {
 		defer stripped.Close()
 		remaining, err := resolveRustProbes(stripped)
 		require.Error(t, err, "no supported hook may survive")
-		require.True(t, remaining.hasTokio, "the Tokio runtime must still be recognized")
+		require.Empty(t, remaining)
 	}
 }

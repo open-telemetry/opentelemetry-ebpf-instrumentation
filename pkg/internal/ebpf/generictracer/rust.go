@@ -40,9 +40,8 @@ type rustController struct {
 // rustAttachment is prepared without the controller lock. Only the PID's current
 // target may publish it, because the BPF maps it writes are keyed by PID alone.
 type rustAttachment struct {
-	links        []io.Closer
-	capabilities BpfRustCapabilitiesT
-	// nil when only the Tokio runtime marker is published
+	links             []io.Closer
+	capabilities      BpfRustCapabilitiesT
 	protocol          *BpfRustProtocolConfigT
 	expectedStartTime uint64
 }
@@ -113,7 +112,9 @@ func (c *rustController) commit(pid app.PID, target *rustTarget, attachment rust
 		cause = errors.Join(cause, err)
 	} else {
 		target.links = attachment.links
-		c.logPublished(pid, attachment, cause)
+		if attachment.protocol != nil {
+			c.logPublished(pid, attachment)
+		}
 	}
 
 	if cause != nil {
@@ -122,15 +123,13 @@ func (c *rustController) commit(pid app.PID, target *rustTarget, attachment rust
 }
 
 func (c *rustController) publish(pid app.PID, attachment rustAttachment) error {
-	if attachment.protocol == nil && attachment.capabilities.TokioRuntime == 0 {
+	if attachment.protocol == nil {
 		return nil
 	}
 
 	objects := &c.tracer.bpfObjects
-	if attachment.protocol != nil {
-		if err := objects.RustProtocolConfigs.Put(uint32(pid), *attachment.protocol); err != nil {
-			return err
-		}
+	if err := objects.RustProtocolConfigs.Put(uint32(pid), *attachment.protocol); err != nil {
+		return err
 	}
 
 	if err := checkRustLifecycle(pid, attachment.expectedStartTime); err != nil {
@@ -140,20 +139,14 @@ func (c *rustController) publish(pid app.PID, attachment rustAttachment) error {
 	return objects.RustCapabilities.Put(uint32(pid), attachment.capabilities)
 }
 
-func (c *rustController) logPublished(pid app.PID, attachment rustAttachment, cause error) {
+func (c *rustController) logPublished(pid app.PID, attachment rustAttachment) {
 	capabilities := attachment.capabilities
 	protocol := attachment.protocol
 
-	switch {
-	case protocol != nil:
-		c.tracer.log.Info("Enabled Rust instrumentation", "pid", pid, "tokio", capabilities.TokioRuntime != 0,
-			"task_context", capabilities.TaskContext != 0, "client_context", capabilities.ClientContext != 0,
-			"http1", protocol.Http1 != 0, "http2", protocol.Http2 != 0,
-			"http2_server_context", protocol.H2Server != 0, "rustls", protocol.Rustls != 0)
-	case capabilities.TokioRuntime != 0:
-		c.tracer.log.Info("Tokio runtime without usable Rust hooks; worker-thread parents disabled",
-			"pid", pid, "reason", cause)
-	}
+	c.tracer.log.Info("Enabled Rust instrumentation", "pid", pid, "tokio", capabilities.TokioRuntime != 0,
+		"task_context", capabilities.TaskContext != 0, "client_context", capabilities.ClientContext != 0,
+		"http1", protocol.Http1 != 0, "http2", protocol.Http2 != 0,
+		"http2_server_context", protocol.H2Server != 0, "rustls", protocol.Rustls != 0)
 }
 
 func closeRustLinks(links []io.Closer) {
@@ -183,16 +176,16 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) (rustAttachment,
 
 	// Replicas and forked workers of one binary reuse its symbol and layout analysis.
 	executable := analyzeRustExecutable(c.executables, target)
+	if executable.protocol == nil {
+		return rustAttachment{}, executable.err
+	}
+
+	if executable.err != nil {
+		c.tracer.log.Debug("Partial Rust protocol layout support", "pid", pid, "error", executable.err)
+	}
+
 	probes := executable.probes
-	if executable.probeErr != nil {
-		return tokioMarker(probes, expectedStartTime), executable.probeErr
-	}
-
-	protocol, layoutErr := executable.protocol, executable.layoutErr
-	if layoutErr != nil {
-		c.tracer.log.Debug("Partial Rust protocol layout support", "pid", pid, "error", layoutErr)
-	}
-
+	protocol := *executable.protocol
 	groups := planRustProbes(probes, protocol)
 	path := fmt.Sprintf("/proc/self/fd/%d", target.Fd())
 
@@ -317,10 +310,6 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) (rustAttachment,
 		c.tracer.log.Debug("Partial Rust probe attachment", "pid", pid, "error", attachErr)
 	}
 
-	if len(links) == 0 {
-		return tokioMarker(probes, expectedStartTime), errors.New("no Rust probe group could be attached")
-	}
-
 	capabilities := BpfRustCapabilitiesT{}
 	if probes.hasTokio {
 		capabilities.TokioRuntime = 1
@@ -353,7 +342,7 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) (rustAttachment,
 		protocol.H2Hpack = 0
 	}
 
-	if (!features["h2-send"] || !features["h2-driver"]) && !features["h2-server"] {
+	if (!features["h2-send"] || !features["h2-driver"]) && protocol.H2Server == 0 {
 		protocol.Http2 = 0
 	}
 
@@ -361,6 +350,12 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) (rustAttachment,
 	// must be captured in both directions or the connection's spans never complete.
 	if !features["tls-bind"] || !features["tls-read"] || !features["tls-write"] {
 		protocol.Rustls = 0
+	}
+
+	// HTTP/1 requires task context. HTTP/2 and Rustls can also observe protocol data independently.
+	if capabilities.TaskContext == 0 && protocol.Http2 == 0 && protocol.Rustls == 0 {
+		closeRustLinks(links)
+		return rustAttachment{}, errors.Join(errors.New("no usable Rust runtime or protocol probes"), attachErr)
 	}
 
 	if capabilities.ClientContext != 0 && c.tracer.cfg.EBPF.ContextPropagation.HasHeaders() {
@@ -373,19 +368,6 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) (rustAttachment,
 		protocol:          &protocol,
 		expectedStartTime: expectedStartTime,
 	}, nil
-}
-
-// tokioMarker publishes only the runtime marker when no Rust hook is usable.
-// Tokio workers still poll unrelated tasks, so their threads must not supply parents.
-func tokioMarker(probes rustProbeSymbols, expectedStartTime uint64) rustAttachment {
-	if !probes.hasTokio {
-		return rustAttachment{}
-	}
-
-	return rustAttachment{
-		capabilities:      BpfRustCapabilitiesT{TokioRuntime: 1},
-		expectedStartTime: expectedStartTime,
-	}
 }
 
 // checkRustLifecycle rejects a PID that no longer runs the process discovery saw.

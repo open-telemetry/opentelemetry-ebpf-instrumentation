@@ -60,9 +60,9 @@ func selectGroup(build Build, profiles []Profile, name string, dependencies []st
 	return selected, nil
 }
 
-// SelectLayouts returns independently validated layouts and reports unavailable
-// groups through the error. Callers can keep using the successfully selected groups.
-func SelectLayouts(build Build, database Database, channels ...string) (Layouts, error) {
+// SelectLayouts returns nil when the compiler and architecture have no profile.
+// With a matching profile, individual groups can remain usable alongside an error.
+func SelectLayouts(build Build, database Database, channels ...string) (*Layouts, error) {
 	build = database.InferBuild(build)
 
 	var profiles []Profile
@@ -73,7 +73,7 @@ func SelectLayouts(build Build, database Database, channels ...string) (Layouts,
 	}
 
 	if len(profiles) == 0 {
-		return Layouts{}, errors.New("rust compiler/architecture has no recorded offset profile")
+		return nil, fmt.Errorf("rustc %q on %s has no recorded offset profile", build.Rustc, build.Arch)
 	}
 
 	vectors, vectorErr := selectVectorLayouts(build, profiles)
@@ -83,7 +83,7 @@ func SelectLayouts(build Build, database Database, channels ...string) (Layouts,
 	messages, messageErr := selectChannelLayouts(build, profiles, channels, headers.HTTP1 != 0)
 
 	config := assembleLayouts(vectors, headers, http2, tls, messages)
-	return config, errors.Join(vectorErr, headerErr, http2Err, tlsErr, messageErr)
+	return &config, errors.Join(vectorErr, headerErr, http2Err, tlsErr, messageErr)
 }
 
 func selectVectorLayouts(build Build, profiles []Profile) (Layouts, error) {

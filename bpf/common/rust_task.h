@@ -55,8 +55,7 @@ static __always_inline bool rust_client_context_enabled(u64 id) {
     return capabilities && capabilities->client_context;
 }
 
-// Reports whether the process contains a Tokio runtime. Its workers poll unrelated
-// tasks even when the task tracking hooks are unavailable.
+// Only processes with active Rust probes use Tokio-specific parent lookup.
 static __always_inline bool rust_tokio_runtime(u64 id) {
     const u32 pid = obi_pid(id);
     const rust_capabilities_t *capabilities = bpf_map_lookup_elem(&rust_capabilities, &pid);
