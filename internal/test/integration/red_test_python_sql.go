@@ -413,7 +413,7 @@ func testPythonMySQL(t *testing.T) {
 	testPythonSQLBigQuery(t, comm, testCaseURL, table, db)
 	testPythonSQLError(t, comm, testCaseURL, db)
 	// caching_sha2_password accepts a plaintext login only after a TLS login has cached the password.
-	testPythonMySQLNewConnection(t, comm, testCaseURL+"/newconnquery_tls", "language")
+	testPythonMySQLNewConnection(t, comm, testCaseURL+"/newconnquery_tls", "film")
 	testPythonMySQLNewConnection(t, comm, testCaseURL+"/newconnquery", "category")
 }
 

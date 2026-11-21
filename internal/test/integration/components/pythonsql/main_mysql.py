@@ -70,7 +70,7 @@ async def newconnquery():
 
 @app.get("/newconnquery_tls")
 async def newconnquery_tls():
-    return newconn_query("SELECT * FROM language WHERE language_id=1", ssl_disabled=False)
+    return newconn_query("SELECT * FROM film WHERE film_id=1", ssl_disabled=False)
 
 gCurr = None
 
