@@ -51,18 +51,24 @@ func ExtractPythonRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarveste
 	if err != nil {
 		return nil, err
 	}
-	return extractPythonRoutes(ctx, dir)
+	return extractPythonRoutes(ctx, rootDirForPID(fi.Pid()), dir)
 }
 
-func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult, error) {
+// extractPythonRoutes scans the Python files under dir. root bounds the
+// search for dependency manifests in the parents of dir.
+func extractPythonRoutes(ctx context.Context, root, dir string) (*RouteHarvesterResult, error) {
 	log := slog.With("component", "route.harvester.python")
+	aiohttp, err := dependsOnAiohttp(ctx, root, dir)
+	if err != nil {
+		return nil, err
+	}
 	e := pythonExtractor{
 		routes:       map[string]struct{}{},
 		djangoRoutes: map[string][]djangoRoute{},
-		aiohttp:      dependsOnAiohttp(dir),
+		aiohttp:      aiohttp,
 	}
 	kind := PartialRoutes
-	err := walkPythonFiles(ctx, dir, func(path string) error {
+	err = walkPythonFiles(ctx, dir, func(path string) error {
 		if err := e.scanFile(ctx, path); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()

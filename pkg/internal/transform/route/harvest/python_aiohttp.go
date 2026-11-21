@@ -4,6 +4,7 @@
 package harvest // import "go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -77,24 +78,43 @@ var aiohttpTailRegexes = map[string]struct{}{
 	".+": {},
 }
 
-// dependsOnAiohttp reports whether a dependency manifest in dir lists aiohttp.
-// Route modules often call app.router.add_get without importing aiohttp.
-func dependsOnAiohttp(dir string) bool {
+// dependsOnAiohttp reports whether the dependency manifests closest to dir,
+// looking no further up than root, list aiohttp. Route modules often call
+// app.router.add_get without importing aiohttp, and an application started
+// from a subdirectory (python src/main.py) keeps its manifests in a parent.
+func dependsOnAiohttp(ctx context.Context, root, dir string) (bool, error) {
+	depends := false
+	err := langtools.WalkParentDirectories(dir, root, func(dir string) (bool, error) {
+		if err := ctx.Err(); err != nil {
+			return true, err
+		}
+		found, listed := manifestsListAiohttp(dir)
+		depends = listed
+		// The nearest manifests describe the application: stop there.
+		return found, nil
+	})
+	return depends, err
+}
+
+// manifestsListAiohttp reports whether dir holds any dependency manifest, and
+// whether one of them lists aiohttp.
+func manifestsListAiohttp(dir string) (found, listed bool) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return false
+		return false, false
 	}
 
 	for _, entry := range entries {
 		if entry.IsDir() || !isPythonManifest(entry.Name()) {
 			continue
 		}
+		found = true
 		data, _, err := langtools.ReadMetadataFile(filepath.Join(dir, entry.Name()), maxPythonManifestBytes)
 		if err == nil && aiohttpDependencyPattern.Match(data) {
-			return true
+			return true, true
 		}
 	}
-	return false
+	return found, false
 }
 
 func isPythonManifest(name string) bool {

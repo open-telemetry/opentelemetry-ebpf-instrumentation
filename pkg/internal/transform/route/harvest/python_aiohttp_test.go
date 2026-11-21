@@ -141,7 +141,7 @@ app.add_routes([
 app.add_routes(routes)
 `), 0o644))
 
-	result, err := extractPythonRoutes(t.Context(), dir)
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, PartialRoutes, result.Kind)
@@ -168,7 +168,7 @@ async def user(request):
     return web.Response(text="ok")
 `), 0o644))
 
-	result, err := extractPythonRoutes(t.Context(), dir)
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/flask/<int:user_id>", "/users/{user_id}"}, result.Routes)
@@ -196,9 +196,50 @@ func TestDependsOnAiohttp(t *testing.T) {
 			dir := t.TempDir()
 			require.NoError(t, os.WriteFile(filepath.Join(dir, tc.file), []byte(tc.contents), 0o644))
 
-			assert.Equal(t, tc.want, dependsOnAiohttp(dir))
+			got, err := dependsOnAiohttp(t.Context(), dir, dir)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// An application started from a subdirectory keeps its manifests in a parent.
+func TestDependsOnAiohttpParentManifest(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "app", "src")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "app", "requirements.txt"), []byte("aiohttp==3.9.5\n"), 0o644))
+
+	got, err := dependsOnAiohttp(t.Context(), root, dir)
+	require.NoError(t, err)
+	assert.True(t, got)
+}
+
+// The nearest manifests describe the application; one further up belongs to
+// something else.
+func TestDependsOnAiohttpUsesNearestManifest(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "srv", "api")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "srv", "requirements.txt"), []byte("aiohttp\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("flask\n"), 0o644))
+
+	got, err := dependsOnAiohttp(t.Context(), root, dir)
+	require.NoError(t, err)
+	assert.False(t, got)
+}
+
+// Manifests above the process root belong to the host, not the application.
+func TestDependsOnAiohttpStopsAtRoot(t *testing.T) {
+	host := t.TempDir()
+	root := filepath.Join(host, "root")
+	dir := filepath.Join(root, "app")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(host, "requirements.txt"), []byte("aiohttp\n"), 0o644))
+
+	got, err := dependsOnAiohttp(t.Context(), root, dir)
+	require.NoError(t, err)
+	assert.False(t, got)
 }
 
 func TestExtractPythonAiohttpRoutesFromManifest(t *testing.T) {
@@ -216,7 +257,20 @@ def setup_routes(app):
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("aiohttp==3.9.5\n"), 0o644))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "routes.py"), routesFile, 0o644))
 
-		result, err := extractPythonRoutes(t.Context(), dir)
+		result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"/", "/poll/{question_id}"}, result.Routes)
+	})
+
+	t.Run("listed in a parent directory", func(t *testing.T) {
+		root := t.TempDir()
+		dir := filepath.Join(root, "app", "src")
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "app", "pyproject.toml"), []byte("[project]\ndependencies = [\"aiohttp>=3.9\"]\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "routes.py"), routesFile, 0o644))
+
+		result, err := extractPythonRoutes(t.Context(), root, dir)
 
 		require.NoError(t, err)
 		assert.Equal(t, []string{"/", "/poll/{question_id}"}, result.Routes)
@@ -226,7 +280,7 @@ def setup_routes(app):
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "routes.py"), routesFile, 0o644))
 
-		result, err := extractPythonRoutes(t.Context(), dir)
+		result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 		require.NoError(t, err)
 		assert.Empty(t, result.Routes)
@@ -247,7 +301,7 @@ async def user(request):
     return web.Response(text="ok")
 `), 0o644))
 
-	result, err := extractPythonRoutes(t.Context(), dir)
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/users/{user_id}"}, result.Routes)
@@ -275,7 +329,7 @@ def flask_user(user_id):
     return "ok"
 `), 0o644))
 
-	result, err := extractPythonRoutes(t.Context(), dir)
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/flask/<int:user_id>", "/users/{user_id}"}, result.Routes)
@@ -291,7 +345,7 @@ app.router.add_get("/files/{tail:.*}", files)
 app.router.add_get(r"/static/{rest:.+}", static)
 `), 0o644))
 
-	result, err := extractPythonRoutes(t.Context(), dir)
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/files/{tail:path}", "/static/{rest:path}"}, result.Routes)
