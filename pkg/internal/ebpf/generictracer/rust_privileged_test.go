@@ -269,7 +269,7 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 		client.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, ForceAttemptHTTP2: true}
 		defer client.CloseIdleConnections()
 	}
-	send := func(i int) error {
+	sendPadded := func(i, padding int) error {
 		parentID := "0000000000000001"
 		if os.Getenv("OBI_RUST_TEST_FORWARDED_APP_HEADER") != "" {
 			parentID = "1111111111111111"
@@ -290,7 +290,10 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 		if i == 1 && os.Getenv("OBI_RUST_TEST_RUSTLS_CLIENT") != "" && os.Getenv("OBI_RUST_TEST_H2") == "" {
 			// Two identical short requests can both hit the same untouched page.
 			// Have Hyper write a longer request line on the reused TLS connection.
-			req.URL.RawQuery = "q=" + strings.Repeat("x", len("traceparent: \r\n")+len(traceparent))
+			padding = max(padding, len("traceparent: \r\n")+len(traceparent))
+		}
+		if padding > 0 {
+			req.URL.RawQuery = "q=" + strings.Repeat("x", padding)
 		}
 		req.Header.Set("traceparent", traceparent)
 		if os.Getenv("OBI_RUST_TEST_TRAILERS") != "" {
@@ -307,11 +310,24 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 		}
 		return err
 	}
+	send := func(i int) error { return sendPadded(i, 0) }
 	// The second sequential request reuses Hyper's existing connection task.
 	require.NoError(t, send(0))
 	if os.Getenv("OBI_RUST_TEST_OTEL_EXPORTER") != "" {
+		next := 1
 		before, ok := received.Load("/request/0")
 		require.True(t, ok)
+		if len(before.([]string)) == 0 && os.Getenv("OBI_RUST_TEST_TLS") != "" {
+			// Encrypted traffic has no socket fallback, so a header that would extend into
+			// a page the application never wrote is skipped. A padded request writes past
+			// it, then a short request must carry the header.
+			const touchPadding = 512
+			require.NoError(t, sendPadded(next, touchPadding))
+			require.NoError(t, send(next+1))
+			before, ok = received.Load(fmt.Sprintf("/request/%d", next+1))
+			require.True(t, ok)
+			next += 2
+		}
 		require.Len(t, before, 1, "header injection must work before exporter detection")
 
 		pids.Filter([]request.Span{{
@@ -320,11 +336,11 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 		}})
 		require.True(t, fi.ExportsOTelTraces(), "the live PID must be classified as a trace exporter")
 
-		require.NoError(t, send(1))
-		after, ok := received.Load("/request/1")
+		require.NoError(t, send(next))
+		after, ok := received.Load(fmt.Sprintf("/request/%d", next))
 		require.True(t, ok)
 		if os.Getenv("OBI_RUST_TEST_APP_HEADER") != "" {
-			require.Equal(t, []string{"00-00000000000000000000000000000002-1111111111111111-01"}, after,
+			require.Equal(t, []string{fmt.Sprintf("00-%032x-1111111111111111-01", next+1)}, after,
 				"the excluded exporter's application header must pass unchanged")
 		} else {
 			require.Empty(t, after, "an excluded trace exporter must not receive an OBI-generated traceparent")
