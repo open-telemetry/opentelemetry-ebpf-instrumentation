@@ -244,7 +244,9 @@ func rustSymbolKind(name string) (rustProbeKind, bool) {
 		}
 	}
 
-	if (strings.HasPrefix(name, "<tokio::runtime::scheduler::Handle>::spawn::<") ||
+	// Tokio 0.2 can inline the thread-pool spawner into Runtime::spawn for individual futures.
+	if (strings.HasPrefix(name, "<tokio::runtime::Runtime>::spawn::<") ||
+		strings.HasPrefix(name, "<tokio::runtime::scheduler::Handle>::spawn::<") ||
 		strings.HasPrefix(name, "<tokio::runtime::scheduler::multi_thread::handle::Handle>::spawn::<") ||
 		strings.HasPrefix(name, "<tokio::runtime::scheduler::current_thread::Handle>::spawn::<") ||
 		strings.HasPrefix(name, "<tokio::runtime::thread_pool::Spawner>::spawn::<") ||

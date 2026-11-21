@@ -37,36 +37,31 @@ static __always_inline bool rust_process_instrumented(u64 id) {
     return bpf_map_lookup_elem(&rust_capabilities, &pid) != NULL;
 }
 
+// Returns the capabilities published for the process, keyed by its pid in OBI's namespace.
+static __always_inline const rust_capabilities_t *rust_process_capabilities(u32 pid) {
+    return bpf_map_lookup_elem(&rust_capabilities, &pid);
+}
+
 // Tracking tasks and proving client request handoffs are separate capabilities:
 // missing handoff hooks must not disable otherwise usable task tracking.
 // Reports whether task-based request context tracking is enabled for the process.
 static __always_inline bool rust_task_context_enabled(u64 id) {
-    const u32 pid = obi_pid(id);
-    const rust_capabilities_t *capabilities = bpf_map_lookup_elem(&rust_capabilities, &pid);
+    const rust_capabilities_t *capabilities = rust_process_capabilities(obi_pid(id));
 
     return capabilities && capabilities->task_context;
 }
 
 // Reports whether Rust client request handoff tracking is enabled for the process.
 static __always_inline bool rust_client_context_enabled(u64 id) {
-    const u32 pid = obi_pid(id);
-    const rust_capabilities_t *capabilities = bpf_map_lookup_elem(&rust_capabilities, &pid);
+    const rust_capabilities_t *capabilities = rust_process_capabilities(obi_pid(id));
 
     return capabilities && capabilities->client_context;
-}
-
-// Only processes with active Rust probes use Tokio-specific parent lookup.
-static __always_inline bool rust_tokio_runtime(u64 id) {
-    const u32 pid = obi_pid(id);
-    const rust_capabilities_t *capabilities = bpf_map_lookup_elem(&rust_capabilities, &pid);
-
-    return capabilities && capabilities->tokio_runtime;
 }
 
 // Resolves the innermost task of a worker's poll stack into a PID-scoped key.
 // Returns false when the worker is outside a task or its stack overflowed.
 static __always_inline bool
-rust_innermost_task(u64 id, const rust_thread_state_t *thread, rust_task_key_t *key) {
+rust_innermost_task(u32 pid, const rust_thread_state_t *thread, rust_task_key_t *key) {
     if (!thread->depth || thread->depth > k_rust_poll_depth) {
         return false;
     }
@@ -77,21 +72,31 @@ rust_innermost_task(u64 id, const rust_thread_state_t *thread, rust_task_key_t *
     }
 
     bpf_clamp_umax(index, k_rust_poll_depth - 1);
-    *key = (rust_task_key_t){.pid = obi_pid(id), .addr = thread->tasks[index]};
+    *key = (rust_task_key_t){.pid = pid, .addr = thread->tasks[index]};
 
     return key->addr != 0;
 }
 
-// Resolves the innermost task on the current worker into a PID-scoped key.
-// Returns false when task tracking is unavailable or the worker state is invalid.
-static __always_inline bool rust_current_task(u64 id, rust_task_key_t *key) {
-    if (!rust_task_context_enabled(id)) {
+// Resolves the innermost task on the current worker of a process whose pid and
+// capabilities the caller already fetched. Returns false when task tracking is
+// unavailable or the worker state is invalid.
+static __always_inline bool
+rust_process_task(u64 id, u32 pid, const rust_capabilities_t *capabilities, rust_task_key_t *key) {
+    if (!capabilities || !capabilities->task_context) {
         return false;
     }
 
     const rust_thread_state_t *thread = bpf_map_lookup_elem(&rust_threads, &id);
 
-    return thread && rust_innermost_task(id, thread, key);
+    return thread && rust_innermost_task(pid, thread, key);
+}
+
+// Resolves the innermost task on the current worker into a PID-scoped key.
+// Returns false when task tracking is unavailable or the worker state is invalid.
+static __always_inline bool rust_current_task(u64 id, rust_task_key_t *key) {
+    const u32 pid = obi_pid(id);
+
+    return rust_process_task(id, pid, rust_process_capabilities(pid), key);
 }
 
 // Looks up the request context of a worker's innermost task, from state the caller
@@ -100,8 +105,9 @@ static __always_inline tp_info_pid_t *rust_thread_context(u64 id,
                                                           const rust_thread_state_t *thread) {
     rust_task_key_t key = {};
 
-    return rust_innermost_task(id, thread, &key) ? bpf_map_lookup_elem(&rust_task_context, &key)
-                                                 : NULL;
+    return rust_innermost_task(obi_pid(id), thread, &key)
+               ? bpf_map_lookup_elem(&rust_task_context, &key)
+               : NULL;
 }
 
 // Looks up the request context associated with the current Rust task.
@@ -203,7 +209,7 @@ rust_save_wire_parent(u64 id, const tp_info_t *wire, const tp_info_pid_t *parent
 }
 
 // Looks up the saved parent matching the outgoing trace/span IDs and PID.
-static __always_inline tp_info_pid_t *rust_wire_parent(u64 id, const tp_info_t *wire) {
+static __always_inline tp_info_pid_t *rust_wire_parent(u32 pid, const tp_info_t *wire) {
     if (!wire) {
         return NULL;
     }
@@ -213,7 +219,7 @@ static __always_inline tp_info_pid_t *rust_wire_parent(u64 id, const tp_info_t *
         return NULL;
     }
 
-    key->pid = obi_pid(id);
+    key->pid = pid;
     __builtin_memcpy(key->trace_id, wire->trace_id, sizeof(key->trace_id));
     __builtin_memcpy(key->span_id, wire->span_id, sizeof(key->span_id));
 

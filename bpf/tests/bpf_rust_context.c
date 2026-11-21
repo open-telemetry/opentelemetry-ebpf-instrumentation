@@ -157,16 +157,16 @@ int main(void) {
     enabled = false;
     assert(!rust_current_context(ids[0]));
     assert(!rust_process_instrumented(ids[0]));
-    assert(!rust_tokio_runtime(ids[0]));
+    assert(!rust_process_capabilities(pid));
     enabled = true;
     capabilities.task_context = 0;
     capabilities.client_context = 0;
     assert(rust_process_instrumented(ids[0]));
     assert(!rust_current_context(ids[0]));
     // Missing task hooks do not make a Tokio worker thread identify a request.
-    assert(rust_tokio_runtime(ids[0]));
+    assert(rust_process_capabilities(pid)->tokio_runtime);
     capabilities.tokio_runtime = 0;
-    assert(!rust_tokio_runtime(ids[0]));
+    assert(!rust_process_capabilities(pid)->tokio_runtime);
     capabilities.tokio_runtime = 1;
     capabilities.task_context = 1;
     capabilities.client_context = 1;

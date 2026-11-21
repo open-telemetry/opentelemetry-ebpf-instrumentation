@@ -104,6 +104,13 @@ func clientSpansToPort(traces []jaeger.Trace, port int) []jaeger.Span {
 }
 
 func driveResponseObservationWorkload(t *testing.T) {
+	// OBI attaches some seconds after the compose is up, and calls made before then
+	// produce no spans. The control call's span shows the probes are in place.
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, "http://localhost:8080/work", 200)
+		assert.NotEmpty(ct, clientSpansToPort(unobservedResponseTraces(ct), observedPeerPort))
+	}, testTimeout, 500*time.Millisecond)
+
 	for range 15 {
 		ti.DoHTTPGet(t, "http://localhost:8080/work", 200)
 		time.Sleep(500 * time.Millisecond)
