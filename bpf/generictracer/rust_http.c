@@ -72,6 +72,88 @@ static __always_inline void rust_publish_wire_parent(u64 id, const rust_http_req
     }
 }
 
+static __always_inline u64 rust_http1_request_data(u64 vector,
+                                                   const rust_protocol_config_t *config,
+                                                   u64 len) {
+    // Hyper also uses these formatters for trailers; classify before publishing ownership.
+    u64 ptr = 0;
+    if (!rust_read_u64(vector, config->vec_ptr, &ptr)) {
+        bpf_dbg_printk("rust http1 request buffer unavailable vector=%llx", vector);
+        return 0;
+    }
+
+    unsigned char prefix[MIN_HTTP_SIZE];
+    if (len < sizeof(prefix)) {
+        bpf_dbg_printk("rust http1 request prefix too short len=%llu", len);
+        return 0;
+    }
+
+    const long read_result = bpf_probe_read_user(prefix, sizeof(prefix), (void *)ptr);
+    if (read_result != 0) {
+        bpf_dbg_printk("rust http1 request prefix unavailable buffer=%llx", vector);
+        return 0;
+    }
+
+    if (!is_http_request_buf(prefix)) {
+        bpf_dbg_printk("rust http1 expected HTTP request buffer=%llx", vector);
+        return 0;
+    }
+
+    return ptr;
+}
+
+static __always_inline bool rust_http1_append(
+    u64 vector, const rust_protocol_config_t *config, u64 ptr, u64 len, const tp_info_t *wire) {
+    u64 cap = 0;
+    unsigned char *header = rust_http_header_mem();
+    if (!header || !rust_read_u64(vector, config->vec_cap, &cap) ||
+        len > (TRACE_BUF_SIZE - TP_SIZE) || cap > k_rust_max_buffer || cap < len ||
+        (cap - len) < TP_SIZE || (ptr + cap) < ptr) {
+        bpf_dbg_printk(
+            "rust http1 buffer rejected buffer=%llx len=%llu cap=%llu", vector, len, cap);
+        return false;
+    }
+
+    __builtin_memcpy(header, TP_LOWER, TP_LOWER_SIZE);
+    make_tp_string(header + TP_LOWER_SIZE, wire);
+    header[TP_SIZE - 2] = '\r';
+    header[TP_SIZE - 1] = '\n';
+
+    const u64 dest = ptr + len;
+    const long result = bpf_probe_write_user((void *)dest, header, TP_SIZE);
+
+    if (result != 0) {
+        bpf_dbg_printk("rust http1 append dst=%llx len=%u err=%ld", dest, (u32)TP_SIZE, result);
+        return false;
+    }
+
+    const u64 new_len = len + TP_SIZE;
+    const long commit =
+        bpf_probe_write_user((void *)(vector + config->vec_len), &new_len, sizeof(new_len));
+    if (commit != 0) {
+        bpf_dbg_printk("rust http1 length commit failed err=%ld", commit);
+        return false;
+    }
+
+    bpf_dbg_printk("rust traceparent appended buffer=%llx len=%llu", vector, new_len);
+    return true;
+}
+
+static __always_inline bool rust_http1_ends_with_request_line(u64 ptr, u64 len) {
+    unsigned char suffix[sizeof(" HTTP/1.1\r\n") - 1];
+    if (len < sizeof(suffix)) {
+        return false;
+    }
+
+    const u64 start = ptr + len - sizeof(suffix);
+    if (bpf_probe_read_user(suffix, sizeof(suffix), (void *)start) != 0) {
+        return false;
+    }
+
+    return __builtin_memcmp(suffix, " HTTP/1.1\r\n", sizeof(suffix)) == 0 ||
+           __builtin_memcmp(suffix, " HTTP/1.0\r\n", sizeof(suffix)) == 0;
+}
+
 static __always_inline void rust_http1_entry(u64 id, u64 vector, u64 headers) {
     const rust_protocol_config_t *config = rust_protocol_config(id);
     if (!config || !config->http1 || !config->inject || !rust_process_instrumented(id)) {
@@ -96,11 +178,20 @@ static __always_inline void rust_http1_entry(u64 id, u64 vector, u64 headers) {
         args->request.inject = 0;
     }
 
+    // Hyper has written the request line. Inserting here can fit on a resident
+    // page even when appending after the application's headers would fault.
+    if (args->request.inject && g_bpf_probe_write_user_enabled && !exports_otel_traces()) {
+        const u64 ptr = rust_http1_request_data(vector, config, args->start_len);
+        if (ptr && rust_http1_ends_with_request_line(ptr, args->start_len) &&
+            rust_http1_append(vector, config, ptr, args->start_len, &args->request.wire)) {
+            args->request.injection_result = k_rust_injection_succeeded;
+        }
+    }
     bpf_map_update_elem(&rust_http_args, &id, args, BPF_ANY);
 }
 
-// Snapshots the task context and HeaderMap before Hyper's standard/title-case
-// formatters run. We retain their output Vec for traceparent insertion on return.
+// Snapshot the task context and HeaderMap and try insertion before Hyper's
+// standard and title-case formatters write the application headers.
 SEC("uprobe/rust:http1_headers")
 int GUARDED_PROG(obi_rust_http1_headers, struct pt_regs *, ctx) {
     rust_http1_entry(bpf_get_current_pid_tgid(), PT_REGS_PARM2(ctx), PT_REGS_PARM1(ctx));
@@ -127,38 +218,21 @@ static __always_inline int rust_http1_headers_return(bool use_bpf_loop) {
     rust_http_args_t args = *saved;
     bpf_map_delete_elem(&rust_http_args, &id);
 
-    // Hyper also uses these formatters for trailers; classify before publishing ownership.
-    u64 ptr = 0;
-    if (!rust_read_u64(args.buffer, config->vec_ptr, &ptr)) {
-        bpf_dbg_printk("rust http1 request buffer unavailable vector=%llx", args.buffer);
-        return 0;
-    }
-
     u64 len = 0;
     if (!rust_read_u64(args.buffer, config->vec_len, &len)) {
         bpf_dbg_printk("rust http1 request length unavailable buffer=%llx", args.buffer);
         return 0;
     }
-
-    unsigned char prefix[MIN_HTTP_SIZE];
-    if (len < sizeof(prefix)) {
-        bpf_dbg_printk("rust http1 request prefix too short len=%llu", len);
-        return 0;
-    }
-
-    const long read_result = bpf_probe_read_user(prefix, sizeof(prefix), (void *)ptr);
-    if (read_result != 0) {
-        bpf_dbg_printk("rust http1 request prefix unavailable buffer=%llx", args.buffer);
-        return 0;
-    }
-
-    if (!is_http_request_buf(prefix)) {
-        bpf_dbg_printk("rust http1 expected HTTP request buffer=%llx", args.buffer);
+    const u64 ptr = rust_http1_request_data(args.buffer, config, len);
+    if (!ptr) {
         return 0;
     }
 
     rust_save_request(id, &args.request);
     rust_publish_wire_parent(id, &args.request);
+    if (args.request.injection_result == k_rust_injection_succeeded) {
+        return 0;
+    }
     if (exports_otel_traces()) {
         bpf_dbg_printk("rust http exporter header insertion skipped");
         return 0;
@@ -182,40 +256,14 @@ static __always_inline int rust_http1_headers_return(bool use_bpf_loop) {
         return 0;
     }
 
-    u64 cap = 0;
-    unsigned char *header = rust_http_header_mem();
-    if (!header || !rust_read_u64(args.buffer, config->vec_cap, &cap) ||
-        (len + TP_SIZE) > TRACE_BUF_SIZE || cap > k_rust_max_buffer || cap < len ||
-        (cap - len) < TP_SIZE || (ptr + cap) < ptr) {
-        bpf_dbg_printk(
-            "rust h1 buffer rejected buffer=%llx len=%llu cap=%llu", args.buffer, len, cap);
-        return 0;
-    }
-
-    __builtin_memcpy(header, TP_LOWER, TP_LOWER_SIZE);
-    make_tp_string(header + TP_LOWER_SIZE, &args.request.wire);
-    header[TP_SIZE - 2] = '\r';
-    header[TP_SIZE - 1] = '\n';
-
-    const long result = bpf_probe_write_user((void *)(ptr + len), header, TP_SIZE);
-
-    if (result == 0) {
-        const u64 new_len = len + TP_SIZE;
-        if (bpf_probe_write_user(
-                (void *)(args.buffer + config->vec_len), &new_len, sizeof(new_len)) == 0) {
-            bpf_dbg_printk("rust traceparent appended buffer=%llx len=%llu", args.buffer, new_len);
-            args.request.injection_result = k_rust_injection_succeeded;
-            rust_save_request(id, &args.request);
-        } else {
-            bpf_dbg_printk("rust length commit failed buffer=%llx", args.buffer);
-        }
-    } else {
-        bpf_dbg_printk("rust payload write failed buffer=%llx err=%ld", args.buffer, result);
+    if (rust_http1_append(args.buffer, config, ptr, len, &args.request.wire)) {
+        args.request.injection_result = k_rust_injection_succeeded;
+        rust_save_request(id, &args.request);
     }
     return 0;
 }
 
-// Publish ownership and append or rewrite traceparent after either Hyper formatter.
+// Publish ownership, rewrite forwarded headers, or retry an append after Hyper grows the Vec.
 SEC("uretprobe/rust:http1_headers")
 int GUARDED_PROG(obi_rust_http1_headers_ret, struct pt_regs *, ctx) {
     (void)ctx;

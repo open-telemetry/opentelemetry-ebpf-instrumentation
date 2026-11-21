@@ -195,9 +195,10 @@ for its connection, e.g. from a TCP option or a correlated local client.
 HTTP/2 metadata reads are bounded to the available plaintext so short Rustls
 buffers do not produce empty header records at page boundaries.
 
-When header propagation is enabled, HTTP/1 injection appends to Hyper's header
-buffer before its terminating blank line. HTTP/2 injection appends a literal
-without indexing to a complete HEADERS frame. Both paths preserve an existing
+When header propagation is enabled, OBI inserts a new HTTP/1 header just after
+Hyper writes the request line. If the buffer lacks space or the write faults,
+OBI retries after Hyper formats the application headers. HTTP/2 injection
+appends a literal without indexing to a complete HEADERS frame. Both paths preserve an existing
 application `traceparent`, validate buffer capacity, and skip insertion when
 space or framing checks fail. The client span adopts the span ID of an
 application header, unless the header is the incoming request's header
@@ -237,7 +238,11 @@ ownership retain the generic four-frame limit. Rust and the tpinjector use
 the same HPACK traceparent serializer. Existing TLS connection tracking keeps
 the tpinjector away from encrypted traffic.
 
-TLS wire insertion still requires `bpf_probe_write_user`.
+For TLS, OBI inserts the header before encryption with `bpf_probe_write_user`.
+The helper can return `EFAULT` when the append reaches a page the application
+has yet to write. The buffer length stays unchanged on failure. If both HTTP/1
+attempts fault, the TLS request leaves without an injected header. Short requests
+on a keep-alive connection can repeatedly hit the same page.
 
 ## Compatibility
 

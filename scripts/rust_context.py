@@ -150,6 +150,7 @@ def scenarios(cases):
     for name in ("rustls-client-http1", "rustls-client-http2"):
         if name in names:
             if name.endswith("http1"):
+                yield name+"-large", name, {"TLS": "1", "INJECT": "1", "HEADER_PADDING": "8192"}
                 yield name+"-forwarded", name, {"TLS": "1", "INJECT": "1", "APP_HEADER": "1", "FORWARDED_APP_HEADER": "1"}
                 yield name+"-forwarded-large", name, {"TLS": "1", "INJECT": "1", "APP_HEADER": "1", "FORWARDED_APP_HEADER": "1", "HEADER_PADDING": "8192"}
             env = {"TLS": "1", "INJECT": "1", "OTEL_EXPORTER": "1"}

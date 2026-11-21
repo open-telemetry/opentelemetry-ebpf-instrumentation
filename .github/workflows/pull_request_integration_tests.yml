@@ -802,6 +802,7 @@ jobs:
           sudo "$RUNNER_TEMP/tpinjector.test" -test.v -test.timeout=10m -test.run='^Test(H2|HTTP1|OutgoingContext|OTelTraceExport)' | tee testoutput/rust-socket-regressions.log
       - name: Run Rust protocol and fallback integration tests
         env:
+          OBI_RUST_TEST_DEBUG: "1"
           OBI_RUST_WORK_DIR: ${{ runner.temp }}/rust-context
         run: go test -v -count=1 -run '^TestRustContextPropagationMatrix$' -timeout 45m ./internal/test/integration/rustcontext
       - name: Upload Rust evidence

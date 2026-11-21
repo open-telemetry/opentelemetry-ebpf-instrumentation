@@ -280,6 +280,11 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 		if err != nil {
 			return err
 		}
+		if i == 1 && os.Getenv("OBI_RUST_TEST_RUSTLS_CLIENT") != "" && os.Getenv("OBI_RUST_TEST_H2") == "" {
+			// Two identical short requests can both hit the same untouched page.
+			// Have Hyper write a longer request line on the reused TLS connection.
+			req.URL.RawQuery = "q=" + strings.Repeat("x", len("traceparent: \r\n")+len(traceparent))
+		}
 		req.Header.Set("traceparent", traceparent)
 		if os.Getenv("OBI_RUST_TEST_TRAILERS") != "" {
 			req.Header.Set("TE", "trailers")
@@ -499,9 +504,7 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 	}
 	if os.Getenv("OBI_RUST_TEST_INJECT") != "" {
 		require.Equal(t, requests, injected+skipped, "every wire header must be present or skipped")
-		// A write faults only when the append lands on a nonresident page, so a
-		// writer that never delivers a header is broken rather than unlucky.
-		require.Positive(t, injected, "at least one request must carry its wire header")
+		require.Positive(t, injected, "none of the %d downstream requests carried traceparent", requests)
 		if skipped > 0 {
 			t.Logf("wire injection skipped %d/%d requests", skipped, requests)
 		}
