@@ -143,9 +143,15 @@ func (c *grpcTraceClient) UploadTraces(ctx context.Context, traces ptrace.Traces
 		ctx = metadata.NewOutgoingContext(ctx, c.metadata)
 	}
 
+	// gRPC applies its own message size limit after compression, so the
+	// uncompressed request is checked here, as for HTTP.
+	if size := (&ptrace.ProtoMarshaler{}).TracesSize(traces); size > traceMaxRequestBytes {
+		return fmt.Errorf("request message too large: exceeded %d bytes", traceMaxRequestBytes)
+	}
+
 	request := ptraceotlp.NewExportRequestFromTraces(traces)
 	return c.retry.do(ctx, func(ctx context.Context) error {
-		response, err := c.client.Export(ctx, request, grpc.MaxCallSendMsgSize(traceMaxRequestBytes))
+		response, err := c.client.Export(ctx, request)
 		if err != nil {
 			return grpcRetryableError(err)
 		}

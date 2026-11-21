@@ -412,15 +412,20 @@ func newHTTPTraceClient(cfg otelcfg.TracesConfig, reporter imetrics.Reporter) (t
 	}, nil
 }
 
+var errInsecureTraceEndpointWithTLS = errors.New("insecure HTTP endpoint cannot use TLS client configuration")
+
 func httpTraceTransport(opts otelcfg.OTLPOptions) (*http.Transport, error) {
 	if opts.UnixSocketAddr != "" {
 		return otelcfg.UnixTransport(opts.UnixSocketAddr), nil
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
 	tlsConfig, err := otlpTLSConfig("TRACES", opts.SkipTLSVerify)
 	if err != nil {
 		return nil, err
 	}
+	if opts.Insecure && tlsConfig != nil {
+		return nil, errInsecureTraceEndpointWithTLS
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = tlsConfig
 	return transport, nil
 }
@@ -457,13 +462,15 @@ func newGRPCTraceClient(cfg otelcfg.TracesConfig, reporter imetrics.Reporter) (t
 	}, nil
 }
 
+// Explicit TLS settings take precedence over a plaintext endpoint scheme, as in
+// the otel-go gRPC exporter.
 func grpcTraceCredentials(opts otelcfg.OTLPOptions) (credentials.TransportCredentials, error) {
-	if opts.Insecure {
-		return insecure.NewCredentials(), nil
-	}
 	tlsConfig, err := otlpTLSConfig("TRACES", opts.SkipTLSVerify)
 	if err != nil {
 		return nil, err
+	}
+	if opts.Insecure && tlsConfig == nil {
+		return insecure.NewCredentials(), nil
 	}
 	return credentials.NewTLS(tlsConfig), nil
 }

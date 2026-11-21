@@ -5,6 +5,7 @@ package otel
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/pem"
 	"errors"
 	"io"
@@ -22,6 +23,7 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -341,6 +343,62 @@ func TestTraceClientsRejectUnreadableCertificate(t *testing.T) {
 			require.ErrorIs(t, err, os.ErrNotExist)
 		})
 	}
+}
+
+// writeTestServerCertificate writes the certificate of a throwaway httptest TLS
+// server, valid for 127.0.0.1, and returns its key pair and the PEM path.
+func writeTestServerCertificate(t *testing.T) (tls.Certificate, string) {
+	t.Helper()
+	server := httptest.NewTLSServer(http.NotFoundHandler())
+	server.Close()
+
+	certPath := filepath.Join(t.TempDir(), "collector.pem")
+	cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	require.NoError(t, os.WriteFile(certPath, cert, 0o600))
+	return server.TLS.Certificates[0], certPath
+}
+
+func TestHTTPTraceClientRejectsPlaintextEndpointWithTLS(t *testing.T) {
+	_, certPath := writeTestServerCertificate(t)
+
+	for _, tc := range []struct {
+		name        string
+		skipVerify  bool
+		certificate string
+	}{
+		{name: "skip verify", skipVerify: true},
+		{name: "certificate", certificate: certPath},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE", tc.certificate)
+			cfg := otelcfg.TracesConfig{CommonEndpoint: "http://127.0.0.1:4318", InsecureSkipVerify: tc.skipVerify}
+			_, err := getTracesExporter(t.Context(), cfg, nil)
+			require.ErrorIs(t, err, errInsecureTraceEndpointWithTLS)
+		})
+	}
+}
+
+func TestGRPCTraceClientUsesConfiguredTLSOnPlaintextEndpoint(t *testing.T) {
+	serverCert, certPath := writeTestServerCertificate(t)
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE", certPath)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := grpc.NewServer(grpc.Creds(credentials.NewServerTLSFromCert(&serverCert)))
+	receiver := &failingTraceGRPCServer{}
+	ptraceotlp.RegisterGRPCServer(server, receiver)
+	go func() { _ = server.Serve(listener) }()
+	defer server.Stop()
+
+	cfg := fastRetryTracesConfig("http://" + listener.Addr().String())
+	cfg.Protocol = otelcfg.ProtocolGRPC
+	exp, err := getTracesExporter(t.Context(), cfg, nil)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(t.Context()))
+	defer func() { require.NoError(t, exp.Shutdown(context.Background())) }()
+
+	require.NoError(t, exp.ConsumeTraces(t.Context(), oneSpan()))
+	require.EqualValues(t, 1, receiver.attempts.Load())
 }
 
 func TestTraceQueueCountsSpansAndUnblocksOnShutdown(t *testing.T) {
