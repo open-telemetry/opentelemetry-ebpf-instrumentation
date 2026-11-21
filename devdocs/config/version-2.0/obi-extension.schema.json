@@ -1024,6 +1024,18 @@
               },
               "type": "array",
               "description": "Metric features using the same names as Config v1. An explicit list replaces the selection inferred from protocol and network switches; [] disables all metric features. When omitted, protocol and network enablement determines the features."
+            },
+            "target_info": {
+              "type": "object",
+              "description": "Controls the target.info and traces.target.info metrics, exported as target_info and traces_target_info by the Prometheus reader.",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Export the target.info and traces.target.info metrics.\nIf omitted, true is used.\n"
+                }
+              }
             }
           }
         },

@@ -176,3 +176,46 @@ instrumentation:
 	require.NoError(t, err)
 	require.False(t, instrumentations.NewInstrumentationSelection(got.OTELMetrics.Instrumentations).HTTPEnabled())
 }
+
+func TestV2TargetInfo(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "omitted", body: "metrics:\n  features: [application]\n", want: true},
+		{name: "enabled", body: "metrics:\n  target_info:\n    enabled: true\n", want: true},
+		{name: "disabled", body: "metrics:\n  target_info:\n    enabled: false\n", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			receiver, err := schema.ParseReceiverYAML([]byte("version: '2.0'\n" + tc.body))
+			require.NoError(t, err)
+			got, err := V2ToRuntime(receiver)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, !got.Metrics.DisableTargetInfo)
+
+			doc, _ := RuntimeToV2(got)
+			data, err := yaml.Marshal(doc)
+			require.NoError(t, err)
+			parsed, ext, err := schema.ParseStandaloneYAML(data)
+			require.NoError(t, err)
+			require.NotNil(t, ext.Capture.Metrics.TargetInfo.Enabled)
+			require.Equal(t, tc.want, *ext.Capture.Metrics.TargetInfo.Enabled)
+			got, err = DocumentToRuntime(parsed)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, !got.Metrics.DisableTargetInfo)
+		})
+	}
+}
+
+func TestV2TargetInfoProgrammaticPartialKeepsDefault(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{Version: schema.SupportedVersion})
+	require.NoError(t, err)
+	require.False(t, got.Metrics.DisableTargetInfo)
+}

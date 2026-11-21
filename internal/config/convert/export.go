@@ -37,7 +37,7 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 			Instrumentation: captureInstrumentation(cfg),
 			Runtimes:        captureRuntimes(cfg),
 			Network:         captureNetwork(cfg),
-			Metrics:         schema.CaptureMetrics{Features: cfg.Metrics.Features.Names()},
+			Metrics:         captureMetrics(cfg),
 			Limits:          captureLimits(cfg),
 			Engine:          captureEngine(cfg),
 			Safety:          captureSafety(cfg),
@@ -418,6 +418,14 @@ func statsFeatures(features featureexport.Features) []string {
 		out = append(out, statsFeatureTCPResets)
 	}
 	return out
+}
+
+func captureMetrics(cfg *obi.Config) schema.CaptureMetrics {
+	targetInfo := !cfg.Metrics.DisableTargetInfo
+	return schema.CaptureMetrics{
+		Features:   cfg.Metrics.Features.Names(),
+		TargetInfo: schema.CaptureTargetInfo{Enabled: &targetInfo},
+	}
 }
 
 func captureLimits(cfg *obi.Config) schema.CaptureLimits {
