@@ -653,7 +653,15 @@ OTLP, and the Prometheus reader exports neither `target_info` nor
 `traces_target_info`. Other metrics, including runtime metrics, keep their
 labels. Turn it off when the pipeline already derives `target_info` from the
 OTLP resource, for example an OTLP-to-Prometheus exporter, to avoid duplicate
-series. The declarative Prometheus exporter field `without_target_info` is not
+series.
+
+Keep the default when Prometheus scrapes OBI's Prometheus endpoint directly.
+There, `target_info` and `traces_target_info` are the only series that carry
+the resource attributes, so queries that join on them lose that data. The
+option applies to both exporters, so when OBI exports OTLP and serves a
+scraped Prometheus endpoint at the same time, keep it enabled.
+
+The declarative Prometheus exporter field `without_target_info` is not
 supported; use this option instead.
 
 ### `capture.attributes.select` Section
