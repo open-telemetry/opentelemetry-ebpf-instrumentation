@@ -59,6 +59,7 @@ func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult
 	e := pythonExtractor{
 		routes:       map[string]struct{}{},
 		djangoRoutes: map[string][]djangoRoute{},
+		aiohttp:      dependsOnAiohttp(dir),
 	}
 	kind := PartialRoutes
 	err := walkPythonFiles(ctx, dir, func(path string) error {
@@ -155,6 +156,7 @@ func skipPythonDir(name string) bool {
 type pythonExtractor struct {
 	routes       map[string]struct{}
 	djangoRoutes map[string][]djangoRoute
+	aiohttp      bool
 }
 
 func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
@@ -171,7 +173,7 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 	djangoLists := map[string]*djangoList{}
 	djangoAliases := map[string]string{}
 	hasDjangoPath := false
-	var aiohttp aiohttpFile
+	aiohttp := aiohttpFile{enabled: e.aiohttp}
 	scanStmt := func(text string) {
 		if !aiohttp.scan(text, e.routes) {
 			scanPythonStmt(text, e.routes)
