@@ -614,7 +614,7 @@
       "spanContext": {
         "versions": {
           "oldest": "1.1.0",
-          "newest": "1.2.1"
+          "newest": "1.2.2"
         },
         "offsets": [
           {
