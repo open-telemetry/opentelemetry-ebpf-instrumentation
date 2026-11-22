@@ -20,8 +20,9 @@ type CaptureEngine struct {
 
 // EngineDebug describes capture engine debug toggles.
 type EngineDebug struct {
-	BPF           bool `yaml:"bpf"`
-	ProtocolPrint bool `yaml:"protocol_print"`
+	BPF           bool                 `yaml:"bpf"`
+	BPFMode       *config.BPFDebugMode `yaml:"bpf_mode,omitempty"`
+	ProtocolPrint bool                 `yaml:"protocol_print"`
 }
 
 // PIDFilter describes eBPF PID filtering behavior.

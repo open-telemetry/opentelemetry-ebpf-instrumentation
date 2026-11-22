@@ -97,6 +97,26 @@ extensions:
 	require.Equal(t, 11*time.Minute, parsedConfig.Prometheus.ConnectionInfoTTL)
 }
 
+func TestV2BPFDebugModeRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	mode := config.BPFDebugTracePipe
+	cfg, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Engine: schema.CaptureEngine{
+				Debug: schema.EngineDebug{BPFMode: &mode},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, config.BPFDebugTracePipe, cfg.EBPF.DebugMode())
+
+	_, exported := RuntimeToV2(cfg)
+	require.NotNil(t, exported.Capture.Engine.Debug.BPFMode)
+	require.Equal(t, config.BPFDebugTracePipe, *exported.Capture.Engine.Debug.BPFMode)
+}
+
 func TestV2ToRuntimeFlowLimitAliases(t *testing.T) {
 	t.Parallel()
 
