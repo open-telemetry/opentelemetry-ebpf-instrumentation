@@ -1003,6 +1003,7 @@ func testREDMetricsHTTPAutoRoutes(t *testing.T) {
 		{instrumentedServiceGorillaMidURL, "/rolldice/{id}"},
 		{instrumentedServiceRestfulURL + "/api", "/api/rolldice/{id}"},
 		{instrumentedServiceEchoURL + "/api", "/api/rolldice/:id"},
+		{instrumentedServiceEchoV4URL + "/api", "/api/rolldice/:id"},
 	} {
 		t.Run(testParts[0], func(t *testing.T) {
 			waitForTestComponentsSub(t, testParts[0], "/rolldice/4")

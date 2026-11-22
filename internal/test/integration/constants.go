@@ -15,6 +15,7 @@ const (
 	instrumentedServiceJSONRPCURL     = "http://localhost:8088"
 	instrumentedServiceRestfulURL     = "http://localhost:8089"
 	instrumentedServiceEchoURL        = "http://localhost:8099"
+	instrumentedServiceEchoV4URL      = "http://localhost:8098"
 	prometheusHostPort                = "localhost:9090"
 	jaegerQueryURL                    = "http://localhost:16686/api/traces"
 

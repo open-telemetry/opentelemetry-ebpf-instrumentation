@@ -140,6 +140,7 @@ typedef enum {
     _gin_fullpath_pos,
     _restful_route_path_pos,
     _echo_v5_context_path_pos,
+    _echo_v4_context_path_pos,
     // Go runtime metrics
     _runtime_memstats_numgc_pos,
     _runtime_gc_controller_memory_limit_pos,
