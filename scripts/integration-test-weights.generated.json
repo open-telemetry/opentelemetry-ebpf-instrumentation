@@ -187,6 +187,8 @@
   "TestSuite_PythonAsyncUvloop_3_9": 114,
   "TestSuite_PythonCouchbase": 112,
   "TestSuite_PythonElasticsearch": 104,
+  "TestSuite_PythonExceptions": 930,
+  "TestSuite_PythonExceptions_Builds": 1210,
   "TestSuite_PythonGraphQL": 43,
   "TestSuite_PythonJsonRPC": 59,
   "TestSuite_PythonKafka": 86,
