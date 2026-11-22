@@ -342,6 +342,7 @@ type EBPFParseContext struct {
 	largeBuffers                *expirable.LRU[largeBufferKey, *largebuf.LargeBuffer]
 	mongoRequestCache           PendingMongoDBRequests
 	mysqlPreparedStatements     *simplelru.LRU[mysqlPreparedStatementsKey, string]
+	mysqlConns                  *simplelru.LRU[BpfConnectionInfoT, mysqlConnInfo]
 	postgresPreparedStatements  *simplelru.LRU[postgresPreparedStatementsKey, postgresPreparedStatement]
 	postgresPortals             *simplelru.LRU[postgresPortalsKey, string]
 	postgresNamespaces          *simplelru.LRU[BpfConnectionInfoT, postgresNamespace]
@@ -452,6 +453,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 	h2c, _ := lru.New[uint64, *h2Connection](1024 * 10)
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largebuf.LargeBuffer](1024, nil, 5*time.Minute)
 	postgresNamespaces, _ := simplelru.NewLRU[BpfConnectionInfoT, postgresNamespace](4096, nil)
+	mysqlConns, _ := simplelru.NewLRU[BpfConnectionInfoT, mysqlConnInfo](4096, nil)
 
 	emitCtx, stopEmitting := context.WithCancel(context.Background())
 	if spansChan != nil {
@@ -538,6 +540,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		largeBuffers:               largeBuffers,
 		mongoRequestCache:          mongoRequestCache,
 		mysqlPreparedStatements:    mysqlPreparedStatements,
+		mysqlConns:                 mysqlConns,
 		postgresPreparedStatements: postgresPreparedStatements,
 		postgresPortals:            postgresPortals,
 		postgresNamespaces:         postgresNamespaces,

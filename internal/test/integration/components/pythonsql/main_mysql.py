@@ -45,6 +45,33 @@ async def root():
 
     return row
 
+def newconn_query(query, ssl_disabled):
+    newconn = mysql.connector.connect(
+        database="sakila",
+        user="sakila",
+        password="p_ssW0rd",
+        host="sqlserver",
+        port="3306",
+        ssl_disabled=ssl_disabled
+    )
+    try:
+        cur = newconn.cursor()
+        cur.execute(query)
+        row = cur.fetchone()
+        cur.close()
+    finally:
+        newconn.close()
+
+    return row
+
+@app.get("/newconnquery")
+async def newconnquery():
+    return newconn_query("SELECT * FROM category WHERE category_id=1", ssl_disabled=True)
+
+@app.get("/newconnquery_tls")
+async def newconnquery_tls():
+    return newconn_query("SELECT * FROM film WHERE film_id=1", ssl_disabled=False)
+
 gCurr = None
 
 @app.get("/prepquery")
