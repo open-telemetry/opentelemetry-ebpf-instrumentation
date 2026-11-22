@@ -39,6 +39,7 @@ static __always_inline bool rust_task_context_enabled(u64 id) {
 
     return capabilities && capabilities->task_context;
 }
+
 // Resolves the innermost task of a worker's poll stack into a PID-scoped key.
 // Returns false when the worker is outside a task or its stack overflowed.
 static __always_inline bool
