@@ -627,28 +627,6 @@ func TestAnthropicSpan_OperationComesFromTheRequestPath(t *testing.T) {
 	}
 }
 
-func TestIsAnthropicHTTP1Path(t *testing.T) {
-	for _, tt := range []struct {
-		path string
-		want bool
-	}{
-		{"/v1/messages", true},
-		{"", false},
-		{"/v1/complete", false},
-		{"/v1/messages/", false},
-		{"/v1/messages/count_tokens", false},
-		{"/v1/messages/batches", false},
-		{"/v1/messages-extra", false},
-		{"/prefix/v1/messages", false},
-		{"/v2/messages", false},
-		{"/v1/Messages", false},
-	} {
-		t.Run(tt.path, func(t *testing.T) {
-			assert.Equal(t, tt.want, isAnthropicHTTP1Path(tt.path))
-		})
-	}
-}
-
 // Non-Anthropic /v1/messages exchanges that the HTTP/1.1 fallback must not claim.
 var anthropicHTTP1FalsePositives = []struct{ name, request, response string }{
 	{"generic message response", `{"to":"+15550100","text":"hi"}`, `{"type":"message","id":"m1","status":"queued"}`},

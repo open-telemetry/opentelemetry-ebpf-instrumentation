@@ -55,53 +55,79 @@ func newGenAIHTTP1Exchange(t *testing.T, target, requestBody, responseBody strin
 	return req, resp
 }
 
-func TestPostProcessHTTPSpanGenAIHTTP1Wiring(t *testing.T) {
-	for _, tc := range []struct {
-		name, target                                        string
-		server, nilContext, gateway, gatewayEnabled, strong bool
-		subtype                                             int
-	}{
-		{name: "http1_fallback", subtype: request.HTTPSubtypeOpenAI},
-		{name: "server", server: true},
-		{name: "nil_context", nilContext: true},
-		{name: "gateway_enabled", gateway: true, gatewayEnabled: true, subtype: request.HTTPSubtypeOpenAICompatible},
-		{name: "strong_gateway_disabled", target: "/unrelated", gateway: true, strong: true, subtype: request.HTTPSubtypeOpenAI},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			parseCtx := newGenAIHTTP1ParseContext()
-			parseCtx.payloadExtraction.HTTP.GenAI.OpenAICompatible.Enabled = tc.gatewayEnabled
-			if tc.gateway {
-				parseCtx.payloadExtraction.HTTP.GenAI.OpenAICompatible.Gateways = []config.OpenAICompatibleGateway{{Host: genAIHTTP1GatewayHost, Provider: "test-gateway"}}
-			}
-			target := tc.target
-			if target == "" {
-				target = "/v1/chat/completions"
-			}
-			req, resp := newGenAIHTTP1Exchange(t, target, genAIHTTP1OpenAIRequest, genAIHTTP1OpenAIResponse)
-			if tc.strong {
-				resp.Header.Set("Openai-Version", "2020-10-01")
-			}
-			event := &BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}
-			if tc.server {
-				event.Type = uint8(request.EventTypeHTTP)
-			}
-			if tc.nilContext {
-				parseCtx = nil
-			}
-
-			span := httpRequestResponseToSpan(parseCtx, event, req, resp)
-
-			assert.Equal(t, tc.subtype, span.SubType)
-			assert.Equal(t, request.EventType(event.Type), span.Type)
-			if tc.subtype == request.HTTPSubtypeNone {
-				assert.Nil(t, span.GenAI)
-			} else {
-				require.NotNil(t, span.GenAI)
-				assert.Empty(t, span.RequestBodyContent)
-				assert.Empty(t, span.ResponseBodyContent)
-			}
-		})
+// newGenAIHTTP1GatewayParseContext configures genAIHTTP1GatewayHost as an
+// OpenAI-compatible gateway, with gateway extraction on or off.
+func newGenAIHTTP1GatewayParseContext(extractionEnabled bool) *EBPFParseContext {
+	parseCtx := newGenAIHTTP1ParseContext()
+	parseCtx.payloadExtraction.HTTP.GenAI.OpenAICompatible = config.OpenAICompatibleConfig{
+		Enabled:  extractionEnabled,
+		Gateways: []config.OpenAICompatibleGateway{{Host: genAIHTTP1GatewayHost, Provider: "test-gateway"}},
 	}
+	return parseCtx
+}
+
+// assertGenAIHTTP1Classified checks the span's subtype and that the GenAI
+// payload replaced the raw bodies.
+func assertGenAIHTTP1Classified(t *testing.T, span request.Span, subtype int) {
+	t.Helper()
+	assert.Equal(t, subtype, span.SubType)
+	require.NotNil(t, span.GenAI)
+	assert.Empty(t, span.RequestBodyContent)
+	assert.Empty(t, span.ResponseBodyContent)
+}
+
+func TestPostProcessHTTPSpanGenAIHTTP1Wiring(t *testing.T) {
+	req, resp := newGenAIHTTP1Exchange(t, "/v1/chat/completions", genAIHTTP1OpenAIRequest, genAIHTTP1OpenAIResponse)
+	event := &BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}
+
+	span := httpRequestResponseToSpan(newGenAIHTTP1ParseContext(), event, req, resp)
+
+	assert.Equal(t, request.EventTypeHTTPClient, span.Type)
+	assertGenAIHTTP1Classified(t, span, request.HTTPSubtypeOpenAI)
+}
+
+func TestPostProcessHTTPSpanGenAIHTTP1SkipsServerSpan(t *testing.T) {
+	req, resp := newGenAIHTTP1Exchange(t, "/v1/chat/completions", genAIHTTP1OpenAIRequest, genAIHTTP1OpenAIResponse)
+	event := &BPFHTTPInfo{Type: uint8(request.EventTypeHTTP)}
+
+	span := httpRequestResponseToSpan(newGenAIHTTP1ParseContext(), event, req, resp)
+
+	assert.Equal(t, request.EventTypeHTTP, span.Type)
+	assert.Equal(t, request.HTTPSubtypeNone, span.SubType)
+	assert.Nil(t, span.GenAI)
+}
+
+func TestPostProcessHTTPSpanGenAIHTTP1SkipsNilContext(t *testing.T) {
+	req, resp := newGenAIHTTP1Exchange(t, "/v1/chat/completions", genAIHTTP1OpenAIRequest, genAIHTTP1OpenAIResponse)
+	event := &BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}
+
+	span := httpRequestResponseToSpan(nil, event, req, resp)
+
+	assert.Equal(t, request.EventTypeHTTPClient, span.Type)
+	assert.Equal(t, request.HTTPSubtypeNone, span.SubType)
+	assert.Nil(t, span.GenAI)
+}
+
+// With gateway extraction enabled, the gateway detector claims the exchange first.
+func TestPostProcessHTTPSpanGenAIHTTP1GatewayExtractionEnabled(t *testing.T) {
+	req, resp := newGenAIHTTP1Exchange(t, "/v1/chat/completions", genAIHTTP1OpenAIRequest, genAIHTTP1OpenAIResponse)
+	event := &BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}
+
+	span := httpRequestResponseToSpan(newGenAIHTTP1GatewayParseContext(true), event, req, resp)
+
+	assertGenAIHTTP1Classified(t, span, request.HTTPSubtypeOpenAICompatible)
+}
+
+// With gateway extraction disabled, vendor headers still let the existing
+// OpenAI detector claim a gateway exchange on any path.
+func TestPostProcessHTTPSpanGenAIHTTP1GatewayVendorHeaders(t *testing.T) {
+	req, resp := newGenAIHTTP1Exchange(t, "/unrelated", genAIHTTP1OpenAIRequest, genAIHTTP1OpenAIResponse)
+	resp.Header.Set("Openai-Version", "2020-10-01")
+	event := &BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}
+
+	span := httpRequestResponseToSpan(newGenAIHTTP1GatewayParseContext(false), event, req, resp)
+
+	assertGenAIHTTP1Classified(t, span, request.HTTPSubtypeOpenAI)
 }
 
 func TestPostProcessHTTPSpanGenAIHTTP1OpenAIEndpoints(t *testing.T) {

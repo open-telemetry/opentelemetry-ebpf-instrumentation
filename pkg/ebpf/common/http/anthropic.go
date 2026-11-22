@@ -81,10 +81,6 @@ func isAnthropic(hdr http.Header) bool {
 	return isAnthropic
 }
 
-func isAnthropicHTTP1Path(path string) bool {
-	return path == anthropicMessagesPath
-}
-
 func looksLikeAnthropicBody(reqB, respB []byte) bool {
 	if extractJSONRawField(reqB, "anthropic_version") != nil {
 		return false
@@ -124,15 +120,6 @@ func looksLikeAnthropicHTTP1Body(reqB, respB []byte) bool {
 		extractJSONRawField(reqB, "messages") != nil
 }
 
-var (
-	sseLineSeparator           = []byte{'\n'}
-	sseCommentPrefix           = []byte(":")
-	sseIDPrefix                = []byte("id:")
-	sseRetryPrefix             = []byte("retry:")
-	sseEventPrefix             = []byte("event:")
-	anthropicMessageStartEvent = []byte("message_start")
-)
-
 // startsWithAnthropicMessageStart reports whether the first SSE event of respB
 // is message_start. Only the first responseHeaderSearchWindow bytes are
 // examined: comment, id and retry lines may precede the event, but an event
@@ -145,7 +132,7 @@ func startsWithAnthropicMessageStart(respB []byte) bool {
 	for len(respB) > 0 {
 		var line []byte
 		var found bool
-		line, respB, found = bytes.Cut(respB, sseLineSeparator)
+		line, respB, found = bytes.Cut(respB, []byte("\n"))
 		// Only a newline-terminated line is complete; one cut off by the
 		// search window or the capture limit must not match.
 		if !found {
@@ -154,13 +141,13 @@ func startsWithAnthropicMessageStart(respB []byte) bool {
 		if n := len(line); n > 0 && line[n-1] == '\r' {
 			line = line[:n-1]
 		}
-		if len(line) == 0 || bytes.HasPrefix(line, sseCommentPrefix) ||
-			bytes.HasPrefix(line, sseIDPrefix) || bytes.HasPrefix(line, sseRetryPrefix) {
+		if len(line) == 0 || bytes.HasPrefix(line, []byte(":")) ||
+			bytes.HasPrefix(line, []byte("id:")) || bytes.HasPrefix(line, []byte("retry:")) {
 			continue
 		}
 
-		event, ok := bytes.CutPrefix(line, sseEventPrefix)
-		return ok && bytes.Equal(bytes.TrimSpace(event), anthropicMessageStartEvent)
+		event, ok := bytes.CutPrefix(line, []byte("event:"))
+		return ok && bytes.Equal(bytes.TrimSpace(event), []byte("message_start"))
 	}
 
 	return false

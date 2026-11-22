@@ -79,65 +79,145 @@ func TestGenAIHTTP1FallbackProviders(t *testing.T) {
 	}
 }
 
-func TestGenAIHTTP1FallbackGates(t *testing.T) {
+var genAIHTTP1OpenAIConfig = config.GenAIConfig{OpenAI: config.OpenAIConfig{Enabled: true}}
+
+// assertGenAIHTTP1Declined checks that the fallback rejects the exchange and
+// leaves the span untouched.
+func assertGenAIHTTP1Declined(t *testing.T, original request.Span, req *http.Request, resp *http.Response, cfg config.GenAIConfig) {
+	t.Helper()
+	base := original
+	span, ok := GenAIHTTP1Fallback(&base, req, resp, cfg)
+	assert.False(t, ok)
+	assert.Equal(t, original, span)
+	assert.Equal(t, original, base)
+}
+
+// assertGenAIHTTP1OpenAI checks that the fallback classifies the exchange as OpenAI.
+func assertGenAIHTTP1OpenAI(t *testing.T, req *http.Request, resp *http.Response) {
+	t.Helper()
+	base := request.Span{Type: request.EventTypeHTTPClient, Path: "/captured"}
+	span, ok := GenAIHTTP1Fallback(&base, req, resp, genAIHTTP1OpenAIConfig)
+	require.True(t, ok)
+	assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType)
+	require.NotNil(t, span.GenAI)
+}
+
+func TestGenAIHTTP1FallbackClaimsHTTP1_1(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "/v1/chat/completions", completionsRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{}, completionsResponseBody)
+
+	assertGenAIHTTP1OpenAI(t, req, resp)
+}
+
+func TestGenAIHTTP1FallbackDeclinesOtherProtocols(t *testing.T) {
 	for _, tc := range []struct {
-		name, target, protocol                                      string
-		disabled, noEvidence, gateway, nilRequest, server, detected bool
+		proto        string
+		major, minor int
 	}{
-		{name: "HTTP1_1", detected: true},
-		{name: "server_span", server: true},
-		{name: "HTTP1_0", protocol: "HTTP/1.0"},
-		{name: "HTTP2", protocol: "HTTP/2.0"},
-		{name: "HTTP3", protocol: "HTTP/3.0"},
-		{name: "unknown", protocol: "unknown"},
-		{name: "nil_request", nilRequest: true},
-		{name: "disabled", disabled: true},
-		{name: "missing_evidence", noEvidence: true},
-		{name: "gateway_extraction_disabled", gateway: true},
-		{name: "query", target: "/v1/chat/completions?foo=bar", detected: true},
-		{name: "absolute", target: "http://api.openai.com/v1/chat/completions", detected: true},
-		{name: "absolute_query", target: "http://api.openai.com/v1/chat/completions?foo=bar", detected: true},
-		{name: "near_miss_query", target: "/v1/chat/completions/extra?foo=bar"},
+		{"HTTP/1.0", 1, 0},
+		{"HTTP/2.0", 2, 0},
+		{"HTTP/3.0", 3, 0},
+		{"unknown", 0, 0},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			target := tc.target
-			if target == "" {
-				target = "/v1/chat/completions"
-			}
-			reqBody, respBody := completionsRequestBody, completionsResponseBody
-			if tc.noEvidence {
-				reqBody, respBody = "{}", "{}"
-			}
-			req := makeRequest(t, http.MethodPost, target, reqBody)
-			req.Host = "litellm.local:8080"
-			if tc.protocol != "" {
-				req.Proto = tc.protocol
-				req.ProtoMajor, req.ProtoMinor, _ = http.ParseHTTPVersion(tc.protocol)
-			}
-			if tc.nilRequest {
-				req = nil
-			}
-			cfg := config.GenAIConfig{OpenAI: config.OpenAIConfig{Enabled: !tc.disabled}}
-			if tc.gateway {
-				cfg.OpenAICompatible.Gateways = []config.OpenAICompatibleGateway{{Host: "litellm.local"}}
-			}
-			resp := makePlainResponse(http.StatusOK, http.Header{}, respBody)
-			original := request.Span{Type: request.EventTypeHTTPClient, Path: "/captured", Host: "captured-host"}
-			if tc.server {
-				original.Type = request.EventTypeHTTP
-			}
-			base := original
+		t.Run(tc.proto, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, "/v1/chat/completions", completionsRequestBody)
+			req.Proto, req.ProtoMajor, req.ProtoMinor = tc.proto, tc.major, tc.minor
+			resp := makePlainResponse(http.StatusOK, http.Header{}, completionsResponseBody)
+			original := request.Span{Type: request.EventTypeHTTPClient, Path: "/captured"}
 
-			span, ok := GenAIHTTP1Fallback(&base, req, resp, cfg)
+			assertGenAIHTTP1Declined(t, original, req, resp, genAIHTTP1OpenAIConfig)
+		})
+	}
+}
 
-			assert.Equal(t, tc.detected, ok)
-			if tc.detected {
-				assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType)
-				require.NotNil(t, span.GenAI)
-			} else {
-				assert.Equal(t, original, span)
-				assert.Equal(t, original, base)
-			}
+func TestGenAIHTTP1FallbackDeclinesServerSpan(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "/v1/chat/completions", completionsRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{}, completionsResponseBody)
+	original := request.Span{Type: request.EventTypeHTTP, Path: "/captured"}
+
+	assertGenAIHTTP1Declined(t, original, req, resp, genAIHTTP1OpenAIConfig)
+}
+
+func TestGenAIHTTP1FallbackDeclinesNilRequest(t *testing.T) {
+	resp := makePlainResponse(http.StatusOK, http.Header{}, completionsResponseBody)
+	original := request.Span{Type: request.EventTypeHTTPClient, Path: "/captured"}
+
+	assertGenAIHTTP1Declined(t, original, nil, resp, genAIHTTP1OpenAIConfig)
+}
+
+func TestGenAIHTTP1FallbackDeclinesWhenProvidersDisabled(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "/v1/chat/completions", completionsRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{}, completionsResponseBody)
+	original := request.Span{Type: request.EventTypeHTTPClient, Path: "/captured"}
+
+	assertGenAIHTTP1Declined(t, original, req, resp, config.GenAIConfig{})
+}
+
+func TestGenAIHTTP1FallbackDeclinesWithoutEvidence(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "/v1/chat/completions", "{}")
+	resp := makePlainResponse(http.StatusOK, http.Header{}, "{}")
+	original := request.Span{Type: request.EventTypeHTTPClient, Path: "/captured"}
+
+	assertGenAIHTTP1Declined(t, original, req, resp, genAIHTTP1OpenAIConfig)
+}
+
+// A configured gateway host is skipped even when gateway extraction is disabled.
+func TestGenAIHTTP1FallbackDeclinesGatewayHost(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "/v1/chat/completions", completionsRequestBody)
+	req.Host = "litellm.local:8080"
+	resp := makePlainResponse(http.StatusOK, http.Header{}, completionsResponseBody)
+	cfg := config.GenAIConfig{
+		OpenAI:           config.OpenAIConfig{Enabled: true},
+		OpenAICompatible: config.OpenAICompatibleConfig{Gateways: []config.OpenAICompatibleGateway{{Host: "litellm.local"}}},
+	}
+	original := request.Span{Type: request.EventTypeHTTPClient, Path: "/captured"}
+
+	assertGenAIHTTP1Declined(t, original, req, resp, cfg)
+}
+
+func TestGenAIHTTP1FallbackClaimsRequestTargets(t *testing.T) {
+	for _, target := range []string{
+		"/v1/chat/completions?foo=bar",
+		"http://api.openai.com/v1/chat/completions",
+		"http://api.openai.com/v1/chat/completions?foo=bar",
+	} {
+		t.Run(target, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, target, completionsRequestBody)
+			resp := makePlainResponse(http.StatusOK, http.Header{}, completionsResponseBody)
+
+			assertGenAIHTTP1OpenAI(t, req, resp)
+		})
+	}
+}
+
+func TestGenAIHTTP1FallbackDeclinesNearMissQuery(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "/v1/chat/completions/extra?foo=bar", completionsRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{}, completionsResponseBody)
+	original := request.Span{Type: request.EventTypeHTTPClient, Path: "/captured"}
+
+	assertGenAIHTTP1Declined(t, original, req, resp, genAIHTTP1OpenAIConfig)
+}
+
+// TestGenAIHTTP1FallbackAnthropicEndpoints checks that only the exact
+// /v1/messages path is claimed, even with Anthropic evidence in the body.
+func TestGenAIHTTP1FallbackAnthropicEndpoints(t *testing.T) {
+	cfg := config.GenAIConfig{Anthropic: config.AnthropicConfig{Enabled: true}}
+	for _, path := range []string{
+		"/v1/complete",
+		"/v1/messages/",
+		"/v1/messages/count_tokens",
+		"/v1/messages/batches",
+		"/v1/messages-extra",
+		"/prefix/v1/messages",
+		"/v2/messages",
+		"/v1/Messages",
+	} {
+		t.Run(path, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, path, anthropicRequestBody)
+			resp := makePlainResponse(http.StatusOK, http.Header{}, anthropicResponseBody)
+			original := request.Span{Type: request.EventTypeHTTPClient, Path: path}
+
+			assertGenAIHTTP1Declined(t, original, req, resp, cfg)
 		})
 	}
 }

@@ -35,7 +35,7 @@ func GenAIHTTP1Fallback(baseSpan *request.Span, req *http.Request, resp *http.Re
 	switch {
 	case cfg.OpenAI.Enabled && isOpenAIHTTP1Path(path):
 		classify = func() (request.Span, bool) { return openAISpan(baseSpan, req, resp, requireEvidence) }
-	case cfg.Anthropic.Enabled && isAnthropicHTTP1Path(path):
+	case cfg.Anthropic.Enabled && path == anthropicMessagesPath:
 		classify = func() (request.Span, bool) { return anthropicSpan(baseSpan, req, resp, looksLikeAnthropicHTTP1Body) }
 	case cfg.Gemini.Enabled && isGeminiHTTP1Path(path):
 		classify = func() (request.Span, bool) { return geminiSpan(baseSpan, req, resp, path, requireEvidence) }
