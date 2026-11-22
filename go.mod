@@ -40,6 +40,7 @@ require (
 	github.com/invopop/jsonschema v0.13.0
 	github.com/json-iterator/go v1.1.12
 	github.com/klauspost/compress v1.20.3
+	github.com/labstack/echo/v5 v5.0.0
 	github.com/lib/pq v1.12.3
 	github.com/microsoft/go-winmd v0.0.0-20261109085045-a22c885c141f
 	github.com/mitchellh/copystructure v1.2.0

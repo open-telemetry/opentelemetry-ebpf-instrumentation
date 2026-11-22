@@ -697,6 +697,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.MuxTemplatePos,
 		goexec.GinFullpathPos,
 		goexec.RestfulRoutePathPos,
+		goexec.EchoV5ContextPathPos,
 	} {
 		if val, ok := offsets.Field[field].(uint64); ok {
 			offTable.Table[field] = val
@@ -2385,6 +2386,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		// go-restful router
 		m["github.com/emicklei/go-restful/v3.(*Route).wrapRequestResponse"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeRestfulRouteWrapRequestResponse,
+		}}
+		m["github.com/labstack/echo/v5.(*DefaultRouter).Route"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeEchoV5Route,
+			End:   p.bpfObjects.ObiUprobeEchoV5RouteReturns,
 		}}
 	}
 

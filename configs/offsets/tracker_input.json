@@ -1,4 +1,11 @@
 {
+  "github.com/labstack/echo/v5": {
+    "inspect": "./configs/offsets/echo-v5/inspect.go",
+    "versions": "= v5.0.0",
+    "fields": {
+      "github.com/labstack/echo/v5.Context": ["path"]
+    }
+  },
   "go": {
     "versions": ">= 1.17",
     "inspect": "./configs/offsets/std_inspect.go",
