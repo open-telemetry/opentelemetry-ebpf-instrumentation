@@ -306,6 +306,7 @@ func (p *Tracer) constants() map[string]any {
 		"g_bpf_debug":              p.cfg.EBPF.BpfDebug,
 	}
 	maps.Copy(m, ebpfcommon.PIDFilterConstants())
+	maps.Copy(m, ebpfcommon.ExtraHTTPMethodConstants())
 
 	return m
 }

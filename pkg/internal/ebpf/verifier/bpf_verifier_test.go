@@ -163,6 +163,20 @@ func forEachCombination(t *testing.T, prefix string, loadFn func() (*ebpf.Collec
 // the valid_pid() paths the loader can pick (ebpfcommon.PIDFilterConstants)
 var pidNamespaceModes = []any{uint32(ebpfcommon.PIDNamespaceInit), uint32(ebpfcommon.PIDNamespacePod)}
 
+func TestBPFVerifierHTTPKnownMethods(t *testing.T) {
+	if err := rlimit.RemoveMemlock(); err != nil {
+		t.Skipf("cannot remove memlock limit (insufficient privileges?): %v", err)
+	}
+	methods := [16]struct {
+		Name [10]byte
+		Len  uint8
+	}{{Name: [10]byte{'P', 'U', 'R', 'G', 'E'}, Len: 5}}
+	constants := map[string]any{"extra_http_methods": methods, "extra_http_method_count": uint32(1)}
+	loadAndVerify(t, "generictracer", generictracerbpf.LoadBpf, constants)
+	loadAndVerify(t, "gotracer", gotracerbpf.LoadBpf, constants)
+	loadAndVerify(t, "tpinjector", tpinjectorbpf.LoadBpf, constants)
+}
+
 func TestBPFVerifierHTTPSampling(t *testing.T) {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		t.Skipf("cannot remove memlock limit (insufficient privileges?): %v", err)

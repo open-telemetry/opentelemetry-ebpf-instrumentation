@@ -252,6 +252,7 @@ func (p *Tracer) constants(eventsRingBufSize uint32) map[string]any {
 		m["filter_pids"] = int32(1)
 	}
 	maps.Copy(m, ebpfcommon.PIDFilterConstants())
+	maps.Copy(m, ebpfcommon.ExtraHTTPMethodConstants())
 
 	if p.cfg.EBPF.TrackRequestHeaders ||
 		p.cfg.EBPF.ContextPropagation.IsEnabled() {
