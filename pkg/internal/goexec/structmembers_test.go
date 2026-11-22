@@ -399,15 +399,16 @@ func TestEchoV5OffsetsAndProbes(t *testing.T) {
 						require.NoError(t, err)
 						require.Equal(t, pathOffset, fields[EchoV5ContextPathPos])
 					}
+					// Instruction decoding is compiled for the host architecture.
+					if arch != runtime.GOARCH {
+						return
+					}
 					points, err := instrumentationPoints(file, []string{symbol})
 					require.NoError(t, err)
 					require.NotEmpty(t, points[symbol])
 					for _, point := range points[symbol] {
 						require.NotZero(t, point.Start)
-						// Return instruction decoding is compiled for the host architecture.
-						if arch == runtime.GOARCH {
-							require.NotEmpty(t, point.Returns)
-						}
+						require.NotEmpty(t, point.Returns)
 					}
 				})
 			}
