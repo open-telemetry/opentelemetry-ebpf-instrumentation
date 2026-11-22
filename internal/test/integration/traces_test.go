@@ -256,6 +256,15 @@ func testHTTPTracesRestfulRoutes(t *testing.T) {
 }
 
 func testHTTPTracesEchoRoutes(t *testing.T) {
+	testHTTPTracesEchoRoutesAt(t, instrumentedServiceEchoURL)
+}
+
+func testHTTPTracesEchoV4Routes(t *testing.T) {
+	testHTTPTracesEchoRoutesAt(t, instrumentedServiceEchoV4URL)
+}
+
+func testHTTPTracesEchoRoutesAt(t *testing.T, baseURL string) {
+	t.Helper()
 	waitForHTTPServerTrace(t, instrumentedServiceStdURL)
 	for _, tc := range []struct {
 		method, path, route string
@@ -270,7 +279,7 @@ func testHTTPTracesEchoRoutes(t *testing.T) {
 	} {
 		t.Run(tc.method+tc.path, func(t *testing.T) {
 			traceID := createTraceID()
-			req, err := http.NewRequest(tc.method, instrumentedServiceEchoURL+tc.path, nil)
+			req, err := http.NewRequest(tc.method, baseURL+tc.path, nil)
 			require.NoError(t, err)
 			req.Header.Set("Traceparent", createTraceparent(traceID, createParentID()))
 			resp, err := testHTTPClient.Do(req)

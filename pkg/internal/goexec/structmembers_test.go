@@ -368,20 +368,30 @@ func TestRestfulOffsetsFromDwarf(t *testing.T) {
 }
 
 func TestEchoV5OffsetsAndProbes(t *testing.T) {
-	const symbol = "github.com/labstack/echo/v5.(*DefaultRouter).Route"
+	testEchoOffsetsAndProbes(t, "echo-v5", "github.com/labstack/echo/v5.(*DefaultRouter).Route",
+		"github.com/labstack/echo/v5.Context", "5.0.0", EchoV5ContextPathPos)
+}
+
+func TestEchoV4OffsetsAndProbes(t *testing.T) {
+	testEchoOffsetsAndProbes(t, "echo-v4", "github.com/labstack/echo/v4.(*Router).Find",
+		"github.com/labstack/echo/v4.context", "4.13.4", EchoV4ContextPathPos)
+}
+
+func testEchoOffsetsAndProbes(t *testing.T, fixture, symbol, typeName, version string, field GoOffset) {
+	t.Helper()
 	for _, arch := range []string{"amd64", "arm64"} {
 		t.Run(arch, func(t *testing.T) {
-			source := tools.ProjectDir() + "/configs/offsets/echo-v5/inspect.go"
+			source := tools.ProjectDir() + "/configs/offsets/" + fixture + "/inspect.go"
 			debugFile, err := compileELFWithEnv(source, []string{"GOARCH=" + arch})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, debugFile.Close()) })
 			data, err := debugFile.DWARF()
 			require.NoError(t, err)
-			contextType := dwarfStruct(t, data, "github.com/labstack/echo/v5.Context")
+			contextType := dwarfStruct(t, data, typeName)
 			pathOffset := uint64(dwarfStructField(t, contextType, "path").ByteOffset)
 			track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
 			require.NoError(t, err)
-			assertPrefetchedOffset(t, track, "github.com/labstack/echo/v5.Context", "path", "5.0.0", pathOffset)
+			assertPrefetchedOffset(t, track, typeName, "path", version, pathOffset)
 			for _, stripped := range []bool{false, true} {
 				t.Run(fmt.Sprintf("stripped=%t", stripped), func(t *testing.T) {
 					file := debugFile
@@ -393,11 +403,11 @@ func TestEchoV5OffsetsAndProbes(t *testing.T) {
 					}
 					if !stripped {
 						fields, _ := structMemberOffsetsFromDwarf(data)
-						require.Equal(t, pathOffset, fields[EchoV5ContextPathPos])
+						require.Equal(t, pathOffset, fields[field])
 					} else {
 						fields, err := structMemberOffsets(file)
 						require.NoError(t, err)
-						require.Equal(t, pathOffset, fields[EchoV5ContextPathPos])
+						require.Equal(t, pathOffset, fields[field])
 					}
 					// Instruction decoding is compiled for the host architecture.
 					if arch != runtime.GOARCH {

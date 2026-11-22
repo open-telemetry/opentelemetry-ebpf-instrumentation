@@ -340,6 +340,20 @@
         ]
       }
     },
+    "github.com/labstack/echo/v4.context": {
+      "path": {
+        "versions": {
+          "oldest": "4.13.4",
+          "newest": "4.13.4"
+        },
+        "offsets": [
+          {
+            "offset": 88,
+            "since": "4.13.4"
+          }
+        ]
+      }
+    },
     "github.com/labstack/echo/v5.Context": {
       "path": {
         "versions": {
