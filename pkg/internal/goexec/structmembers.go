@@ -221,6 +221,7 @@ const (
 	MuxTemplatePos
 	GinFullpathPos
 	RestfulRoutePathPos
+	EchoV5ContextPathPos
 	// Go runtime metrics
 	RuntimeMemstatsNumGCPos
 	RuntimeGCControllerMemoryLimitPos
@@ -768,6 +769,12 @@ var structMembers = map[string]structInfo{
 		lib: "github.com/emicklei/go-restful/v3",
 		fields: map[string]GoOffset{
 			"Path": RestfulRoutePathPos,
+		},
+	},
+	"github.com/labstack/echo/v5.Context": {
+		lib: "github.com/labstack/echo/v5",
+		fields: map[string]GoOffset{
+			"path": EchoV5ContextPathPos,
 		},
 	},
 	"runtime.mstats": {

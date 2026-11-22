@@ -145,6 +145,29 @@ func TestSetFramerPaddingOffsetUsesExactLayout(t *testing.T) {
 	assert.Equal(t, missingGoOffset, offTable.Table[goexec.FramerPadLengthStackPos])
 }
 
+func TestEchoV5ProbesFollowRouteHarvesting(t *testing.T) {
+	disableContextPropagationForTest(t)
+	const symbol = "github.com/labstack/echo/v5.(*DefaultRouter).Route"
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+	require.Contains(t, spec.Programs, "obi_uprobe_echoV5Route")
+	require.Contains(t, spec.Programs, "obi_uprobe_echoV5RouteReturns")
+	require.Contains(t, spec.Maps, "ongoing_echo_v5_routes")
+	assert.Equal(t, ebpf.LRUHash, spec.Maps["ongoing_echo_v5_routes"].Type)
+	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["ongoing_echo_v5_routes"].Pinning)
+
+	tracer := &Tracer{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	entry, exit := new(ebpf.Program), new(ebpf.Program)
+	tracer.bpfObjects.ObiUprobeEchoV5Route = entry
+	tracer.bpfObjects.ObiUprobeEchoV5RouteReturns = exit
+	probes := tracer.GoProbes()
+	require.Len(t, probes[symbol], 1)
+	assert.Same(t, entry, probes[symbol][0].Start)
+	assert.Same(t, exit, probes[symbol][0].End)
+	tracer.disabledRouteHarvesting = true
+	assert.NotContains(t, tracer.GoProbes(), symbol)
+}
+
 func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 	disableContextPropagationForTest(t)
 

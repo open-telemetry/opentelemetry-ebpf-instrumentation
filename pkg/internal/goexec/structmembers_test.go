@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"runtime"
 	"testing"
 
 	"github.com/grafana/go-offsets-tracker/pkg/offsets"
@@ -364,6 +365,54 @@ func TestRestfulOffsetsFromDwarf(t *testing.T) {
 	pathOffset := uint64(dwarfStructField(t, routeType, "Path").ByteOffset)
 
 	assert.Equal(t, pathOffset, offsets[RestfulRoutePathPos])
+}
+
+func TestEchoV5OffsetsAndProbes(t *testing.T) {
+	const symbol = "github.com/labstack/echo/v5.(*DefaultRouter).Route"
+	for _, arch := range []string{"amd64", "arm64"} {
+		t.Run(arch, func(t *testing.T) {
+			source := tools.ProjectDir() + "/configs/offsets/echo-v5/inspect.go"
+			debugFile, err := compileELFWithEnv(source, []string{"GOARCH=" + arch})
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, debugFile.Close()) })
+			data, err := debugFile.DWARF()
+			require.NoError(t, err)
+			contextType := dwarfStruct(t, data, "github.com/labstack/echo/v5.Context")
+			pathOffset := uint64(dwarfStructField(t, contextType, "path").ByteOffset)
+			track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+			require.NoError(t, err)
+			assertPrefetchedOffset(t, track, "github.com/labstack/echo/v5.Context", "path", "5.0.0", pathOffset)
+			for _, stripped := range []bool{false, true} {
+				t.Run(fmt.Sprintf("stripped=%t", stripped), func(t *testing.T) {
+					file := debugFile
+					if stripped {
+						var err error
+						file, err = compileELFWithEnv(source, []string{"GOARCH=" + arch}, "-ldflags", "-s -w")
+						require.NoError(t, err)
+						t.Cleanup(func() { require.NoError(t, file.Close()) })
+					}
+					if !stripped {
+						fields, _ := structMemberOffsetsFromDwarf(data)
+						require.Equal(t, pathOffset, fields[EchoV5ContextPathPos])
+					} else {
+						fields, err := structMemberOffsets(file)
+						require.NoError(t, err)
+						require.Equal(t, pathOffset, fields[EchoV5ContextPathPos])
+					}
+					points, err := instrumentationPoints(file, []string{symbol})
+					require.NoError(t, err)
+					require.NotEmpty(t, points[symbol])
+					for _, point := range points[symbol] {
+						require.NotZero(t, point.Start)
+						// Return instruction decoding is compiled for the host architecture.
+						if arch == runtime.GOARCH {
+							require.NotEmpty(t, point.Returns)
+						}
+					}
+				})
+			}
+		})
+	}
 }
 
 func TestRestfulOffsetsWithoutDwarf(t *testing.T) {

@@ -110,6 +110,17 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
+- Echo v5.0.0's built-in router now supplies declared route templates, including
+  group prefixes and wildcard syntax, when Go route harvesting is enabled.
+  Server span names and `http.route` values (including Prometheus `http_route`
+  labels) can change from inferred paths or outer ServeMux matches to Echo
+  templates, aggregating IDs under the same route. Raw `url.path` is unchanged.
+  Explicit route configuration and disabled-harvesting behavior are unchanged.
+  This adds instrumentation coverage in a v1 minor release under `VERSIONING.md`
+  and the correctness-fix allowance in `TELEMETRY.md`; no telemetry identifiers
+  are renamed, so no schema transformation is required. Echo v4 and custom v5
+  routers are not included.
+
 - HTTP metrics support `network.protocol.version` (`network_protocol_version` in
   Prometheus). It is opt-in on the stable duration metrics to preserve existing series,
   and enabled by default on the development body-size metrics. Select it through

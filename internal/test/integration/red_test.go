@@ -9,6 +9,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"strconv"
@@ -961,27 +962,37 @@ func testPrometheusNoOBIEvents(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testREDMetricsRouteHarvesting(t *testing.T, url, svcName, svcNameSpace, route string) {
+func testREDMetricsRouteHarvesting(t *testing.T, baseURL, svcName, svcNameSpace, route string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	for _, path := range []string{"/rolldice/4", "/rolldice/42"} {
-		for range 2 {
-			ti.DoHTTPGet(t, url+path, 200)
-		}
-	}
+	parsedURL, err := url.Parse(baseURL)
+	require.NoError(t, err)
+	selector := `http_request_method="GET",` +
+		`http_response_status_code="200",` +
+		`service_name="` + svcName + `",` +
+		`service_namespace="` + svcNameSpace + `",`
+	query := `http_server_request_duration_seconds_count{` + selector +
+		`http_route="` + route + `"}`
 
-	// Test span metrics
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		results, err := pq.Query(`http_server_request_duration_seconds_count{` +
-			`http_request_method="GET",` +
-			`http_response_status_code="200",` +
-			`service_name="` + svcName + `",` +
-			`service_namespace="` + svcNameSpace + `",` +
-			`http_route="` + route + `"}`)
-		require.NoError(ct, err)
-		enoughPromResults(ct, results)
-		val := totalPromCount(ct, results)
-		assert.LessOrEqual(ct, 3, val, route)
-	}, testTimeout, 100*time.Millisecond)
+	for _, path := range []string{"/rolldice/4", "/rolldice/42"} {
+		results, err := pq.Query(query)
+		require.NoError(t, err)
+		before := totalPromCount(t, results)
+		const requestsPerID = 2
+		for range requestsPerID {
+			ti.DoHTTPGet(t, baseURL+path, 200)
+		}
+
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			results, err := pq.Query(query)
+			require.NoError(ct, err)
+			assert.GreaterOrEqual(ct, totalPromCount(ct, results)-before, requestsPerID, path)
+
+			rawResults, err := pq.Query(`http_server_request_duration_seconds_count{` +
+				selector + `http_route="` + parsedURL.Path + path + `"}`)
+			require.NoError(ct, err)
+			assert.Empty(ct, rawResults, "raw ID must not become a route label")
+		}, testTimeout, 100*time.Millisecond)
+	}
 }
 
 func testREDMetricsHTTPAutoRoutes(t *testing.T) {
@@ -991,6 +1002,7 @@ func testREDMetricsHTTPAutoRoutes(t *testing.T) {
 		{instrumentedServiceGinURL, "/rolldice/:id"},
 		{instrumentedServiceGorillaMidURL, "/rolldice/{id}"},
 		{instrumentedServiceRestfulURL + "/api", "/api/rolldice/{id}"},
+		{instrumentedServiceEchoURL + "/api", "/api/rolldice/:id"},
 	} {
 		t.Run(testParts[0], func(t *testing.T) {
 			waitForTestComponentsSub(t, testParts[0], "/rolldice/4")
