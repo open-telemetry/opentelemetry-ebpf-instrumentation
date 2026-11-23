@@ -14,6 +14,8 @@ import (
 	"testing"
 
 	"github.com/cilium/ebpf"
+
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 )
 
 func TestFixupSpec(t *testing.T) {
@@ -245,9 +247,9 @@ func (c *closeCounter) Close() error {
 }
 
 func TestAttachDoTCPSendPages(t *testing.T) {
-	origKernelVersion, origAttachKprobe := kernelVersion, attachKprobe
+	origKernelHasSymbol, origAttachKprobe := kernelHasSymbol, attachKprobe
 	t.Cleanup(func() {
-		kernelVersion, attachKprobe = origKernelVersion, origAttachKprobe
+		kernelHasSymbol, attachKprobe = origKernelHasSymbol, origAttachKprobe
 	})
 
 	type attachCall struct {
@@ -263,23 +265,28 @@ func TestAttachDoTCPSendPages(t *testing.T) {
 	bothCalls := []attachCall{{program: ret, ret: true}, {program: entry}}
 
 	tests := []struct {
-		name         string
-		major, minor int
-		failOn       *ebpf.Program
-		wantCalls    []attachCall
-		wantLinks    int
-		wantCloses   int
+		name       string
+		found      bool
+		symbolErr  error
+		failOn     *ebpf.Program
+		wantCalls  []attachCall
+		wantLinks  int
+		wantCloses int
 	}{
-		{name: "skipped on 6.5", major: 6, minor: 5},
-		{name: "skipped on 7.0", major: 7},
-		{name: "both attached on 6.4", major: 6, minor: 4, wantCalls: bothCalls, wantLinks: 2},
-		{name: "both attached on 5.8", major: 5, minor: 8, wantCalls: bothCalls, wantLinks: 2},
-		{name: "return probe closed when the entry probe fails", major: 6, minor: 4, failOn: entry, wantCalls: bothCalls, wantCloses: 1},
-		{name: "entry probe not attached when the return probe fails", major: 6, minor: 4, failOn: ret, wantCalls: bothCalls[:1]},
+		{name: "skipped without the symbol"},
+		{name: "skipped when the symbol check fails", symbolErr: errors.New("no kernel BTF")},
+		{name: "both attached with the symbol", found: true, wantCalls: bothCalls, wantLinks: 2},
+		{name: "return probe closed when the entry probe fails", found: true, failOn: entry, wantCalls: bothCalls, wantCloses: 1},
+		{name: "entry probe not attached when the return probe fails", found: true, failOn: ret, wantCalls: bothCalls[:1]},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			kernelVersion = func() (int, int) { return tc.major, tc.minor }
+			kernelHasSymbol = func(sym ebpfcommon.KSym) (bool, error) {
+				if sym != ebpfcommon.KSymDoTCPSendPages {
+					t.Errorf("checked %q, want %q", sym, ebpfcommon.KSymDoTCPSendPages)
+				}
+				return tc.found, tc.symbolErr
+			}
 
 			var calls []attachCall
 			link := &closeCounter{}

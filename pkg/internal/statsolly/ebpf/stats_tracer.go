@@ -298,13 +298,19 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 }
 
 var (
-	kernelVersion = ebpfcommon.KernelVersion
-	attachKprobe  = kprobe.Attach
+	kernelHasSymbol = ebpfcommon.KernelHasSymbol
+	attachKprobe    = kprobe.Attach
 )
 
 // sockmap sends go through do_tcp_sendpages before kernel 6.5, which removed it
 func attachDoTCPSendPages(log *slog.Logger, objects *StatsObjects) []io.Closer {
-	if major, minor := kernelVersion(); major > 6 || (major == 6 && minor >= 5) {
+	found, err := kernelHasSymbol(ebpfcommon.KSymDoTCPSendPages)
+	if err != nil {
+		log.Warn("kernel symbol not checked, TCP IO metrics may miss the bytes sent by sockets in a sockmap",
+			"symbol", KprobeDoTCPSendPages, "error", err)
+		return nil
+	}
+	if !found {
 		return nil
 	}
 
