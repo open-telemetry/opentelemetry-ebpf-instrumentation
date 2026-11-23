@@ -58,6 +58,34 @@ def outer(case, token):
     middle(case, token)
 
 
+def lookup(name):
+    # A frame that names the error it raises keeps it alive until collected.
+    error = LookupError(name)
+    raise error
+
+
+def error_page():
+    """Falls back to text when the 500 template is missing, as Django does."""
+    try:
+        return lookup("500.html")
+    except LookupError:
+        return "Server Error (500)"
+
+
+def evict(key):
+    try:
+        lookup(key)
+    except LookupError:
+        pass
+
+
+def close():
+    try:
+        raise ConnectionError("already closed")
+    except ConnectionError:
+        pass
+
+
 def recursive(depth, token):
     if depth:
         recursive(depth - 1, token)
@@ -88,6 +116,32 @@ def invoke(case, token):
             outer("ascii", token)
         except ValueError as error:
             raise RuntimeError(token) from error
+    elif case == "implicit_replacement":
+        try:
+            outer("ascii", token)
+        except ValueError:
+            lookup(token)
+    elif case == "with_traceback":
+        try:
+            outer("ascii", token)
+        except ValueError as error:
+            raise RuntimeError(token).with_traceback(error.__traceback__) from error
+    elif case == "cleanup":
+        try:
+            outer("ascii", token)
+        finally:
+            evict(token)
+    elif case == "finally":
+        try:
+            raise ValueError(token)
+        finally:
+            close()
+    elif case == "open":
+        try:
+            token + 1
+        finally:
+            with open(__file__) as source:
+                source.readline()
     else:
         outer(case, token)
 
@@ -116,6 +170,8 @@ def escape(case, token):
         invoke(case, token)
     except BaseException as error:
         truths[token] = ground_truth(error)
+        if case == "error_page":
+            error_page()
         raise
 
 

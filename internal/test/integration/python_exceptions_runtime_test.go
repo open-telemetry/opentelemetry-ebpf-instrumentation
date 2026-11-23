@@ -49,6 +49,7 @@ func TestPythonExceptions(t *testing.T) {
 	cases := []string{
 		"ascii", "empty", "unicode", "long", "key", "os", "custom", "multiarg",
 		"native", "native-int", "deep", "reraise", "raise_error", "latest", "chained",
+		"implicit_replacement", "with_traceback", "error_page", "cleanup", "finally", "open",
 	}
 	if pythonMinor(t) >= 11 {
 		cases = append(cases, "group")
@@ -207,10 +208,6 @@ func assertPythonException(t *testing.T, event exceptions.Event, truth pythonExc
 	var expected []string
 	for _, frame := range truth.Frames {
 		expected = append(expected, fmt.Sprintf("  File \"%s\", line %d, in %s", frame.File, frame.Line, frame.Function))
-	}
-	// `raise error` adds a frame for the re-raise; the capture keeps the first raise.
-	if scenario == "raise_error" {
-		expected = expected[len(expected)-4:]
 	}
 	expected = foldPythonFrames(expected)
 	if scenario == "deep" {
