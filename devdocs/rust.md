@@ -20,4 +20,4 @@ task’s trace and span IDs to logs written to stdout or stderr. A task can yiel
 and resume on another worker and still log with the same context. OBI looks up
 the context when the write occurs, so a logger that queues records for a
 dedicated writer thread loses the originating task’s context.
-See [trace-log correlation](../trace-log-correlation.md#rust-tokio-task-polls).
+See [trace-log correlation](trace-log-correlation.md#rust-tokio-task-polls).
