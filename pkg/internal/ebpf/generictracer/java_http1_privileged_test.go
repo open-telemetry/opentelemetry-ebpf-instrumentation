@@ -76,6 +76,9 @@ type javaHTTP1TestObjects struct {
 	SysConnect     *ebpf.Program `ebpf:"obi_kprobe_sys_connect"`
 	Connect        *ebpf.Program `ebpf:"obi_kprobe_tcp_connect"`
 	ConnectError   *ebpf.Program `ebpf:"obi_kprobe_sock_def_error_report"`
+	TCPClose       *ebpf.Program `ebpf:"obi_kprobe_tcp_close"`
+	TCPEventJumps  *ebpf.Map     `ebpf:"tcp_event_jump_table"`
+	ConnectInfo    *ebpf.Map     `ebpf:"cp_support_connect_info"`
 	Events         *ebpf.Map     `ebpf:"events"`
 }
 
@@ -125,6 +128,9 @@ func loadJavaHTTP1ReservationsWithLoops(t *testing.T, enabled, useBPFLoop bool) 
 		objs.SysConnect.Close()
 		objs.Connect.Close()
 		objs.ConnectError.Close()
+		objs.TCPClose.Close()
+		objs.TCPEventJumps.Close()
+		objs.ConnectInfo.Close()
 		objs.Events.Close()
 		objs.Ioctl.Close()
 		objs.Requests.Close()

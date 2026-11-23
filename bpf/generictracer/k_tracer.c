@@ -776,26 +776,52 @@ static __always_inline bool is_conn_unreadable(const connection_info_t *conn) {
     return is_port_unreadable(conn->d_port) || is_port_unreadable(conn->s_port);
 }
 
-enum { k_tail_tcp_close_finish };
+typedef struct failed_connect_args {
+    u64 connect_ts;
+    pid_connection_info_t pid_conn;
+    u16 orig_dport;
+    bool from_close;
+    u8 _pad[5];
+} failed_connect_args_t;
+
+SCRATCH_MEM_TYPED(failed_connect, failed_connect_args_t)
+
+enum { k_tail_tcp_close_finish, k_tail_emit_failed_connect, k_tcp_event_tail_count };
 
 int obi_kprobe_tcp_close_finish(struct pt_regs *ctx);
+int obi_emit_failed_connect(struct pt_regs *ctx);
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 1);
+    __uint(max_entries, k_tcp_event_tail_count);
     __uint(key_size, sizeof(u32));
     __array(values, int(void *));
-} tcp_close_jump_table SEC(".maps") = {
+} tcp_event_jump_table SEC(".maps") = {
     .values =
         {
             [k_tail_tcp_close_finish] = (void *)&obi_kprobe_tcp_close_finish,
+            [k_tail_emit_failed_connect] = (void *)&obi_emit_failed_connect,
         },
 };
 
-SEC("kprobe/tcp_close")
-int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close_finish, struct sock *sk) {
-    (void)ctx;
+// Resolve the parent in a separate program so the verifier explores the lookup
+// independently of the branches that identified the failed connect.
+static __always_inline void report_failed_connect(struct pt_regs *ctx,
+                                                  const pid_connection_info_t *info,
+                                                  u16 orig_dport,
+                                                  u64 connect_ts,
+                                                  bool from_close) {
+    failed_connect_args_t *args = failed_connect_mem();
+    if (args) {
+        args->pid_conn = *info;
+        args->orig_dport = orig_dport;
+        args->connect_ts = connect_ts;
+        args->from_close = from_close;
+        preempt_guarded_tail_call_static(ctx, &tcp_event_jump_table, k_tail_emit_failed_connect);
+    }
+}
 
+static __always_inline void finish_tcp_close(struct sock *sk) {
     const u64 id = bpf_get_current_pid_tgid();
 
     trace_key_t current_key = {};
@@ -826,13 +852,38 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close_finish, struct sock *sk) {
 
     bpf_map_delete_elem(&active_send_args, &id);
     bpf_map_delete_elem(&active_send_sock_args, &sock_p);
+}
 
+SEC("kprobe/failed_connect")
+int BPF_KPROBE_GUARDED(obi_emit_failed_connect, struct sock *sk) {
+    (void)ctx;
+
+    failed_connect_args_t *args = failed_connect_mem();
+    if (!args) {
+        return 0;
+    }
+
+    dbg_print_http_connection_info(&args->pid_conn.conn);
+    failed_to_connect_event(&args->pid_conn, k_lw_thread_none, args->orig_dport, args->connect_ts);
+    if (args->from_close) {
+        // Parent lookup may need the trace key saved at connect time.
+        bpf_map_delete_elem(&cp_support_connect_info, &args->pid_conn);
+        // Reusing the scratch tuple for close cleanup exceeds the Linux 7.2 debug verifier limit.
+        finish_tcp_close(sk);
+    }
+    return 0;
+}
+
+SEC("kprobe/tcp_close")
+int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close_finish, struct sock *sk) {
+    (void)ctx;
+
+    finish_tcp_close(sk);
     return 0;
 }
 
 SEC("kprobe/tcp_close")
 int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
-    (void)ctx;
     (void)timeout;
 
     const u64 id = bpf_get_current_pid_tgid();
@@ -853,8 +904,11 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
 
         dbg_print_http_connection_info(&info.conn);
 
-        bool connect_failed = false;
-        u64 connect_ts = 0;
+        if (g_bpf_java_http1_enabled) {
+            const u64 request_id = java_http1_request_id(&info);
+            java_http1_request_retire(
+                &info, java_http1_request_lookup(&info, request_id), request_id);
+        }
 
         if (is_tcp_socket_never_connected(sk)) {
             cp_support_data_t *ct = bpf_map_lookup_elem(&cp_support_connect_info, &info);
@@ -865,33 +919,18 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
             }
 
             if (ct && !ct->established && !ct->failed) {
-                connect_failed = true;
-                connect_ts = ct->ts;
+                report_failed_connect(ctx, &info, orig_dport, ct->ts, true);
             }
         }
         bpf_map_delete_elem(&cp_support_connect_info, &info);
-        if (g_bpf_java_http1_enabled) {
-            const u64 request_id = java_http1_request_id(&info);
-            java_http1_request_retire(
-                &info, java_http1_request_lookup(&info, request_id), request_id);
-        }
-
-        // Emitted last, so the verifier does not carry each state of the inlined
-        // parent lookup through the Java cleanup
-        if (connect_failed) {
-            dbg_print_http_connection_info(&info.conn);
-            failed_to_connect_event(&info, k_lw_thread_none, orig_dport, connect_ts);
-        }
     }
 
-    preempt_guarded_tail_call_static(ctx, &tcp_close_jump_table, k_tail_tcp_close_finish);
+    preempt_guarded_tail_call_static(ctx, &tcp_event_jump_table, k_tail_tcp_close_finish);
     return 0;
 }
 
 SEC("kprobe/sock_def_error_report")
 int BPF_KPROBE_GUARDED(obi_kprobe_sock_def_error_report, struct sock *sk) {
-    (void)ctx;
-
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -909,32 +948,22 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sock_def_error_report, struct sock *sk) {
         const u16 orig_dport = info.conn.d_port;
         sort_connection_info(&info.conn);
 
-        bool connect_failed = false;
-        u64 connect_ts = 0;
-
         if (args) {
-            if (!args->failed) {
-                connect_failed = true;
-                connect_ts = args->ts;
-                // mark the args and cp_support_info as failed so we don't duplicate the event
-                cp_support_data_t *cp_data = bpf_map_lookup_elem(&cp_support_connect_info, &info);
-                if (cp_data) {
-                    cp_data->failed = 1;
-                }
-                args->failed = 1;
+            if (args->failed) {
+                return 0;
             }
+            // Mark both records before emitting so tcp_close cannot report the same failure.
+            cp_support_data_t *cp_data = bpf_map_lookup_elem(&cp_support_connect_info, &info);
+            if (cp_data) {
+                cp_data->failed = 1;
+            }
+            args->failed = 1;
+            report_failed_connect(ctx, &info, orig_dport, args->ts, false);
         } else {
-            conn_pid_t *conn_pid = bpf_map_lookup_elem(&sock_pids, &info.conn);
+            const conn_pid_t *conn_pid = bpf_map_lookup_elem(&sock_pids, &info.conn);
             if (conn_pid && conn_pid->id == id) {
-                connect_failed = true;
-                connect_ts = conn_pid->ts;
+                report_failed_connect(ctx, &info, orig_dport, conn_pid->ts, false);
             }
-        }
-
-        // A single call site: each one inlines the whole parent lookup
-        if (connect_failed) {
-            dbg_print_http_connection_info(&info.conn);
-            failed_to_connect_event(&info, k_lw_thread_none, orig_dport, connect_ts);
         }
     }
 
