@@ -176,6 +176,15 @@ section empty once drained.
 - MySQL and MariaDB spans for statements that name no table are named
   `{db.operation.name} {db.namespace}` when the database is known (`SELECT sakila` instead of
   `SELECT`). This changes `span.name` on the span metrics as well.
+- The Prometheus `bpf_probe_latency_seconds` histogram (`ebpf` metrics feature) reports
+  programs of every type on the node instead of only kprobe, socket filter, TC, `sk_msg` and
+  `sockops` programs, so tracepoint, raw tracepoint, XDP, cgroup and `Tracing` programs add
+  series. On cgroup v2 nodes, container runtimes load one cgroup device program per
+  container, so the histogram gains one set of series per container, under a new
+  `bpf_probe_id` after each container restart. The internal BPF probe metrics (`obi.bpf.probe.latency`,
+  `obi_bpf_probe_executions_total`, `obi_bpf_probe_latency_seconds_total`) cover only the
+  programs OBI loaded, of every type: series of other eBPF tools on the node disappear, and
+  series of OBI's tracepoint, raw tracepoint, XDP and `Tracing` programs appear.
 
 ## Hosting notes
 

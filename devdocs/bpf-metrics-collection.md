@@ -3,22 +3,36 @@
 The BPF metrics collector reports execution statistics for eBPF programs and
 entry counts for eBPF LRU hash maps loaded on the host.
 
-The collector is host-wide. Every collection walks the kernel's complete
-program ID namespace from the beginning, so it captures all existing probes of
-the supported program types, including probes that were not loaded by OBI. A
-later collection also discovers probes loaded after the collector started.
+Which programs the collector covers depends on the
+[collection path](#collection-paths):
+
+- The Prometheus collector describes the node. Every collection walks the
+  kernel's complete program ID namespace from the beginning, so it captures all
+  existing programs, including programs that were not loaded by OBI. A later
+  collection also discovers programs loaded after the collector started.
+- The internal collector describes OBI. It reports only the programs OBI holds
+  a file descriptor for, directly or through a link, as listed in
+  `/proc/self/fdinfo`. These are the descriptors of the whole process: when
+  OBI runs as a Collector receiver, the internal collector also reports the
+  programs of other components in the same Collector, such as the eBPF
+  profiler.
+
+Map metrics are host-wide on both paths.
 
 ## Supported kernel objects
 
-The collector reports programs with these eBPF program types:
+Both collectors report programs of every eBPF program type. On the Prometheus
+path this includes per-container programs, such as the cgroup device program
+that container runtimes load for every container on cgroup v2. The number of
+series then follows the number of containers on the node, and a restarted
+container appears under a new program ID.
 
-- `Kprobe`
-- `SocketFilter`
-- `SchedCLS`
-- `SkMsg`
-- `SockOps`
+The internal collector does not list programs that only an OBI program array
+keeps alive, such as the `uprobe_multi` copies of tail-call targets: the loader
+places them in the array and keeps no descriptor for them. As tail-call targets
+they never count executions, so the internal metrics lose no data.
 
-It reports entry counts only for `LRUHash` maps. Other program and map types are
+The collector reports entry counts only for `LRUHash` maps. Other map types are
 still encountered during the host-wide walks, but they are not emitted as
 metrics.
 
@@ -33,7 +47,10 @@ BPF metrics can be collected through either of these paths:
   configured internal reporter exports the collected values through
   Prometheus or OpenTelemetry.
 
-If both paths are active, each path owns a separate collector.
+If both paths are active, each path owns a separate collector. Their program
+walks never overlap: the Prometheus walk briefly holds descriptors of programs
+OBI did not load, and the internal collector must not read them from
+`/proc/self/fdinfo` as OBI's own.
 
 ### Prometheus collector metrics
 
@@ -65,11 +82,21 @@ cannot drift apart.
 ## Program discovery and statistics
 
 The collector enables kernel BPF runtime statistics for its lifetime so that
-accounting continues between collections. Each collection walks every program
-ID and reads `Stats()` from every supported program. Metadata is cached when a
-program is first observed. Each supported program is opened temporarily to read
-its statistics and closed before collection continues. Unsupported program
-types are cached without retaining their handles.
+accounting continues between collections. Each collection lists the program
+IDs of its path and reads `Stats()` from every reported program. Metadata is
+cached when a program is first observed. Each reported program is opened
+temporarily to read its statistics and closed before collection continues, so
+each Prometheus collection opens every program on the node once.
+
+The kernel accounts executions and runtime only to the program it enters. A
+program reached through a tail call keeps zero executions, and its runtime is
+included in the program that made the tail call.
+
+The runtime is spent in the context that runs the program. A kprobe or
+tracepoint adds it to every process that calls the probed kernel function,
+because process filtering happens inside the program. A uprobe adds it to the
+processes that run the probed binary. An iterator adds it only to the process
+that reads it, which for OBI's TCP iterators is OBI itself.
 
 The collector reports execution-count and runtime changes between collections
 and derives probe latency by dividing the runtime change by the execution-count
