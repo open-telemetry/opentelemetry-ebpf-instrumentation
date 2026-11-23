@@ -7,6 +7,8 @@ config_roots = ["."]
 [tools]
 go = "1.27.3"
 golangci-lint = "2.14.0"
+clang = "22.1.8"
+"conda:llvm-tools" = "22.1.8"
 
 [tasks.fmt]
 run = "golangci-lint fmt"

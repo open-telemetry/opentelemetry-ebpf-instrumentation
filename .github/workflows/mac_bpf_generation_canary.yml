@@ -1,0 +1,96 @@
+name: macOS BPF generation canary
+
+on:
+  pull_request:
+    branches: [zeitlinger/mise]
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    if: github.head_ref == 'gregor/mac-bpf-generation-canary' && github.base_ref == 'zeitlinger/mise'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Mise tools
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: 'false'
+        env:
+          MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools
+
+      - name: Generate BPF bindings on native macOS
+        run: |
+          uname -m
+          go version
+          clang --version
+          make generate
+
+      - name: Assert generation is incremental and header dependencies work
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import subprocess
+          import time
+          from hashlib import sha256
+          from pathlib import Path
+
+          def run_generate():
+              subprocess.run(["make", "generate"], check=True)
+
+          def generated_files():
+              return sorted(
+                  path
+                  for path in Path("pkg").rglob("*")
+                  if path.is_file()
+                  and path.name.endswith(("_bpfel.go", "_bpfel.o", "_bpfel.go.d"))
+              )
+
+          def snapshot():
+              files = generated_files()
+              assert files, "make generate produced no BPF artifacts"
+              assert any(path.name.endswith("_bpfel.go.d") for path in files), (
+                  "make generate produced no bpf2go dependency files"
+              )
+              return {
+                  path: (path.stat().st_mtime_ns, sha256(path.read_bytes()).hexdigest())
+                  for path in files
+              }
+
+          before_noop = snapshot()
+          run_generate()
+          after_noop = snapshot()
+          assert before_noop == after_noop, "make generate changed outputs on a no-op rerun"
+          print(f"No-op generation preserved {len(after_noop)} outputs and dependency files")
+
+          header = Path("bpf/common/scratch_mem.h")
+          dependency_file = next(
+              (
+                  path
+                  for path in Path("pkg").rglob("*.go.d")
+                  if header.as_posix() in path.read_text()
+              ),
+              None,
+          )
+          assert dependency_file is not None, f"no depfile references {header}"
+          target_text = dependency_file.read_text().split(":", 1)[0].strip()
+          target = Path(target_text)
+          assert target.is_file(), f"depfile target does not exist: {target}"
+          old_mtime = target.stat().st_mtime_ns
+
+          time.sleep(2)
+          os.utime(header, None)
+          run_generate()
+          new_mtime = target.stat().st_mtime_ns
+          assert new_mtime > old_mtime, (
+              f"touching {header} did not regenerate dependent artifact {target}"
+          )
+          print(f"Touching {header} regenerated {target}")
+          PY
