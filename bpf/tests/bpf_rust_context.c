@@ -19,11 +19,19 @@ static entry_t entries[k_entries];
 static bool enabled = true;
 static rust_capabilities_t capabilities = {
     .task_context = 1, .client_context = 1, .tokio_runtime = 1};
-static rust_thread_state_t threads[3];
-static const u64 ids[] = {1ULL << 32 | 1, 1ULL << 32 | 2, 2ULL << 32 | 3};
+static rust_thread_state_t threads[4];
+static const u64 ids[] = {1ULL << 32 | 1, 1ULL << 32 | 2, 2ULL << 32 | 3, 1ULL << 32 | 4};
+// A thread of the first process with no Rust state at all.
+static const u64 untracked = 1ULL << 32 | 5;
+// The request the current thread is serving, as server capture keys it by thread.
+static bool serving = false;
+static tp_info_pid_t server_span = {.tp = {.trace_id = {7}}, .valid = 1};
 static void *lookup(void *map, const void *key) {
     if (map == &rust_capabilities) {
         return enabled ? &capabilities : NULL;
+    }
+    if (map == &server_traces) {
+        return serving ? &server_span : NULL;
     }
     if (map == &rust_threads) {
         for (u32 i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) {
@@ -71,7 +79,7 @@ static long erase(void *map, const void *key) {
 }
 
 static void run_task(u32 thread, u64 task) {
-    threads[thread] = (rust_thread_state_t){.tasks = {task}, .depth = 1};
+    threads[thread] = (rust_thread_state_t){.tasks = {task}, .depth = 1, .polled_task = 1};
 }
 
 // trace 0 expects no context: either no entry or a cleared one.
@@ -133,6 +141,32 @@ int main(void) {
     expect_context(1, 42);
     // The poll probes resolve the same context from the worker state they already hold.
     assert(rust_thread_context(ids[1], &threads[1]) == rust_current_context(ids[1]));
+
+    // A plain thread serves one request at a time: a task it spawns inherits that
+    // request, marked as possibly ended. Spawning alone leaves the thread plain.
+    const rust_task_key_t from_plain = {.pid = pid, .addr = 400};
+    serving = true;
+    threads[3] = (rust_thread_state_t){.spawn_depth = 1};
+    assert(!rust_task_thread(ids[3]));
+    assert(rust_task_thread(ids[1]) == &threads[1]);
+    rust_inherit_task_context(ids[3], &from_plain);
+    run_task(1, from_plain.addr);
+    expect_context(1, 7);
+    assert(rust_current_context(ids[1])->response_sent == 1);
+    assert(server_span.response_sent == 0 && "the thread's own span is unchanged");
+
+    erase(&rust_task_context, &from_plain);
+    rust_inherit_task_context(untracked, &from_plain);
+    expect_context(1, 7);
+
+    // A polling thread's thread-keyed span may belong to any task it ran.
+    threads[3].polled_task = 1;
+    rust_inherit_task_context(ids[3], &from_plain);
+    assert(!lookup(&rust_task_context, &from_plain));
+
+    serving = false;
+    rust_inherit_task_context(untracked, &from_plain);
+    assert(!lookup(&rust_task_context, &from_plain));
     printf("OK: %s\n", __FILE__);
     return 0;
 }

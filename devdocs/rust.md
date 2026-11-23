@@ -9,6 +9,9 @@ used for poll and task creation or deallocation. Debug information is optional.
 A worker can switch between unrelated tasks. OBI follows the task across polls
 and copies its parent when it spawns another task. It checks alternative hooks
 for optimized builds and keeps generic capture available when hooks are missing.
+Threads that never poll a Tokio task, such as `std::thread` or rayon workers,
+keep per-thread request tracking. A task spawned from such a thread inherits the
+request that thread is serving.
 
 ## Log enrichment
 

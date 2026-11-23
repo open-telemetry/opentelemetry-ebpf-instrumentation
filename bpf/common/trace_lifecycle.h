@@ -49,8 +49,7 @@ static __always_inline void obi_ctx__restore_server(const tp_info_t *client_tp) 
     }
     // Task tracking is checked once here, so the parent comes from the thread state directly.
     // Threads that never polled a Tokio task restore their thread-keyed server span below.
-    const rust_thread_state_t *thread =
-        rust_task_context_enabled(id) ? bpf_map_lookup_elem(&rust_threads, &id) : NULL;
+    const rust_thread_state_t *thread = rust_task_context_enabled(id) ? rust_task_thread(id) : NULL;
     if (thread) {
         const tp_info_pid_t *parent = rust_thread_context(id, thread);
         if (parent && parent->valid &&

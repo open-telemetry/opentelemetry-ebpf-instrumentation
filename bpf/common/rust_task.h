@@ -5,9 +5,12 @@
 
 #include <bpfcore/utils.h>
 #include <common/event_defs.h>
+#include <common/runtime.h>
+#include <common/trace_key.h>
 #include <logger/bpf_dbg.h>
 
 #include <maps/rust_tasks.h>
+#include <maps/server_traces.h>
 #include <pid/pid.h>
 
 /*
@@ -38,6 +41,15 @@ static __always_inline bool rust_task_context_enabled(u64 id) {
     const rust_capabilities_t *capabilities = rust_process_capabilities(obi_pid(id));
 
     return capabilities && capabilities->task_context;
+}
+
+// Returns the poll state of a thread that has polled a Tokio task, or NULL for a plain
+// thread. A plain thread serves one request at a time, so its thread-keyed server span
+// identifies the request, while a polling thread's may belong to any task it ran.
+static __always_inline const rust_thread_state_t *rust_task_thread(u64 id) {
+    const rust_thread_state_t *thread = bpf_map_lookup_elem(&rust_threads, &id);
+
+    return thread && thread->polled_task ? thread : NULL;
 }
 
 // Resolves the innermost task of a worker's poll stack into a PID-scoped key.
@@ -116,13 +128,36 @@ static __always_inline void rust_set_context(u64 id, const tp_info_pid_t *contex
     }
 }
 
-// Snapshots the current task's context into a task or message map under key.
+// Looks up the server request the current thread is serving, under the key server
+// capture stores it with.
+static __always_inline const tp_info_pid_t *rust_thread_server_trace(void) {
+    trace_key_t t_key = {};
+    task_tid(&t_key.p_key);
+    t_key.extra_id = extra_runtime_id();
+
+    return bpf_map_lookup_elem(&server_traces, &t_key);
+}
+
+// Returns the context work handed off by the current thread inherits: the polled
+// task's context inside a task poll, or the request a plain thread is serving.
+// A thread that has polled tasks has none between polls.
+static __always_inline const tp_info_pid_t *rust_spawner_context(u64 id) {
+    const rust_thread_state_t *thread = rust_task_thread(id);
+    if (thread) {
+        return rust_thread_context(id, thread);
+    }
+
+    return rust_thread_server_trace();
+}
+
+// Snapshots the spawner's context into a task or message map under key, for a
+// caller that checked the process is instrumented.
 // Without a parent the key is deleted instead: a missing entry already means no
 // context, so a recycled key cannot retain an old parent, and context-less tasks
 // do not fill the LRU slots that live request contexts need.
 // The destination must store rust_task_key_t -> tp_info_pid_t.
 static __always_inline void rust_copy_context(u64 id, void *map, const rust_task_key_t *key) {
-    const tp_info_pid_t *parent = rust_current_context(id);
+    const tp_info_pid_t *parent = rust_spawner_context(id);
     if (!parent || !parent->valid) {
         bpf_map_delete_elem(map, key);
         bpf_dbg_printk("rust inherit none key=%llx pid=%u", key->addr, key->pid);

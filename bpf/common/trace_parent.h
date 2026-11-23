@@ -367,7 +367,7 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
     const u32 rust_pid = obi_pid(pid_tgid);
     const rust_capabilities_t *rust = rust_process_capabilities(rust_pid);
     const rust_thread_state_t *rust_thread =
-        rust && rust->tokio_runtime ? bpf_map_lookup_elem(&rust_threads, &pid_tgid) : NULL;
+        rust && rust->tokio_runtime ? rust_task_thread(pid_tgid) : NULL;
     if (rust_thread) {
         return find_tokio_parent_trace(p_conn, rust_pid, rust_thread, wire_tp);
     }

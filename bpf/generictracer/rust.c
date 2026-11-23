@@ -54,6 +54,7 @@ int GUARDED_PROG(obi_rust_task_poll, struct pt_regs *, ctx) {
         return 0;
     }
 
+    thread->polled_task = 1;
     u32 depth = thread->depth;
     if (depth < k_rust_poll_depth) {
         bpf_clamp_umax(depth, k_rust_poll_depth - 1);

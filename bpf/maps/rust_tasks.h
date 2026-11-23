@@ -26,6 +26,10 @@ typedef struct rust_thread_state {
     u64 tasks[k_rust_poll_depth];
     u32 depth;
     u32 spawn_depth;
+    // Set at the thread's first task poll. Spawning alone also creates this state, but
+    // only a polling thread can run unrelated requests in turn.
+    u8 polled_task;
+    u8 _pad[7];
 } rust_thread_state_t;
 
 typedef struct rust_capabilities {
