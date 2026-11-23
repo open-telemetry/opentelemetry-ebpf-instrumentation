@@ -2,55 +2,50 @@
 
 ← [Config v2 dynamic instrumentation](dynamic-instrumentation.md)
 
-The current Node.js dynamic-span slice supports exact CommonJS exported
-functions. Its `on.function` target uses this form:
+The Node.js dynamic-span selector matches a CommonJS exported function's full
+symbol name: its module filename, followed by `:exports` and the exported
+property path. For example:
 
 ```text
-moduleSpecifier#exportPath
+/app/checkout.js:exports.orders.placeOrder
 ```
 
-`moduleSpecifier` is an exact specifier accepted by Node.js CommonJS
-`require()`, such as `@example/checkout`, `./checkout.js`, or an absolute file
-path; glob metacharacters are not supported. `exportPath` is one or more
-dot-separated ASCII JavaScript identifiers naming an exported function or
-nested exported function. Each identifier starts with an ASCII letter, `_`, or
-`$`, and may then contain ASCII letters, digits, `_`, or `$`. For example:
+Use glob patterns to leave details open and narrow the match only when needed:
 
 ```yaml
-capture:
-  rules:
-    - action: include
-      match:
-        process:
-          language_glob: [nodejs]
-          cmd_args_glob: ["node app.js"]
-      refine:
-        spans:
-          - name: checkout.place_order
-            on:
-              function: "./checkout.js#orders.placeOrder"
+# Match this export from any file.
+function: "**:exports.orders.placeOrder"
+
+# If that matches too much, restrict it to checkout.js.
+function: "**/checkout.js:exports.orders.placeOrder"
 ```
 
-The specifier is resolved with Node.js's CommonJS resolver in the loading
-module's context. A matching exported property is instrumented if its module is
-already loaded when injection occurs or is loaded later. The export path must
-contain own data properties, and its final value must be a function. Calls
-produce a span with the configured name; synchronous results, promise
-fulfillment, and thrown/rejected errors are observed. Errors are recorded and
-re-thrown to the application. Calling an exported function as a constructor
-also produces a span.
+An absolute filename can select one exact discovered symbol. A bare function
+name such as `placeOrder` does not match because selectors are matched against
+the full symbol name. `*`, `?`, and `**` are supported; `*` and `?` match
+characters including `/`, while `**` also matches across `/`. This is a
+restricted glob syntax; character classes and brace alternatives are not
+supported.
 
-This slice does not support globs, ES modules, automatic attributes, explicit
-attributes, `function_noret`, or USDT targets. The shared converter validates
-the common declaration structure; Node.js parses the function reference when
-building the injected agent. A `nodejs` language selector is optional and, when
-present, keeps the rule scoped to matching processes. A function reference
-copied from an export before injection cannot be replaced; use the exported
-property after injection for calls to be observed.
+At injection, the agent discovers matching functions in already-loaded
+file-backed CommonJS modules. It also examines modules loaded later. Discovery walks enumerable own data properties of exported objects and nested
+functions to a bounded depth and count; getters are not invoked, and properties
+that cannot be replaced are skipped. The final
+property must hold a function. Matching references are wrapped so calls
+through the exported property produce a span with the configured name.
+Synchronous results, promise fulfillment, and thrown/rejected errors are
+observed; errors are recorded and re-thrown. Constructor calls are also
+wrapped. A reference copied from an export before injection cannot be
+replaced, so calls through that earlier copy are not observed.
 
-If a function reference cannot be parsed, the injector logs the error and skips
-that rule. If a configured module is loaded but its export path is absent, is
-not a function, or cannot be inspected, that rule is skipped without blocking
-sibling rules. A per-rule warning with code `OBI_DYNAMIC_SPAN_TARGET`
-identifies the rule once. Set `OTEL_EBPF_NODEJS_DEBUG=1` in the target process
-to include resolution details.
+Built-in modules are not in `require.cache`; they can be targeted explicitly,
+for example `node:fs:exports.existsSync`. Broad filename globs do not load
+unrelated built-ins. ES modules, automatic attributes, explicit attributes,
+`function_noret`, and USDT targets are not supported in this slice. A `nodejs`
+language selector is optional and, when present, scopes the rule to matching
+processes.
+
+If an export cannot be inspected or wrapped, the rule is skipped without
+blocking sibling rules. A per-rule warning with code
+`OBI_DYNAMIC_SPAN_TARGET` identifies failures. Set
+`OTEL_EBPF_NODEJS_DEBUG=1` in the target process to include details.

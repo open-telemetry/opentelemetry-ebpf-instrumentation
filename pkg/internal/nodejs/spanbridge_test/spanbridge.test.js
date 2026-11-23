@@ -183,11 +183,8 @@ test('dynamic function spans wrap already-loaded and late-loaded CommonJS export
       'dynamic.sync',
     ],
   );
-  assert.strictEqual(result.diagnostics.length, 2, 'bad targets should each produce one diagnostic');
-  assert.ok(result.diagnostics.every((diagnostic) => diagnostic.code === 'OBI_DYNAMIC_SPAN_TARGET'));
-  assert.ok(result.diagnostics.some((diagnostic) => diagnostic.message.includes('dynamic.missing')));
-  assert.ok(result.diagnostics.some((diagnostic) => diagnostic.message.includes('dynamic.proxy-failure')));
-  assert.ok(result.diagnostics.every((diagnostic) => diagnostic.message.includes('export path')));
+  assert.strictEqual(result.diagnostics.length, 0, 'unmatched and skipped proxy targets should not warn');
+  assert.strictEqual(result.proxyTrapCount, 0, 'discovery must not inspect Proxy traps');
   const failed = result.spans.find((span) => span.name === 'dynamic.fail');
   assert.strictEqual(failed.status, 2, 'thrown errors must set the span error status');
   assert.strictEqual(failed.attrs['exception.message'], 'expected failure');
@@ -240,9 +237,8 @@ test('span end failures do not mask dynamic function results or errors', () => {
   assert.strictEqual(result.thrown, 'expected failure');
   assert.strictEqual(result.late, 'late');
   assert.strictEqual(result.callable, 'callable nested');
-  assert.strictEqual(result.diagnostics.length, 2, 'bad targets should warn by default');
+  assert.strictEqual(result.diagnostics.length, 0, 'unmatched selectors should not warn');
   assert.ok(result.diagnostics.every((diagnostic) => diagnostic.code === 'OBI_DYNAMIC_SPAN_TARGET'));
-  assert.ok(result.diagnostics.every((diagnostic) => !diagnostic.message.includes('export path')));
 });
 
 test('mixed reachable + unreachable copies: registry-appearance drives the handoff', () => {

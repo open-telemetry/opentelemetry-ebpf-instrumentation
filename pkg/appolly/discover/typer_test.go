@@ -144,7 +144,7 @@ func TestMakeServiceAttrs(t *testing.T) {
 func TestMakeServiceAttrsCarriesSpansFromMatchedSelectors(t *testing.T) {
 	t.Parallel()
 
-	spans := []services.DynamicSpan{{Name: "checkout.place_order", FunctionReference: "./checkout.js#placeOrder"}}
+	spans := []services.DynamicSpan{{Name: "checkout.place_order", FunctionReference: "**/checkout.js:exports.placeOrder"}}
 	process := &ProcessMatch{
 		Process: &services.ProcessInfo{Pid: 1234},
 		Criteria: []services.Selector{

@@ -68,18 +68,18 @@ if (mode === 'selected' || mode.startsWith('dynamic-only') || mode.startsWith('a
     }
   };
   const rules = [
-    { name: 'dynamic.sync', moduleSpecifier: modulePath, exportPath: ['sync'] },
-    { name: 'dynamic.async', moduleSpecifier: modulePath, exportPath: ['async'] },
-    { name: 'dynamic.fail', moduleSpecifier: modulePath, exportPath: ['fail'] },
-    { name: 'dynamic.missing', moduleSpecifier: modulePath, exportPath: ['missing'] },
-    { name: 'dynamic.proxy-failure', moduleSpecifier: modulePath, exportPath: ['proxyFailure'] },
-    { name: 'dynamic.callable-parent', moduleSpecifier: modulePath, exportPath: ['callable'] },
-    { name: 'dynamic.callable-nested', moduleSpecifier: modulePath, exportPath: ['callable', 'nested', 'work'] },
-    { name: 'dynamic.constructor', moduleSpecifier: modulePath, exportPath: ['ExampleConstructor'] },
-    { name: 'dynamic.random-bytes', moduleSpecifier: 'crypto', exportPath: ['randomBytes'] },
-    { name: 'dynamic.exists-sync', moduleSpecifier: 'fs', exportPath: ['existsSync'] },
-    { name: 'dynamic.entry', moduleSpecifier: __filename, exportPath: ['entryTarget'] },
-    { name: 'dynamic.late', moduleSpecifier: lateModulePath, exportPath: ['nested', 'work'] },
+    { name: 'dynamic.sync', reference: '**:exports.sync' },
+    { name: 'dynamic.async', reference: '**/scenario_dynamic_module.js:exports.async' },
+    { name: 'dynamic.fail', reference: `${modulePath}:exports.fail` },
+    { name: 'dynamic.missing', reference: `${modulePath}:exports.missing` },
+    { name: 'dynamic.proxy-failure', reference: `${modulePath}:exports.proxyContainer.failure` },
+    { name: 'dynamic.callable-parent', reference: `${modulePath}:exports.callable` },
+    { name: 'dynamic.callable-nested', reference: `${modulePath}:exports.callable.nested.work` },
+    { name: 'dynamic.constructor', reference: `${modulePath}:exports.ExampleConstructor` },
+    { name: 'dynamic.random-bytes', reference: 'node:crypto:exports.randomBytes' },
+    { name: 'dynamic.exists-sync', reference: 'node:fs:exports.existsSync' },
+    { name: 'dynamic.entry', reference: `${__filename}:exports.entryTarget` },
+    { name: 'dynamic.late', reference: `${lateModulePath}:exports.nested.work` },
   ];
   const dynamicCode = fs
     .readFileSync(path.join(__dirname, '..', 'dynamic_spans.js'), 'utf8')
@@ -127,6 +127,7 @@ async function run() {
     late,
     callableParent,
     callable,
+    proxyTrapCount: loaded.proxyTrapCount(),
     callableMarkerPreserved,
     constructorValue,
     constructorUsesOriginalNewTarget,

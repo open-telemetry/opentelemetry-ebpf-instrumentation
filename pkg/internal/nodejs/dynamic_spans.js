@@ -9,8 +9,10 @@
   if (!Array.isArray(rules) || rules.length === 0) return;
 
   const Module = require('module');
+  const { types } = require('util');
   const originalLoad = Module._load;
   const wrappedFunctions = new WeakMap();
+  const scannedModules = new WeakMap();
   const diagnosedRules = new Set();
   const diagnose = (index, message, err) => {
     if (diagnosedRules.has(index)) return;
@@ -34,34 +36,89 @@
     return Reflect.apply(fn, thisArg, args || []);
   };
 
-  const getExport = (exports, path) => {
-    let parent = exports;
-    for (let index = 0; index < path.length - 1; index++) {
-      const descriptor = Object.getOwnPropertyDescriptor(parent, path[index]);
-      if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return null;
-      parent = descriptor.value;
-      if (parent === null || (typeof parent !== 'object' && typeof parent !== 'function')) return null;
+  const MAX_EXPORT_DEPTH = 4;
+  const MAX_EXPORTS_PER_MODULE = 4096;
+  const MAX_VISITED_EXPORTS_PER_MODULE = 16384;
+
+  const matchesGlob = (pattern, value) => {
+    if (pattern === value) return true;
+    let patternIndex = 0;
+    let valueIndex = 0;
+    let starPatternIndex = -1;
+    let starValueIndex = -1;
+    while (valueIndex < value.length) {
+      if (patternIndex < pattern.length && (pattern[patternIndex] === '?' || pattern[patternIndex] === value[valueIndex])) {
+        patternIndex++;
+        valueIndex++;
+      } else if (pattern[patternIndex] === '*') {
+        const recursiveStar = pattern[patternIndex + 1] === '*';
+        starPatternIndex = patternIndex + (recursiveStar ? 2 : 1);
+        starValueIndex = valueIndex;
+        patternIndex = starPatternIndex;
+      } else if (starPatternIndex !== -1) {
+        valueIndex = ++starValueIndex;
+        patternIndex = starPatternIndex;
+      } else {
+        return false;
+      }
     }
-    const key = path[path.length - 1];
-    const descriptor = Object.getOwnPropertyDescriptor(parent, key);
-    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value') || typeof descriptor.value !== 'function') {
-      return null;
-    }
-    return { parent, key, descriptor, original: descriptor.value };
+    while (pattern[patternIndex] === '*') patternIndex += pattern[patternIndex + 1] === '*' ? 2 : 1;
+    return patternIndex === pattern.length;
   };
 
-  const instrumentExport = (exports, rule) => {
-    const target = getExport(exports, rule.exportPath);
-    if (!target) return false;
+  const discoverExports = (moduleId, exports) => {
+    const found = [];
+    const ancestors = new WeakSet();
+    let visited = 0;
+    const walk = (value, symbol, depth) => {
+      if (value === null || (typeof value !== 'object' && typeof value !== 'function') || ancestors.has(value) || types.isProxy(value)) return;
+      if (depth >= MAX_EXPORT_DEPTH || found.length >= MAX_EXPORTS_PER_MODULE) return;
+      ancestors.add(value);
+      let keys;
+      try {
+        keys = Object.keys(value);
+      } catch (_) {
+        ancestors.delete(value);
+        return;
+      }
+      for (const key of keys) {
+        if (++visited > MAX_VISITED_EXPORTS_PER_MODULE) return;
+        if (found.length >= MAX_EXPORTS_PER_MODULE) return;
+        let descriptor;
+        try {
+          descriptor = Object.getOwnPropertyDescriptor(value, key);
+        } catch (_) {
+          continue;
+        }
+        if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) continue;
+        const child = descriptor.value;
+        const childSymbol = `${symbol}.${key}`;
+        if (typeof child === 'function') {
+          if (descriptor.writable || descriptor.configurable) {
+            found.push({ symbol: childSymbol, parent: value, key, descriptor, original: child });
+          }
+          walk(child, childSymbol, depth + 1);
+        } else if (child && typeof child === 'object') {
+          walk(child, childSymbol, depth + 1);
+        }
+      }
+      ancestors.delete(value);
+    };
+    walk(exports, `${moduleId}:exports`, 0);
+    return found;
+  };
 
-    let spanNames = wrappedFunctions.get(target.original);
-    if (Array.isArray(spanNames)) {
-      if (!spanNames.includes(rule.name)) spanNames.push(rule.name);
+  const instrumentExport = (target, rule) => {
+    const currentDescriptor = Object.getOwnPropertyDescriptor(target.parent, target.key);
+    if (!currentDescriptor || !Object.prototype.hasOwnProperty.call(currentDescriptor, 'value')) return false;
+    if (wrappedFunctions.has(currentDescriptor.value)) {
+      const names = wrappedFunctions.get(currentDescriptor.value);
+      if (!names.includes(rule.name)) names.push(rule.name);
       return true;
     }
-
+    target = { ...target, descriptor: currentDescriptor, original: currentDescriptor.value };
     const original = target.original;
-    spanNames = [];
+    const spanNames = [];
     const invokeWithSpans = (invoke) => {
       const invokeAt = (index) => {
         if (index === spanNames.length) return invoke();
@@ -88,62 +145,59 @@
     return true;
   };
 
-  const resolveId = (specifier, parent, isMain) => {
-    try {
-      return Module._resolveFilename(specifier, parent, isMain);
-    } catch (_) {
-      return null;
-    }
-  };
-
-  const isBuiltin = (specifier) => {
-    if (typeof Module.isBuiltin === 'function') return Module.isBuiltin(specifier);
-    const normalized = specifier.startsWith('node:') ? specifier.slice(5) : specifier;
-    return Module.builtinModules.includes(normalized);
-  };
-
-  const instrumentResolved = (moduleId, exports, parent, isMain) => {
+  const instrumentResolved = (moduleId, exports, explicitBuiltin = false, moduleRecord = null) => {
+    if (!explicitBuiltin && !moduleId.includes('/') && !moduleId.includes('\\')) return;
+    if (moduleRecord && moduleRecord.loaded && scannedModules.get(moduleRecord) === exports) return;
+    const candidates = discoverExports(moduleId, exports);
     for (const [index, rule] of rules.entries()) {
-      const targetId = resolveId(rule.moduleSpecifier, parent, isMain);
-      if (targetId === null || targetId !== moduleId) continue;
       try {
-        if (!instrumentExport(exports, rule)) {
-          diagnose(index, `export path ${rule.exportPath.join('.')} is missing or is not an own data-property function`);
+        for (const candidate of candidates) {
+          if (explicitBuiltin && !rule.reference.startsWith(`${moduleId}:exports.`)) continue;
+          if (!matchesGlob(rule.reference, candidate.symbol)) continue;
+          if (!instrumentExport(candidate, rule)) {
+            diagnose(index, `matched export ${candidate.symbol} could not be wrapped`);
+          }
         }
       } catch (err) {
-        diagnose(index, `failed to inspect or instrument export path ${rule.exportPath.join('.')}`, err);
+        diagnose(index, `failed to inspect or instrument selector ${rule.reference}`, err);
       }
     }
+    if (moduleRecord && moduleRecord.loaded) scannedModules.set(moduleRecord, exports);
   };
 
   for (const loaded of Object.values(require.cache)) {
     if (!loaded) continue;
-    instrumentResolved(loaded.filename, loaded.exports, loaded.parent || require.main || module, false);
+    instrumentResolved(loaded.filename, loaded.exports, false, loaded);
   }
 
-  // Built-ins are absent from require.cache. Load and instrument configured
-  // built-in exports now so references held by the application before
-  // injection point at the same, instrumented export object.
-  const parent = require.main || module;
+  // Built-ins have no file-backed cache entry. Preserve explicit built-in
+  // selectors without loading unrelated built-ins for broad globs.
+  const builtinParent = require.main || module;
+  const loadedBuiltins = new Set();
   for (const rule of rules) {
-    if (!isBuiltin(rule.moduleSpecifier)) continue;
-    const moduleId = resolveId(rule.moduleSpecifier, parent, false);
-    if (moduleId === null) continue;
+    const marker = ':exports.';
+    const markerIndex = rule.reference.indexOf(marker);
+    if (markerIndex < 0 || markerIndex !== rule.reference.lastIndexOf(marker)) continue;
+    const moduleName = rule.reference.slice(0, markerIndex);
+    const requestedName = moduleName.startsWith('node:') ? moduleName.slice(5) : moduleName;
+    if (!Module.builtinModules.includes(requestedName)) continue;
+    const builtinKey = moduleName;
+    if (loadedBuiltins.has(builtinKey)) continue;
+    loadedBuiltins.add(builtinKey);
     try {
-      const exports = originalLoad.call(Module, rule.moduleSpecifier, parent, false);
-      instrumentResolved(moduleId, exports, parent, false);
+      const exports = originalLoad.call(Module, moduleName, builtinParent, false);
+      instrumentResolved(moduleName, exports, true);
     } catch (err) {
       const index = rules.indexOf(rule);
-      diagnose(index, `failed to load built-in module ${rule.moduleSpecifier}`, err);
+      diagnose(index, `failed to load built-in module ${moduleName}`, err);
     }
   }
-
   if (originalLoad && !originalLoad.__obiDynamicSpanWrapped) {
     const load = function (request, parent, isMain) {
       const exports = originalLoad.apply(this, arguments);
       try {
         const moduleId = Module._resolveFilename(request, parent, isMain);
-        instrumentResolved(moduleId, exports, parent, isMain);
+        instrumentResolved(moduleId, exports, false, Module._cache[moduleId]);
       } catch (_) {
         // A module-load hook must not affect application module loading.
       }

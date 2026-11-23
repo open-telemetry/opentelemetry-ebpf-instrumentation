@@ -86,7 +86,7 @@ extensions:
           refine:
             spans:
               - name: checkout.place_order
-                on: {function: "./checkout.js#placeOrder"}
+                on: {function: "**/checkout.js:exports.placeOrder"}
 `
 		_, extension, err := schema.ParseStandaloneYAML([]byte(config))
 		require.NoError(t, err)
@@ -102,7 +102,7 @@ extensions:
 		require.NotNil(t, dynamicSelector)
 		require.Equal(t, []services.DynamicSpan{{
 			Name:              "checkout.place_order",
-			FunctionReference: "./checkout.js#placeOrder",
+			FunctionReference: "**/checkout.js:exports.placeOrder",
 		}}, dynamicSelector.DynamicSpans)
 	}
 }

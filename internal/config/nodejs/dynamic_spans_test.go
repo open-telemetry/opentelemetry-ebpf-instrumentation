@@ -9,31 +9,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseFunctionReference(t *testing.T) {
+func TestValidateFunctionReference(t *testing.T) {
 	t.Parallel()
 
-	got, err := ParseFunctionReference("@example/checkout#orders.create")
-	require.NoError(t, err)
-	require.Equal(t, "@example/checkout", got.ModuleSpecifier)
-	require.Equal(t, []string{"orders", "create"}, got.ExportPath)
+	require.NoError(t, ValidateFunctionReference("**:exports.orders.create"))
+	require.NoError(t, ValidateFunctionReference("**/checkout.js:exports.orders.create"))
 }
 
-func TestParseFunctionReferenceRejectsUnsupportedSyntax(t *testing.T) {
+func TestValidateFunctionReferenceRejectsEmptyReference(t *testing.T) {
 	t.Parallel()
 
 	for _, reference := range []string{
 		"",
-		"#create",
-		"checkout#",
-		"checkout#create#again",
-		"checkout#orders.*",
-		"checkout#orders.create-method",
-		"checkout#orders create",
+		"  \t",
+		"**:exports.orders.\ncreate",
 	} {
 		t.Run(reference, func(t *testing.T) {
 			t.Parallel()
-			_, err := ParseFunctionReference(reference)
-			require.Error(t, err)
+			require.Error(t, ValidateFunctionReference(reference))
 		})
 	}
 }

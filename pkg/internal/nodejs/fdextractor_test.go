@@ -92,7 +92,7 @@ func TestAgentCodeCarriesOnlySelectedDynamicSpans(t *testing.T) {
 	injector := &NodeInjector{cfg: &obi.Config{TracePrinter: "text"}}
 	selected := []services.DynamicSpan{{
 		Name:              "checkout.place_order",
-		FunctionReference: "./checkout.js#placeOrder",
+		FunctionReference: "**/checkout.js:exports.placeOrder",
 	}}
 
 	selectedCode := injector.agentCodeForSpans(selected)
@@ -102,8 +102,7 @@ func TestAgentCodeCarriesOnlySelectedDynamicSpans(t *testing.T) {
 	require.NotContains(t, selectedCode, manualSpansEnabledPlaceholder,
 		"manual-span placeholder must be substituted")
 	require.Contains(t, selectedCode, `"name":"checkout.place_order"`)
-	require.Contains(t, selectedCode, `"moduleSpecifier":"./checkout.js"`)
-	require.Contains(t, selectedCode, `"exportPath":["placeOrder"]`)
+	require.Contains(t, selectedCode, `"reference":"**/checkout.js:exports.placeOrder"`)
 
 	unselectedCode := injector.agentCodeForSpans(nil)
 	require.NotContains(t, unselectedCode, "dynamic_spans.js")
@@ -119,14 +118,14 @@ func TestAgentCodeCarriesOnlySelectedDynamicSpans(t *testing.T) {
 func TestAgentCodeSkipsInvalidDynamicSpanAndKeepsValidSibling(t *testing.T) {
 	injector := NewNodeInjector(&obi.Config{TracePrinter: "text"})
 	spans := []services.DynamicSpan{
-		{Name: "invalid", FunctionReference: "./checkout.js"},
-		{Name: "valid", FunctionReference: "./checkout.js#placeOrder"},
+		{Name: "invalid", FunctionReference: " \t"},
+		{Name: "valid", FunctionReference: "**:exports.placeOrder"},
 	}
 
 	code := injector.agentCodeForSpans(spans)
 	require.NotContains(t, code, `"name":"invalid"`)
 	require.Contains(t, code, `"name":"valid"`)
-	require.Contains(t, code, `"moduleSpecifier":"./checkout.js"`)
+	require.Contains(t, code, `"reference":"**:exports.placeOrder"`)
 }
 
 // TestAgentCodeGatesCtxHook pins the before hook to the same predicate that

@@ -49,7 +49,7 @@ func TestInjectionTargetFromUsesInspectionIdentity(t *testing.T) {
 }
 
 func TestInjectionTargetFromCarriesOnlyMatchedDynamicSpans(t *testing.T) {
-	spans := []services.DynamicSpan{{Name: "checkout.place_order", FunctionReference: "./checkout.js#placeOrder"}}
+	spans := []services.DynamicSpan{{Name: "checkout.place_order", FunctionReference: "**/checkout.js:exports.placeOrder"}}
 	inst := nodeInstrumentable(1000, 4242)
 	inst.FileInfo = execdiscover.New(execdiscover.Init{
 		Pid:       1000,

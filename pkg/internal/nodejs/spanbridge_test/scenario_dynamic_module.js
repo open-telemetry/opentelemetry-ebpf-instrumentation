@@ -8,7 +8,18 @@ exports.async = async (value) => {
 exports.fail = () => {
   throw new Error('expected failure');
 };
-exports.proxyFailure = () => 'proxy failure target';
+let proxyTraps = 0;
+exports.proxyContainer = new Proxy({ failure: () => 'proxy failure target' }, {
+  ownKeys(target) {
+    proxyTraps++;
+    return Reflect.ownKeys(target);
+  },
+  getOwnPropertyDescriptor(target, property) {
+    proxyTraps++;
+    return Reflect.getOwnPropertyDescriptor(target, property);
+  },
+});
+exports.proxyTrapCount = () => proxyTraps;
 exports.callable = function () {
   return 'callable parent';
 };
@@ -26,10 +37,3 @@ ExampleConstructor.prototype.describe = function () {
   return `example:${this.value}`;
 };
 exports.ExampleConstructor = ExampleConstructor;
-
-module.exports = new Proxy(exports, {
-  getOwnPropertyDescriptor(target, property) {
-    if (property === 'proxyFailure') throw new Error('expected descriptor trap failure');
-    return Reflect.getOwnPropertyDescriptor(target, property);
-  },
-});

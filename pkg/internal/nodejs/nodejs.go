@@ -380,21 +380,18 @@ func (i *NodeInjector) agentCodeForSpans(dynamicSpans []services.DynamicSpan) st
 
 func (i *NodeInjector) dynamicSpanCode(dynamicSpans []services.DynamicSpan) string {
 	type rule struct {
-		Name            string   `json:"name"`
-		ModuleSpecifier string   `json:"moduleSpecifier"`
-		ExportPath      []string `json:"exportPath"`
+		Name      string `json:"name"`
+		Reference string `json:"reference"`
 	}
 	rules := make([]rule, 0, len(dynamicSpans))
 	for _, span := range dynamicSpans {
-		reference, err := nodejsconfig.ParseFunctionReference(span.FunctionReference)
-		if err != nil {
+		if err := nodejsconfig.ValidateFunctionReference(span.FunctionReference); err != nil {
 			i.log.Error("cannot parse Node.js dynamic span target", "name", span.Name, "error", err)
 			continue
 		}
 		rules = append(rules, rule{
-			Name:            span.Name,
-			ModuleSpecifier: reference.ModuleSpecifier,
-			ExportPath:      reference.ExportPath,
+			Name:      span.Name,
+			Reference: span.FunctionReference,
 		})
 	}
 	encoded, err := json.Marshal(rules)

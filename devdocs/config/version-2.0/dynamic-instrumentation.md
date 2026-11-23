@@ -22,6 +22,11 @@ unsupported target combinations before claiming support. Capture selectors
 continue to use the semantics of the corresponding Config v2 selector; they
 do not change the target-value syntax.
 
+Function selectors should be as simple as possible: start with the target
+information you know, then add qualifiers only when the selector matches more
+functions than intended. Discovery, globbing, and available qualifiers are
+runtime-specific; consult the runtime reference before relying on them.
+
 Each `attributes` entry names a span attribute and has an `argument` object.
 `argument.index` selects the zero-based source argument (0 through 11), and
 optional `argument.type` describes that same argument using an OBI-defined
