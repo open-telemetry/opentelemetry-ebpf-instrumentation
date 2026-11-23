@@ -19,7 +19,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
-	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -39,7 +38,7 @@ func TestAsInstrumentable_DotnetProcessLifecycle(t *testing.T) {
 			name = "child-first"
 		}
 		t.Run(name, func(t *testing.T) {
-			cache, err := lru.New[cacheKey, *goexec.Offsets](100)
+			cache, err := lru.New[cacheKey, goInspectionResult](100)
 			require.NoError(t, err)
 			parent := exec.New(exec.Init{
 				Pid: app.PID(os.Getpid()), StartTime: 10, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/dotnet",

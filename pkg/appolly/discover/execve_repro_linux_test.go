@@ -23,7 +23,6 @@ import (
 	discexec "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/ebpf"
-	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -68,7 +67,7 @@ func TestExecveDiscovery(t *testing.T) {
 	}
 	original, err := findExecElf(matcher.ProcessHistory[pid].Process, &svc.Attrs{})
 	require.NoError(t, err)
-	cache, err := lru.New[cacheKey, *goexec.Offsets](10)
+	cache, err := lru.New[cacheKey, goInspectionResult](10)
 	require.NoError(t, err)
 	cfg := &obi.Config{}
 	cfg.Discovery.SkipGoSpecificTracers = true

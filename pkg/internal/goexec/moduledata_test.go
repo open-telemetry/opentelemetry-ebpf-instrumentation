@@ -255,6 +255,7 @@ func TestLoadModuledataOffsetsRejectsInvalidGoVersion(t *testing.T) {
 	require.NotPanics(t, func() {
 		_, err = loadModuledataOffsets(elfF)
 	})
+	require.ErrorIs(t, err, ErrUnsupportedGoVersion)
 	require.ErrorContains(t, err, "unsupported Go version: unknown")
 }
 

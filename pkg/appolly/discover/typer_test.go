@@ -457,7 +457,7 @@ func TestAsInstrumentable_PythonWorkerPreservesLogEnricherEnabled(t *testing.T) 
 	}
 	defer func() { findProcLanguage = origFindProcLanguage }()
 
-	goOffsetsCache, err := lru.New[cacheKey, *goexec.Offsets](100)
+	goOffsetsCache, err := lru.New[cacheKey, goInspectionResult](100)
 	require.NoError(t, err)
 
 	master := exec.New(exec.Init{
@@ -489,16 +489,19 @@ func TestAsInstrumentable_PythonWorkerPreservesLogEnricherEnabled(t *testing.T) 
 	assert.True(t, instrumentable.LogEnricherEnabled)
 }
 
-func TestAsInstrumentable_InjectionUsesWorkerPID(t *testing.T) {
+func TestAsInstrumentable_PreservesWorkerIdentity(t *testing.T) {
 	original := findProcLanguage
 	t.Cleanup(func() { findProcLanguage = original })
 
-	for _, typ := range []svc.InstrumentableType{svc.InstrumentableNodejs, svc.InstrumentableJava} {
+	for _, typ := range []svc.InstrumentableType{svc.InstrumentableNodejs, svc.InstrumentableJava, svc.InstrumentableRuby} {
 		t.Run(typ.String(), func(t *testing.T) {
 			findProcLanguage = func(app.PID) (svc.InstrumentableType, error) { return typ, nil }
 			parent := exec.New(exec.Init{Pid: 100, Dev: 42, Ino: 15, CmdExePath: "/opt/runtime"})
-			worker := exec.New(exec.Init{Pid: 101, Ppid: 100, Dev: 42, Ino: 15, CmdExePath: "/opt/runtime"})
-			cache, err := lru.New[cacheKey, *goexec.Offsets](100)
+			worker := exec.New(exec.Init{
+				Pid: 101, Ppid: 100, Dev: 42, Ino: 15, CmdExePath: "/opt/runtime",
+				Service: svc.Attrs{LogEnricherEnabled: true},
+			})
+			cache, err := lru.New[cacheKey, goInspectionResult](100)
 			require.NoError(t, err)
 			ty := typer{
 				log:            slog.Default(),
@@ -511,6 +514,7 @@ func TestAsInstrumentable_InjectionUsesWorkerPID(t *testing.T) {
 				got := ty.asInstrumentable(process)
 				assert.Equal(t, typ, got.Type)
 				assert.Same(t, process, got.FileInfo)
+				assert.Equal(t, process.LogEnricherEnabled(), got.LogEnricherEnabled)
 				assert.Empty(t, got.ChildPids)
 			}
 		})
@@ -581,15 +585,19 @@ func TestGoExecutableRestart(t *testing.T) {
 		cmd.Env = append(os.Environ(), "OBI_TEST_WAIT_FOR_EXIT=1")
 		return classifyUntilExit(t, ty, cmd)
 	}
-	// A Go executable without a matching symbol must be inspected again.
 	functions := ty.allGoFunctions
 	ty.allGoFunctions = []string{"missing.probe"}
 	failed := inspect(t)
 	require.Equal(t, svc.InstrumentableGolang, failed.Type)
-	require.Error(t, failed.InstrumentationError)
-	require.Empty(t, ty.goOffsetsCache.Keys())
+	require.ErrorIs(t, failed.InstrumentationError, goexec.ErrNoInstrumentationPoints)
 
+	// With matching probes restored, a fresh inspection would succeed.
 	ty.allGoFunctions = functions
+	cached := inspect(t)
+	require.Equal(t, executableCacheKey(failed.FileInfo), executableCacheKey(cached.FileInfo))
+	require.ErrorIs(t, cached.InstrumentationError, goexec.ErrNoInstrumentationPoints)
+
+	require.NoError(t, os.Chmod(path, 0o750))
 	first := inspect(t)
 	require.NoError(t, first.InstrumentationError)
 	require.NotNil(t, first.Offsets)
@@ -623,9 +631,9 @@ func TestGoExecutableRestart(t *testing.T) {
 		require.Nil(t, first.Offsets)
 		require.ErrorContains(t, first.InstrumentationError, "identified as a Go proxy")
 		key := executableCacheKey(first.FileInfo)
-		offsets, ok := ty.goOffsetsCache.Peek(key)
+		result, ok := ty.goOffsetsCache.Peek(key)
 		require.True(t, ok)
-		require.Contains(t, offsets.Funcs, "runtime.chansend1")
+		require.Contains(t, result.offsets.Funcs, "runtime.chansend1")
 
 		restarted := inspect(t)
 		require.Equal(t, key, executableCacheKey(restarted.FileInfo))
@@ -633,7 +641,7 @@ func TestGoExecutableRestart(t *testing.T) {
 		require.ErrorContains(t, restarted.InstrumentationError, "identified as a Go proxy")
 		after, ok := ty.goOffsetsCache.Peek(key)
 		require.True(t, ok)
-		require.Same(t, offsets, after)
+		require.Same(t, result.offsets, after.offsets)
 		require.Equal(t, []app.PID{first.FileInfo.Pid(), restarted.FileInfo.Pid()}, pids)
 	})
 }
@@ -661,7 +669,7 @@ func TestNativeExecutableRestart(t *testing.T) {
 
 func newRestartTestTyper(t *testing.T) *typer {
 	t.Helper()
-	cache, err := lru.New[cacheKey, *goexec.Offsets](100)
+	cache, err := lru.New[cacheKey, goInspectionResult](100)
 	require.NoError(t, err)
 	ty := &typer{
 		cfg:            &obi.DefaultConfig,
