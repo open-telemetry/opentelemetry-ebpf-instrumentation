@@ -10,15 +10,26 @@ property path. For example:
 /app/checkout.js:exports.orders.placeOrder
 ```
 
-Use glob patterns to leave details open and narrow the match only when needed:
+For example, this rule leaves the filename open and matches the export in any
+file:
 
 ```yaml
-# Match this export from any file.
-function: "**:exports.orders.placeOrder"
-
-# If that matches too much, restrict it to checkout.js.
-function: "**/checkout.js:exports.orders.placeOrder"
+capture:
+  rules:
+    - action: include
+      match:
+        process:
+          language_glob: [nodejs]
+          cmd_args_glob: ["node app.js"]
+      refine:
+        spans:
+          - name: checkout.place_order
+            on:
+              function: "**:exports.orders.placeOrder"
 ```
+
+If this matches too much, replace the selector with
+`**/checkout.js:exports.orders.placeOrder` to restrict it to `checkout.js`.
 
 An absolute filename can select one exact discovered symbol. A bare function
 name such as `placeOrder` does not match because selectors are matched against
