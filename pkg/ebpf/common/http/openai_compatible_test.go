@@ -533,3 +533,60 @@ func TestOpenAICompatibleSpan_UnknownEndpointReportsOther(t *testing.T) {
 	require.NotNil(t, span.GenAI.OpenAICompatible)
 	assert.Equal(t, request.OtherOperationName, span.GenAI.OpenAICompatible.OperationName)
 }
+
+func TestOpenAICompatibleSpan_DefaultGateways(t *testing.T) {
+	tests := []struct {
+		name             string
+		url              string
+		wantProviderName string
+		wantAttribute    string
+	}{
+		{
+			name:             "groq",
+			url:              "http://api.groq.com/openai/v1/chat/completions",
+			wantProviderName: "groq",
+			wantAttribute:    "groq",
+		},
+		{
+			name:             "mistral",
+			url:              "http://api.mistral.ai/v1/chat/completions",
+			wantProviderName: "mistral_ai",
+			wantAttribute:    "mistral_ai",
+		},
+		{
+			name:             "together has no enum member",
+			url:              "http://api.together.xyz/v1/chat/completions",
+			wantProviderName: "together_ai",
+			wantAttribute:    "custom",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, tt.url, compatibleChatRequestBody)
+			resp := makeCompatibleResponse(compatibleChatResponseBody)
+
+			span, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, nil)
+
+			require.True(t, ok)
+			assert.Equal(t, request.HTTPSubtypeOpenAICompatible, span.SubType)
+			assert.Equal(t, tt.wantProviderName, span.GenAI.OpenAICompatible.ProviderName)
+
+			span.Type = request.EventTypeHTTPClient
+			assert.Equal(t, tt.wantAttribute, span.GenAIProviderName())
+		})
+	}
+}
+
+func TestOpenAICompatibleSpan_ConfiguredGatewayOverridesDefault(t *testing.T) {
+	gateways := []config.OpenAICompatibleGateway{
+		{Host: "api.groq.com", Provider: "litellm"},
+	}
+	req := makeRequest(t, http.MethodPost, "http://api.groq.com/openai/v1/chat/completions", compatibleChatRequestBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
+
+	span, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+
+	require.True(t, ok)
+	assert.Equal(t, "litellm", span.GenAI.OpenAICompatible.ProviderName)
+}
