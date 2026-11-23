@@ -73,6 +73,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      - name: Build local generator OCI context
+        id: generator
+        env:
+          GENERATOR_OCI_LAYOUT: ${{ runner.temp }}/obi-generator-layout-${{ steps.short_sha.outputs.sha }}-${{ runner.arch }}
+        run: |
+          echo "base=ghcr.io/open-telemetry/obi-generator:local" >> "$GITHUB_OUTPUT"
+          echo "layout=$GENERATOR_OCI_LAYOUT" >> "$GITHUB_OUTPUT"
+          make generator-image-context GENERATOR_OCI_LAYOUT="$GENERATOR_OCI_LAYOUT"
+
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -98,10 +107,12 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
-          labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             RELEASE_VERSION=${{ inputs.ref || steps.short_sha.outputs.sha }}
             RELEASE_REVISION=${{ steps.short_sha.outputs.sha }}
+            GENERATOR_BASE=${{ steps.generator.outputs.base }}
+          build-contexts: ${{ format('{0}=oci-layout://{1}:local', steps.generator.outputs.base, steps.generator.outputs.layout) }}
+          labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,"name=ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }},docker.io/otel/${{ env.IMAGE_NAME }}",push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest

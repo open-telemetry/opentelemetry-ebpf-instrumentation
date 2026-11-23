@@ -1,4 +1,4 @@
-ARG TAG=0.2.18@sha256:00da54aef610c9d8ed77757afab9c419079f17852bad0e02fe0102e5ce508be4
+ARG GENERATOR_BASE=ghcr.io/open-telemetry/obi-generator:0.2.18@sha256:00da54aef610c9d8ed77757afab9c419079f17852bad0e02fe0102e5ce508be4
 
 # Build JNI native library using Go image (has gcc, no apt install needed)
 FROM golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b AS jni-builder
@@ -51,7 +51,7 @@ COPY --from=jni-builder /build/target/classes/native/linux-aarch64/libobijni.so 
 RUN gradle build -x buildNativeLib-amd64 -x buildNativeLib-aarch64 --no-daemon
 
 # Build the autoinstrumenter binary
-FROM ghcr.io/open-telemetry/obi-generator:${TAG} AS builder
+FROM ${GENERATOR_BASE} AS builder
 
 ARG TARGETARCH
 ARG RELEASE_VERSION=unset
@@ -60,8 +60,6 @@ ARG RELEASE_REVISION=unset
 ENV GOARCH=$TARGETARCH
 
 WORKDIR /src
-
-RUN apk add make git bash
 
 COPY go.mod go.sum ./
 # Cache module cache.

@@ -23,6 +23,8 @@ on:
       - "scripts/**"
       - "Makefile"
       - "Dockerfile"
+      - "mise.toml"
+      - "mise.lock"
       - "**/*Dockerfile*"
   workflow_call:
     inputs:
@@ -68,7 +70,7 @@ jobs:
       - name: Set up mise tools
         uses: $/.github/actions/setup-mise
         env:
-          MISE_ENABLE_TOOLS: go
+          MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools
         with:
           cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
 
@@ -118,6 +120,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
+        env:
+          MISE_ENABLE_TOOLS: clang-format,clang,conda:clang-tools,conda:llvm-tools
+        with:
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
+
       - name: Check clang-format
         run: |
           files=$( \
@@ -128,9 +137,9 @@ jobs:
             echo "No C/C++ files modified."
             exit 0
           fi
-          make docker-clang-format CLANG_FORMAT_FILES="$(echo $files)"
+          make clang-format CLANG_FORMAT_FILES="$(echo $files)"
           if ! git diff --exit-code $files; then
-            echo "Error: Some files are not formatted correctly. Run make docker-clang-format CLANG_FORMAT_FILES=\"$(echo $files)\"."
+            echo "Error: Some files are not formatted correctly. Run make clang-format CLANG_FORMAT_FILES=\"$(echo $files)\"."
             exit 1
           fi
 
@@ -144,8 +153,15 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
+        env:
+          MISE_ENABLE_TOOLS: clang-format,clang,conda:clang-tools,conda:llvm-tools
+        with:
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
+
       - name: Run clang-tidy
-        run: make docker-clang-tidy
+        run: make clang-tidy
 
   collector-cross-compile:
     name: "Collector cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})"
