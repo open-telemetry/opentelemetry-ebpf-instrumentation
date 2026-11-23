@@ -85,9 +85,10 @@ parent of a call, first match wins
 ## Threads and processes started by the job
 
 A thread or process that the fetching thread starts while it runs the job runs
-that job too, which covers a thread or a process per job. A program it executes
-doesn't. Threads those children start don't inherit the job, because helpers
-started on demand outlive the job that started them.
+that job too, until the fetching thread takes its next job. This covers a thread
+or a process per job. A program it executes doesn't run the job. Threads those
+children start don't inherit the job, because helpers started on demand outlive
+the job that started them.
 
 ```text
 fetching thread   BLPOP ─► job 7 ─► start T7 ─► BLPOP ─► job 8 ─► start T8 ─► BLPOP
@@ -96,21 +97,18 @@ T7                                     └─► job 7's calls            │
 T8                                                                  └─► job 8's calls
 ```
 
-A fetching thread that runs a job without starting a thread or process for it,
-either running the job itself or handing it to a pool, starts threads that
-outlive jobs. From then on the jobs inherited from it are ignored: a pool thread
-started during one job would otherwise put the next jobs it runs in that job's
-trace. They are also ignored while the fetching thread runs a later job that
-hasn't started a thread or process yet, because a pool thread may be running
-that job.
+Once the fetching thread takes another job, the threads it started during the
+earlier one are no longer linked to it. A pool thread started during one job may
+be handed the next ones, and OBI can't see which job a reused thread runs, so it
+would otherwise put them in the first job's trace. The cost is that a thread
+started for a job that still runs when the fetching thread takes the next one
+has no parent for the rest of its job.
 
 ```text
 fetching thread   BLPOP ─► job 1 ─► start P, hand job 1 ─► BLPOP ─► job 2 ─► hand job 2 ─► BLPOP
-                                       │                                                     │
-                                       │                    job 2 started nothing: the ─────┘
-                                       │                    fetching thread reuses threads
-P (pool thread)                        └─► job 1's calls          job 2's calls: no parent,
-                                           under job 1            not under job 1
+                                       │                                         │
+P (pool thread)                        └─► job 1's calls                         └─► job 2's calls: no parent,
+                                           under job 1                               not under job 1
 ```
 
 ## Not covered

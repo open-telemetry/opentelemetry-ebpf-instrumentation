@@ -911,10 +911,8 @@ func selectorFromRule(
 }
 
 func jobTracesFromRule(refine schema.RuleRefinement) *services.JobTracesConfig {
-	if refine.GroupJobSpans == nil {
-		return nil
-	}
-	return &services.JobTracesConfig{Enabled: *refine.GroupJobSpans}
+	enabled := refine.GroupJobSpans == nil || *refine.GroupJobSpans
+	return &services.JobTracesConfig{Enabled: enabled}
 }
 
 func ruleMatchOnlyExportsOTLP(match schema.RuleMatch) bool {

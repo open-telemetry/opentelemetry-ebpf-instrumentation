@@ -210,6 +210,17 @@ def waited_pool_job(job):
     waited_pool[0].submit(run_job, job).result()
 
 
+helper_pool = []
+
+
+# like waited_pool_job, but every job also starts a thread of its own before it is handed over
+def helper_pool_job(job):
+    if not helper_pool:
+        helper_pool.append(ThreadPoolExecutor(max_workers=1))
+    threading.Thread(target=lambda: None, daemon=True).start()
+    helper_pool[0].submit(run_job, job).result()
+
+
 # a process per job, as RQ and Resque run them
 def process_per_job(job):
     pid = os.fork()
@@ -305,7 +316,8 @@ async def slow():
 # a thread or process of its own or on a reused pool thread
 if os.environ.get('OBI_TEST_JOB_QUEUES'):
     for kind, handle in (('inline', run_job), ('thread', thread_per_job), ('pool', pooled_job),
-                         ('pool-wait', waited_pool_job), ('process', process_per_job)):
+                         ('pool-wait', waited_pool_job), ('pool-helper', helper_pool_job),
+                         ('process', process_per_job)):
         threading.Thread(target=job_loop, args=(kind, handle), daemon=True).start()
     for loop in (poll_loop, stream_loop, idle_loop, busy_loop):
         threading.Thread(target=loop, daemon=True).start()

@@ -1669,7 +1669,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_setup_new_exec) {
     if (g_job_traces_enabled) {
         pid_key_t thread = {0};
         job_thread_key(&thread);
-        job_exec(&thread, id);
+        job_thread_end(&thread, id);
     }
 
     process_event_t event = {.type = k_event_type_process_exec, .ts = bpf_ktime_get_ns()};

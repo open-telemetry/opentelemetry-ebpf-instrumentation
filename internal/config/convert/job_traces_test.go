@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 )
 
 func TestJobTracesV2Refinement(t *testing.T) {
@@ -36,7 +38,7 @@ extensions:
 			require.False(t, s.JobTraces.IsEnabled(), "the refined rule turns it off")
 		case s.Path.MatchString("/srv/server") && !s.Path.MatchString("/srv/worker"):
 			server++
-			require.True(t, s.JobTraces.IsEnabled(), "a rule without refine.group_job_spans keeps the default")
+			require.Equal(t, &services.JobTracesConfig{Enabled: true}, s.JobTraces, "a rule without refine.group_job_spans keeps the default")
 		}
 	}
 	require.Equal(t, 1, worker)

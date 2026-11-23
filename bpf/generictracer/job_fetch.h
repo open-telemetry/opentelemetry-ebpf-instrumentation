@@ -75,13 +75,10 @@ static __always_inline void job_fetch_request(const pid_connection_info_t *conn,
 
     pid_key_t thread = {0};
     job_thread_key(&thread);
-    const job_context_t *job = bpf_map_lookup_elem(&job_contexts, &thread);
-    // a job that started no thread or process of its own was handed to a reused one, or run here
-    if (job && !job->inherited && !job->children) {
-        const u8 pooled = 1;
-        bpf_map_update_elem(&job_pooled_owners, &thread, &pooled, BPF_ANY);
+    job_context_t *job = bpf_map_lookup_elem(&job_contexts, &thread);
+    if (job) {
+        job->ended = 1;
     }
-    bpf_map_delete_elem(&job_contexts, &thread);
 
     job_fetch_wait(conn, fetch);
 }
@@ -159,7 +156,7 @@ static __always_inline void job_fetch_reply(const pid_connection_info_t *conn,
     bpf_map_update_elem(&job_contexts, &job.owner, &job, BPF_ANY);
 }
 
-// A thread or process the job's own thread starts runs the job, unless that thread reuses them
+// A thread or process the job's own thread starts runs the job, until that thread takes another
 static __always_inline void job_inherit(const struct task_struct *child) {
     if (!g_job_traces_enabled) {
         return;
@@ -168,13 +165,12 @@ static __always_inline void job_inherit(const struct task_struct *child) {
     pid_key_t parent = {0};
     job_thread_key(&parent);
 
-    job_context_t *job = bpf_map_lookup_elem(&job_contexts, &parent);
+    const job_context_t *job = bpf_map_lookup_elem(&job_contexts, &parent);
     // a helper the job starts in turn may outlive the job and serve later ones
-    if (!job || job->inherited || bpf_map_lookup_elem(&job_pooled_owners, &parent)) {
+    if (!job || job->ended || job->inherited) {
         return;
     }
 
-    job->children++;
     job_context_t inherited = *job;
     inherited.inherited = 1;
 
@@ -190,22 +186,4 @@ static __always_inline void job_thread_end(const pid_key_t *thread, const u64 id
 
     bpf_map_delete_elem(&job_contexts, thread);
     bpf_map_delete_elem(&job_fetch_waits, &id);
-}
-
-// A child that runs another program doesn't show the job has threads or processes of its own
-static __always_inline void job_exec(const pid_key_t *thread, const u64 id) {
-    if (!g_job_traces_enabled) {
-        return;
-    }
-
-    const job_context_t *job = bpf_map_lookup_elem(&job_contexts, thread);
-    if (job && job->inherited) {
-        job_context_t *owner = bpf_map_lookup_elem(&job_contexts, &job->owner);
-        if (owner && !owner->inherited && owner->children &&
-            !bpf_memcmp(owner->tp.tp.span_id, job->tp.tp.span_id, SPAN_ID_SIZE_BYTES)) {
-            owner->children--;
-        }
-    }
-
-    job_thread_end(thread, id);
 }
