@@ -5,8 +5,8 @@ Mise is the repository's tool-version manager and task runner. Use
 packaging, and release tasks. The root Makefile remains as a compatibility
 wrapper that forwards `make <task>` to Mise; it reports an install link when
 Mise is unavailable. Run `mise tasks` to list tasks and `mise tasks validate`
-to check their definitions. Tool versions are pinned in `mise.toml` and
-resolved by `mise.lock`.
+to check their definitions. Tool versions are pinned in each `mise.toml` and
+resolved by the matching `mise.lock` beside it.
 
 ## eBPF generation
 
