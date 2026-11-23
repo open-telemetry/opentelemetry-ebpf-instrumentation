@@ -120,11 +120,12 @@ typedef struct python_exception_candidate {
     python_exception_payload_t payload;
 } python_exception_candidate_t;
 
-// The raises of one server request that a 5xx can report: the latest, and the
-// newest earlier one that propagated.
+// Candidates for one request. A replacement can still escape the handler
+// while a finally block raises another exception.
 typedef struct python_exception_pending {
     python_exception_candidate_t latest;
     python_exception_candidate_t kept;
+    python_exception_candidate_t replacement;
 } python_exception_pending_t;
 
 struct {
@@ -401,11 +402,17 @@ static __always_inline void python_exception_keep(const python_exception_proc_t 
             python_exception_propagated(proc, latest->exception, latest->payload.type);
     }
 
-    if ((!latest->propagated && !handled) ||
-        python_exception_swallowed(proc, latest->exception, kept)) {
+    if (!latest->propagated && !handled) {
+        return;
+    }
+    if (python_exception_swallowed(proc, latest->exception, kept)) {
+        if (handled) {
+            python_exception_copy(&pending->replacement, latest);
+        }
         return;
     }
     python_exception_copy(kept, latest);
+    pending->replacement.capture_ns = 0;
 }
 
 // The message is `value` when a str was raised, else the instance's args[0] if it is a str.
@@ -659,6 +666,7 @@ python_exception_pending_slot(const python_exception_key_t *key) {
     empty->latest.exception = 0;
     empty->kept.capture_ns = 0;
     empty->kept.exception = 0;
+    empty->replacement.capture_ns = 0;
     bpf_map_update_elem(&python_exception_pending, key, empty, BPF_NOEXIST);
     return bpf_map_lookup_elem(&python_exception_pending, key);
 }
@@ -702,6 +710,14 @@ python_exception_choose(const python_exception_proc_t *proc,
     }
     if (!live && latest->propagated) {
         return latest;
+    }
+
+    python_exception_candidate_t *replacement = &pending->replacement;
+    if (replacement->capture_ns &&
+        python_exception_propagated(proc, replacement->exception, replacement->payload.type) &&
+        !python_exception_swallowed(proc, replacement->exception, kept)) {
+        *value = replacement->exception;
+        return replacement;
     }
 
     if (!kept->capture_ns) {

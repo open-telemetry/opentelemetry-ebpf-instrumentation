@@ -64,6 +64,10 @@ def lookup(name):
     raise error
 
 
+def fail_replacement(token):
+    raise RuntimeError(token)
+
+
 def error_page():
     """Falls back to text when the 500 template is missing, as Django does."""
     try:
@@ -121,6 +125,14 @@ def invoke(case, token):
             outer("ascii", token)
         except ValueError:
             lookup(token)
+    elif case == "nested_cleanup":
+        try:
+            outer("ascii", token)
+        except ValueError:
+            try:
+                fail_replacement(token)
+            finally:
+                evict(token)
     elif case == "with_traceback":
         try:
             outer("ascii", token)
