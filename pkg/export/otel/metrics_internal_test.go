@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/sdk/instrumentation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
@@ -56,6 +57,40 @@ func TestInternalMetricsReporterBpfProbeStats(t *testing.T) {
 	assert.Equal(t, "tcp_connect", record.Attributes["bpf.probe.name"])
 	assert.Equal(t, 3, record.Count)
 	assert.InDelta(t, 0.0003, record.FloatVal, 0.00001)
+}
+
+// The Collector receiver passes its service telemetry provider, which cannot take the Producer
+// behind the pre-aggregated probe latency histogram, so the probe stats are not reported.
+func TestInternalMetricsReporterWithProvider(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+
+	reporter, err := NewInternalMetricsReporterWithProvider(
+		t.Context(),
+		provider,
+		&imetrics.InternalMetricsConfig{BpfMetricScrapeInterval: time.Millisecond},
+	)
+	require.NoError(t, err)
+
+	reporter.QueueBufferUtilization("traces", 0.42)
+	reporter.BpfProbeStats("7", "kprobe", "tcp_connect", 3, 0.0003, map[float64]uint64{0.0001: 3})
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	require.Len(t, rm.ScopeMetrics, 1)
+
+	scope := rm.ScopeMetrics[0]
+	assert.Equal(t, internalMetricsMeterName, scope.Scope.Name)
+	metrics := map[string]metricdata.Metrics{}
+	for _, m := range scope.Metrics {
+		metrics[m.Name] = m
+	}
+	assert.Len(t, metrics, 1)
+	assert.Contains(t, metrics, attr.VendorPrefix+".queue.capacity.ratio")
+
+	// The provider belongs to the caller, so the reporter must not shut it down.
+	require.NoError(t, reporter.Shutdown(t.Context()))
+	require.NoError(t, reader.Collect(t.Context(), &rm))
 }
 
 func TestBpfProbeLatencyProducerDeltaTemporality(t *testing.T) {

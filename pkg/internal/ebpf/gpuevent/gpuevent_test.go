@@ -5,6 +5,7 @@ package gpuevent
 
 import (
 	"testing"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
@@ -32,8 +33,16 @@ func TestRingbufMetricsConstant(t *testing.T) {
 	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
 
 	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
+	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+
+	tracer = New(nil, &obi.Config{}, bpfMetricsReporter{})
 	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
 }
+
+// bpfMetricsReporter collects the BPF internal metrics, so it turns the ring buffer accounting on.
+type bpfMetricsReporter struct{ imetrics.NoopReporter }
+
+func (bpfMetricsReporter) BpfInternalMetricsScrapeInterval() time.Duration { return time.Second }
 
 func TestApplyDeviceIdentityRetainsNameOnlyObservation(t *testing.T) {
 	const (
