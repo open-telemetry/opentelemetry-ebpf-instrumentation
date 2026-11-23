@@ -57,6 +57,8 @@ const (
 )
 
 type javaHTTP1TestObjects struct {
+	RustCaps       *ebpf.Map     `ebpf:"rust_capabilities"`
+	RustThreads    *ebpf.Map     `ebpf:"rust_threads"`
 	ServerIndex    *ebpf.Map     `ebpf:"http_server_trace_index"`
 	Servers        *ebpf.Map     `ebpf:"server_traces"`
 	HTTP2          *ebpf.Map     `ebpf:"ongoing_http2_grpc"`
@@ -121,6 +123,8 @@ func loadJavaHTTP1ReservationsWithLoops(t *testing.T, enabled, useBPFLoop bool) 
 	var objs javaHTTP1TestObjects
 	require.NoError(t, spec.LoadAndAssign(&objs, nil))
 	t.Cleanup(func() {
+		objs.RustCaps.Close()
+		objs.RustThreads.Close()
 		objs.ServerIndex.Close()
 		objs.Servers.Close()
 		objs.HTTP2.Close()

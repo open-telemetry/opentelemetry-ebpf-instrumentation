@@ -77,21 +77,6 @@ static __always_inline tp_info_pid_t *find_wire_server_parent(u32 pid, const tp_
     return parent_trace_matches(parent, wire_tp) ? parent : NULL;
 }
 
-static __always_inline tp_info_pid_t *find_tokio_parent_trace(const pid_connection_info_t *p_conn,
-                                                              u32 pid,
-                                                              const rust_thread_state_t *thread,
-                                                              const tp_info_t *wire_tp) {
-    rust_task_key_t task = {};
-    tp_info_pid_t *rust_parent = rust_innermost_task(pid, thread, &task)
-                                     ? bpf_map_lookup_elem(&rust_task_context, &task)
-                                     : NULL;
-    if (parent_trace_matches(rust_parent, wire_tp)) {
-        return rust_parent;
-    }
-
-    return wire_tp ? find_wire_server_parent(p_conn->pid, wire_tp) : NULL;
-}
-
 static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
     task_tid(&t_key->p_key);
     java_vt_translate_tid(&t_key->p_key);
@@ -358,20 +343,32 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
                                                         trace_key_t *t_key,
                                                         u16 orig_dport,
                                                         const tp_info_t *wire_tp) {
-    tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
-
-    // A Tokio worker may poll many unrelated tasks. Never fall back to its
-    // last thread or connection parent; only task-owned or wire-matched
-    // parents identify the request. Threads that never polled a task, such as
-    // std::thread or rayon workers, keep the thread-keyed lookup.
     const u32 rust_pid = obi_pid(pid_tgid);
     const rust_capabilities_t *rust = rust_process_capabilities(rust_pid);
     const rust_thread_state_t *rust_thread =
         rust && rust->tokio_runtime ? rust_task_thread(pid_tgid) : NULL;
     if (rust_thread) {
-        return find_tokio_parent_trace(p_conn, rust_pid, rust_thread, wire_tp);
+        rust_task_key_t task = {};
+        const bool in_task = rust_innermost_task(rust_pid, rust_thread, &task);
+        if (in_task) {
+            tp_info_pid_t *parent = bpf_map_lookup_elem(&rust_task_context, &task);
+            if (parent_trace_matches(parent, wire_tp)) {
+                return parent;
+            }
+        }
+
+        if (wire_tp) {
+            return find_wire_server_parent(p_conn->pid, wire_tp);
+        }
+
+        // Hyper can write on a connection task that never received the caller's context.
+        // Keep generic correlation for that handoff. Between polls no task owns the write.
+        if (!in_task || rust->client_context) {
+            return NULL;
+        }
     }
 
+    tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
     if (parent_trace_matches(node_tp, wire_tp)) {
         return node_tp;
     }
