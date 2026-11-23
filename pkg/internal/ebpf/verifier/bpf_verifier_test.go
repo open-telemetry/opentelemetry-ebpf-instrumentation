@@ -291,6 +291,10 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		// pinned on, not paired: see the generictracer matrix above
 		{"g_traces_ctx_v1_enabled", []any{true}},
 	})
+	forEachCombination(t, "gotracer/BpfExceptions", gotracerbpf.LoadBpf, []constOption{
+		{"g_exceptions_enabled", []any{true}},
+		{"pid_ns_mode", pidNamespaceModes},
+	})
 	forEachCombination(t, "gotracer/BpfRingbufMetrics", gotracerbpf.LoadBpf, []constOption{
 		{"ringbuf_metrics_enabled", []any{true, false}},
 	})
