@@ -29,10 +29,12 @@ typedef struct go_exception_payload {
     u8 _pad;
     // number of valid entries in pcs, innermost frame first
     u16 frames;
+    // raising process in OBI's PID namespace
+    u32 obi_pid;
     // bit 0: words 0-1 were read; bit 1: word 2; bit 2: scalar in word 0;
     // bit 3: runtime metadata identifies a predeclared string
     u8 value_read;
-    u8 _pad2[3];
+    u8 _pad2[7];
     // runtime type address used to classify the panic value
     u64 value_type;
     // string header, or boundsError's index, limit and signed/code fields
