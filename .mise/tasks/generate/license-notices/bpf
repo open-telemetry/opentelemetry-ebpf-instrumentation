@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#MISE description="Copy BPF third-party license notices"
+set -euo pipefail
+notices="${NOTICES_DIR:-./NOTICES}"
+while IFS= read -r -d '' file; do
+  dest="$notices/${file#./}"
+  mkdir -p "$(dirname "$dest")"
+  cp "$file" "$dest"
+done < <(find ./bpf -type f -name 'LICENSE*' -print0)
+
+while IFS= read -r -d '' file; do
+  dest="$notices/${file#./}"
+  mkdir -p "$(dirname "$dest")"
+  cp "$file" "$dest"
+done < <(find ./bpf/bpfcore -type f -print0)

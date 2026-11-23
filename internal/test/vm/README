@@ -66,19 +66,19 @@ USAGE
 
 Run integration tests inside the VM against a specific kernel:
 
-    KERNEL_ID=6.18-lts make
+    KERNEL_ID=6.18-lts mise run //internal/test/vm:run
 
 Run the BPF verifier suite instead of integration tests:
 
-    TARGET_TEST=run-bpf-verifier-vm KERNEL_ID=6.12-lts make
+    TARGET_TEST=run-bpf-verifier-vm KERNEL_ID=6.12-lts mise run //internal/test/vm:run
 
 Boot with an explicit kernel path (overrides KERNEL_ID):
 
-    KERNEL=/tmp/bzImage MODULES_DIR=/tmp/modules make
+    KERNEL=/tmp/bzImage MODULES_DIR=/tmp/modules mise run //internal/test/vm:run
 
 Drop into an interactive shell instead of running tests:
 
-    TARGET_TEST= KERNEL_ID=6.18-lts make
+    TARGET_TEST= KERNEL_ID=6.18-lts mise run //internal/test/vm:run
 
 For interactive debugging, the qemu serial console (-nographic) attaches to
 your terminal; an agetty respawn auto-logs in as root on ttyS0.
@@ -92,7 +92,7 @@ plus the modules tree:
 
     bash internal/test/vm/lvh/pull-kernel.sh 6.12-lts amd64
 
-'prepare-kernel.sh' wraps the pull for the Makefile and CI; it returns
+'prepare-kernel.sh' wraps the pull for CI; it returns
 'KERNEL=' and 'MODULES_DIR=' assignments for eval and pulls on cache miss:
 
     eval "$(bash internal/test/vm/prepare-kernel.sh 6.12-lts amd64)"

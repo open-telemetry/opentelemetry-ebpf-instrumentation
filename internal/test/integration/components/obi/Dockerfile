@@ -22,10 +22,9 @@ COPY internal/goabi/ internal/goabi/
 COPY internal/goversion/ internal/goversion/
 COPY internal/config/ internal/config/
 COPY pkg/ pkg/
-COPY Makefile Makefile
 
 # Build
-RUN make compile-for-coverage
+RUN mkdir -p bin && CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -cover -o bin/obi cmd/obi/main.go
 
 # inspects OBI's BPF maps and restricts its syscalls in the integration tests
 COPY internal/test/integration/components/obi/testtool/ internal/test/integration/components/obi/testtool/

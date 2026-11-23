@@ -10,7 +10,7 @@
 // level.
 //
 // Run from repo root:
-//   make -C bpf/tests bpf_pid_filter && bpf/tests/bpf_pid_filter
+//   mise run //bpf/tests:test
 
 #include <stdbool.h>
 #include <stdio.h>

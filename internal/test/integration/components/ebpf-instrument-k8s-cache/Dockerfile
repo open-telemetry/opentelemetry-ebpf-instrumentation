@@ -16,10 +16,9 @@ COPY cmd/ cmd/
 COPY pkg/ pkg/
 COPY go.mod go.mod
 COPY go.sum go.sum
-COPY Makefile Makefile
 
 # Build
-RUN make compile-cache-for-coverage
+RUN mkdir -p bin && CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -cover -o bin/k8s-cache cmd/k8s-cache/main.go
 
 # Create final image from minimal + built binary
 FROM scratch

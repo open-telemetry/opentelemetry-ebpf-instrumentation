@@ -2,8 +2,8 @@
 # Copyright The OpenTelemetry Authors
 # SPDX-License-Identifier: Apache-2.0
 
-# Resolve a kernel entry from kernels.yaml to the on-disk paths the
-# launchvm Makefile target consumes. Pulls from cilium/little-vm-helper-images
+# Resolve a kernel entry from kernels.yaml to the on-disk paths the VM task
+# consumes. Pulls from cilium/little-vm-helper-images
 # on cache miss.
 #
 # Usage: prepare-kernel.sh <kernel_id> <arch>

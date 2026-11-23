@@ -1,0 +1,53 @@
+[tasks."integration-test-matrix-json"]
+hide = true
+run = 'cd "$MISE_MONOREPO_ROOT" && go run ./scripts/oats-matrix --suite-root internal/test/oats'
+
+[tasks.prereqs]
+hide = true
+depends = ["//:fetch-upstream-semconv"]
+run = '"$MISE_MONOREPO_ROOT/scripts/oats-prereqs.sh"'
+
+[tasks."test:ai"]
+description = "Run the OATS AI suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" ai'
+
+[tasks."test:amqp"]
+description = "Run the OATS AMQP suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" amqp'
+
+[tasks."test:http"]
+description = "Run the OATS HTTP suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" http'
+
+[tasks."test:kafka"]
+description = "Run the OATS Kafka suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" kafka'
+
+[tasks."test:memcached"]
+description = "Run the OATS Memcached suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" memcached'
+
+[tasks."test:mongo"]
+description = "Run the OATS MongoDB suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" mongo'
+
+[tasks."test:nats"]
+description = "Run the OATS NATS suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" nats'
+
+[tasks."test:redis"]
+description = "Run the OATS Redis suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" redis'
+
+[tasks."test:sql"]
+description = "Run the OATS SQL suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" sql'

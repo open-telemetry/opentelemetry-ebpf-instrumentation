@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+#MISE description="Check cilium/ebpf version matches bpf2go and BPF core metadata"
+#MISE alias="check-ebpf-ver-synced"
+set -euo pipefail
+
+repo_root="${1:-${MISE_CONFIG_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}}"
+
+go_version="$(awk '$1 == "github.com/cilium/ebpf" { print $2; exit }' "$repo_root/go.mod")"
+bpf2go_version="$(awk -F'=' '
+  function trim(value) {
+    sub(/^[[:space:]]+/, "", value)
+    sub(/[[:space:]]+$/, "", value)
+    return value
+  }
+  /^\[tools\]$/ { in_tools = 1; next }
+  /^\[/ { in_tools = 0 }
+  in_tools && trim($1) == "\"go:github.com/cilium/ebpf/cmd/bpf2go\"" {
+    value = trim($2)
+    sub(/[[:space:]]*#.*/, "", value)
+    gsub(/"/, "", value)
+    print value
+    exit
+  }
+' "$repo_root/mise.toml")"
+bpfcore_version="$(awk '$2 == "github.com/cilium/ebpf" { print $3; exit }' "$repo_root/bpf/bpfcore/placeholder.go")"
+
+if [[ -z "$go_version" || -z "$bpf2go_version" || -z "$bpfcore_version" ]]; then
+	echo 'Unable to read cilium/ebpf versions from go.mod, mise.toml, and bpf/bpfcore/placeholder.go.' >&2
+	exit 1
+fi
+
+bpf2go_version="${bpf2go_version#v}"
+if [[ "$go_version" != "v$bpf2go_version" || "$go_version" != "$bpfcore_version" ]]; then
+	echo "cilium/ebpf version mismatch: go.mod=$go_version, bpf2go=$bpf2go_version, BPF core=$bpfcore_version" >&2
+	exit 1
+fi

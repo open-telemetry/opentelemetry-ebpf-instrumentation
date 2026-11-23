@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [main, release-*]
     paths:
+      - ".github/actions/setup-mise/**"
       - ".github/workflows/bpf_unit_tests.yml"
       - "bpf/**"
   workflow_call:
@@ -26,6 +27,8 @@ jobs:
   bpf-unit-tests:
     name: BPF unit tests (${{ matrix.platform.arch }})
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      MISE_ENABLE_TOOLS: ""
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -41,10 +44,15 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: false
+
       - name: Install clang
         run: |
           sudo apt-get update
           sudo apt-get install -y clang
 
       - name: Run BPF unit tests
-        run: make -C bpf/tests test
+        run: mise run //bpf/tests:test

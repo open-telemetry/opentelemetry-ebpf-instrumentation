@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+#MISE description="Run tests requiring elevated privileges"
+#MISE alias="test-privileged"
+set -euo pipefail
+mkdir -p "${TEST_OUTPUT:-./testoutput}"
+assets="$("$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" setup-envtest use "$ENVTEST_K8S_VERSION" -p path)"
+packages="$(grep -rl '//go:build.*privileged_tests' . --include='*.go' | xargs -r -I{} dirname {} | sort -u | tr '\n' ' ')"
+KUBEBUILDER_ASSETS="$assets" go test -short -race -tags=privileged_tests $packages -coverpkg=./... -coverprofile "${TEST_OUTPUT:-./testoutput}/cover.all.txt"

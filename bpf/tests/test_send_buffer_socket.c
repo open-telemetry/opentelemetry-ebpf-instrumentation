@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Run from repo root:
-//   make -C bpf/tests test_send_buffer_socket && bpf/tests/test_send_buffer_socket
+//   mise run //bpf/tests:test
 // Run from bpf/tests:
-//   make test_send_buffer_socket && ./test_send_buffer_socket
+//   mise run //bpf/tests:test
 
 #include <stdint.h>
 #include <stdio.h>

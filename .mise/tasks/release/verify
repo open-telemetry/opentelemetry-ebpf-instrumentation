@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#MISE hide=true
+set -euo pipefail
+release_dir="$RELEASE_DIR"
+arch="${GOARCH:-$(go env GOARCH)}"
+version="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"
+cmd="${CMD:-obi}"
+goos="${GOOS:-linux}"
+archive="bin/obi-${version}-${goos}-${arch}.tar.gz"
+mkdir -p "$release_dir/verify-$arch"
+mv "$archive" "$release_dir/"
+tar -xzf "$release_dir/$(basename "$archive")" -C "$release_dir/verify-$arch"
+for required in "$cmd" LICENSE NOTICE; do
+  if [[ ! -f "$release_dir/verify-$arch/$required" ]]; then
+    echo "ERROR: $required missing in archive"
+    exit 1
+  fi
+done
+if [[ ! -d "$release_dir/verify-$arch/NOTICES" ]]; then
+  echo 'ERROR: NOTICES directory missing in archive'
+  exit 1
+fi
+for other in amd64 arm64; do
+  if [[ "$other" != "$arch" && -d "$release_dir/verify-$arch/NOTICES/$other" ]]; then
+    echo "ERROR: NOTICES/$other leaked into archive"
+    exit 1
+  fi
+done
+if [[ ! -x "$release_dir/verify-$arch/$cmd" ]]; then
+  echo "ERROR: $cmd is not executable in archive"
+  exit 1
+fi
+rm -rf "$release_dir/verify-$arch"

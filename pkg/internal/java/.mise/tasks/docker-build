@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Build the Java agent container artifact"
+set -euo pipefail
+
+mkdir -p "$MISE_CONFIG_ROOT/embedded"
+"${OCI_BIN:-docker}" build --output "type=local,dest=$MISE_CONFIG_ROOT/embedded" --target=export -f "$MISE_MONOREPO_ROOT/javaagent.Dockerfile" "$MISE_MONOREPO_ROOT"

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+#MISE description="Create a source release archive"
+#MISE depends=["generate", "//java:docker-build"]
+#MISE alias="release-source"
+set -euo pipefail
+source_version="${RELEASE_SOURCE_VERSION:-$(git describe --tags --exact-match 2>/dev/null || git symbolic-ref --short -q HEAD || echo main)}"
+./scripts/release-source.sh --release-version "$source_version" --release-dir "$RELEASE_DIR"
+RELEASE_VERSION="$source_version" mise run release:checksums

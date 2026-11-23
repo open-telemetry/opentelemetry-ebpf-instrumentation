@@ -13,28 +13,23 @@
 # so a non-zero exit with parseable diagnostics on stdout is a lint finding,
 # not an execution failure.
 #
-# Usage: lint-schema.sh <oci-bin> <weaver-image> <registry-host-path>
+# Usage: lint-schema.sh <registry-host-path>
 set -euo pipefail
 
-if [ "$#" -ne 3 ]; then
-  echo "usage: $(basename "$0") <oci-bin> <weaver-image> <registry-host-path>" >&2
+if [ "$#" -ne 1 ]; then
+  echo "usage: $(basename "$0") <registry-host-path>" >&2
   exit 2
 fi
 
-OCI_BIN="$1"
-WEAVER_IMAGE="$2"
-REGISTRY_PATH="$3"
+REGISTRY_PATH="$(cd "$1" && pwd)"
 FILTER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lint-schema-filter.jq"
 
 stderr=$(mktemp)
 trap 'rm -f "$stderr"' EXIT
 
 rc=0
-out=$($OCI_BIN run --rm \
-  -v "${REGISTRY_PATH}:/obi-registry:ro" \
-  -w /obi-registry \
-  "$WEAVER_IMAGE" registry check \
-    --registry /obi-registry \
+out=$(cd "$REGISTRY_PATH" && weaver registry check \
+    --registry "$REGISTRY_PATH" \
     --future \
     --v2=true \
     --diagnostic-format json \

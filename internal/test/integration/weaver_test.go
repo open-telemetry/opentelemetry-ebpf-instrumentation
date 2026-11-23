@@ -63,7 +63,7 @@ func TestSemconvVersionMatchesManifest(t *testing.T) {
 
 	// The registry_path also embeds the version; sanity-check it matches.
 	// We accept either the upstream git-URL form (`@vX.Y.Z`) or the local
-	// pre-fetched cache form (`upstream-vX.Y.Z`) — `make fetch-upstream-semconv`
+	// pre-fetched cache form (`upstream-vX.Y.Z`) — `mise run fetch-upstream-semconv`
 	// populates the latter and the manifest references it so weaver doesn't
 	// need network on every container start.
 	gitRefspec := "@v" + manifestSemconvVersion

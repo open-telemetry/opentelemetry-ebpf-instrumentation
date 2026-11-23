@@ -13,13 +13,16 @@ RUN apk update && apk add --no-cache \
     agetty \
     bash \
     ca-certificates \
+    curl \
     docker \
     docker-cli-compose \
     git \
     iptables \
     iptables-legacy \
-    make \
     openrc
+
+ARG MISE_VERSION
+RUN curl -fsSL https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise MISE_VERSION="v${MISE_VERSION}" MISE_INSTALL_HELP=0 sh
 
 # Default iptables symlink to legacy; modules-load may relink to nft on
 # RHEL kernels that lack CONFIG_IP_NF_NAT modules.
@@ -273,7 +276,7 @@ if [ -n "$target" ]; then
         docker load -i /precompiled-tests/base-images.tar
     fi
 
-    cd /build && make $target TEST_PATTERN="$test_pattern" RUN_NUMBER="$run_number" && touch /build/testoutput/success
+    cd /build && TEST_PATTERN="$test_pattern" RUN_NUMBER="$run_number" PRECOMPILED_TESTS_DIR=/precompiled-tests MISE_TRUSTED_CONFIG_PATHS=/build MISE_ENABLE_TOOLS=go mise run "$target" && touch /build/testoutput/success
     poweroff
 else
     echo "Entering interactive mode (no /build/testoutput/test-env)"

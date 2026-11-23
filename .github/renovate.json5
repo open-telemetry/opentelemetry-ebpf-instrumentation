@@ -637,7 +637,14 @@
       // the "internal/test/**" patch/digest disable rule would otherwise drop.
       "matchDatasources": ["docker"],
       "matchPackageNames": ["otel/weaver"],
-      "groupName": "otel/weaver image",
+      "groupName": "otel/weaver",
+      "enabled": true,
+      "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      "matchManagers": ["mise"],
+      "matchPackageNames": ["open-telemetry/weaver"],
+      "groupName": "otel/weaver",
       "enabled": true,
       "schedule": ["before 6am on Tuesday"]
     }

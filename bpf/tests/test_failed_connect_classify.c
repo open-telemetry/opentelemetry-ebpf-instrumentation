@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Run from repo root:
-//   make -C bpf/tests test_failed_connect_classify && bpf/tests/test_failed_connect_classify
+//   mise run //bpf/tests:test
 // Run from bpf/tests:
-//   make test_failed_connect_classify && ./test_failed_connect_classify
+//   mise run //bpf/tests:test
 
 #include <stdbool.h>
 #include <stdio.h>

@@ -24,9 +24,9 @@ KERNEL_PKG="${2:-kernel}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)"
-BUSYBOX_IMAGE="$(awk '$1=="FROM" && $4=="busybox-musl" {print $2}' "${REPO_ROOT}/dependencies.Dockerfile")"
+BUSYBOX_IMAGE="$(awk -F= '$1=="BUSYBOX_IMAGE" {print $2}' "${REPO_ROOT}/internal/test/runtime-images.env")"
 if [ -z "${BUSYBOX_IMAGE}" ]; then
-    echo "Unable to find busybox-musl image in dependencies.Dockerfile" >&2
+    echo "Unable to find BUSYBOX_IMAGE in internal/test/runtime-images.env" >&2
     exit 1
 fi
 WORKDIR="$(mktemp -d)"

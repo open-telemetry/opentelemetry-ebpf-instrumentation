@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#MISE description="Compile the OBI binary"
+set -euo pipefail
+goos="${GOOS:-linux}"
+goarch="${GOARCH:-$(go env GOARCH || echo amd64)}"
+cmd="${CMD:-obi}"
+main_go_file="${MAIN_GO_FILE:-cmd/${cmd}/main.go}"
+buildinfo_pkg="${BUILDINFO_PKG:-go.opentelemetry.io/obi/pkg/buildinfo}"
+release_version="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"
+release_revision="${RELEASE_REVISION:-$(git rev-parse --short HEAD)}"
+mkdir -p bin
+extra_flags=()
+if [[ "${DEBUG_BUILD:-false}" == true ]]; then extra_flags+=(-gcflags "-N -l"); fi
+if [[ "${COVERAGE_BUILD:-false}" == true ]]; then extra_flags+=(-cover); fi
+CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build "${extra_flags[@]}" \
+  -ldflags="-X '${buildinfo_pkg}.Version=${release_version}' -X '${buildinfo_pkg}.Revision=${release_revision}'" \
+  -o "bin/${cmd}" "$main_go_file"

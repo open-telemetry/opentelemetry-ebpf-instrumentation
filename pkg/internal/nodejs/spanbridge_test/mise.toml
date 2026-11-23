@@ -1,0 +1,6 @@
+[tools]
+node = "24.21.0"
+
+[tasks.test]
+run = "npm ci && node --test"
+description = "Run Node.js span-bridge tests"

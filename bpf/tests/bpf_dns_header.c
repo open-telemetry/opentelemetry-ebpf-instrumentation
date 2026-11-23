@@ -8,7 +8,7 @@
 // query.
 //
 // Run from repo root:
-//   make -C bpf/tests bpf_dns_header && bpf/tests/bpf_dns_header
+//   mise run //bpf/tests:test
 
 #include <stdbool.h>
 #include <stdio.h>
