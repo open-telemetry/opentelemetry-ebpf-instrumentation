@@ -12,7 +12,10 @@ Which programs the collector covers depends on the
   collection also discovers programs loaded after the collector started.
 - The internal collector describes OBI. It reports only the programs OBI holds
   a file descriptor for, directly or through a link, as listed in
-  `/proc/self/fdinfo`.
+  `/proc/self/fdinfo`. These are the descriptors of the whole process: when
+  OBI runs as a Collector receiver, the internal collector also reports the
+  programs of other components in the same Collector, such as the eBPF
+  profiler.
 
 Map metrics are host-wide on both paths.
 
