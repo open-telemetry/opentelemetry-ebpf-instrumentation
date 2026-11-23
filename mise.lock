@@ -82,6 +82,12 @@ url = "https://github.com/golangci/golangci-lint/releases/download/v2.14.0/golan
 url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/585813793"
 provenance = "github-attestations"
 
+[[tools.markdownlint-cli2]]
+version = "0.24.0"
+aube = { path = ".mise/locks/markdownlint-cli2/0.24.0", digest = "sha256:ab75cceabb8a59ea2839f65804736285d7fa0e4cb38c6604447c39ba202f1168" }
+backend = "npm:markdownlint-cli2"
+specifiers = ["0.24.0"]
+
 [[tools.node]]
 version = "24.21.0"
 backend = "core:node"
@@ -114,9 +120,3 @@ url = "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-x64.tar.gz"
 [tools.node."platforms.windows-x64"]
 checksum = "sha256:158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541"
 url = "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip"
-
-[[tools."npm:markdownlint-cli2"]]
-version = "0.24.0"
-aube = { path = ".mise/locks/npm-markdownlint-cli2/0.24.0", digest = "sha256:ab75cceabb8a59ea2839f65804736285d7fa0e4cb38c6604447c39ba202f1168" }
-backend = "npm:markdownlint-cli2"
-specifiers = ["0.24.0"]

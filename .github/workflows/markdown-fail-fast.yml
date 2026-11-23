@@ -68,7 +68,7 @@ jobs:
       - name: Set up mise tools
         uses: $/.github/actions/setup-mise
         env:
-          MISE_ENABLE_TOOLS: node,npm:markdownlint-cli2
+          MISE_ENABLE_TOOLS: node,markdownlint-cli2
       - name: Run linter
         env:
           MARKDOWN_FILES: ${{ needs.changedfiles.outputs.md }}

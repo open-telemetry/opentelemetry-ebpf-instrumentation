@@ -8,7 +8,7 @@ config_roots = ["."]
 go = "1.27.3"
 golangci-lint = "2.14.0"
 node = "24.21.0"
-"npm:markdownlint-cli2" = "0.24.0"
+markdownlint-cli2 = "0.24.0"
 
 [tasks.fmt]
 run = "golangci-lint fmt"
