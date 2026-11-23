@@ -7,8 +7,11 @@ package rustexec // import "go.opentelemetry.io/obi/internal/rustexec"
 import (
 	"debug/elf"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
+
+	"golang.org/x/mod/semver"
 )
 
 type Profile struct {
@@ -63,6 +66,26 @@ func ReadBuild(f *elf.File) (Build, error) {
 	}
 
 	return b, nil
+}
+
+var ErrUnsupportedCompiler = errors.New("unsupported Rust compiler")
+
+// CheckCompiler checks whether the database supports the build's stable rustc minor version on its architecture.
+func (d Database) CheckCompiler(build Build) error {
+	build = d.InferBuild(build)
+	if build.Rustc == "" {
+		return fmt.Errorf("%w: could not identify rustc version on %s", ErrUnsupportedCompiler, build.Arch)
+	}
+
+	version := "v" + build.Rustc
+	if minor := semver.MajorMinor(version); minor != "" && semver.Prerelease(version) == "" {
+		for _, profile := range d.Profiles {
+			if profile.Arch == build.Arch && semver.MajorMinor("v"+profile.Rustc) == minor {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("%w %q on %s", ErrUnsupportedCompiler, build.Rustc, build.Arch)
 }
 
 // InferBuild fills in a compiler version the binary's comment section omits.

@@ -9,7 +9,6 @@ import (
 	"debug/elf"
 	_ "embed"
 	"encoding/json"
-	"fmt"
 	"sync"
 
 	"go.opentelemetry.io/obi/internal/rustexec"
@@ -34,11 +33,5 @@ func checkRustCompiler(f *elf.File) error {
 	if err != nil {
 		return err
 	}
-	build = database.InferBuild(build)
-	for _, compiler := range database.Profiles {
-		if compiler.Arch == build.Arch && compiler.Rustc == build.Rustc {
-			return nil
-		}
-	}
-	return fmt.Errorf("unsupported Rust compiler %q on %s", build.Rustc, build.Arch)
+	return database.CheckCompiler(build)
 }

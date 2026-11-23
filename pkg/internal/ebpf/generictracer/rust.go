@@ -15,6 +15,7 @@ import (
 	"github.com/cilium/ebpf/link"
 	lru "github.com/hashicorp/golang-lru/v2"
 
+	"go.opentelemetry.io/obi/internal/rustexec"
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -114,7 +115,9 @@ func (c *rustController) commit(pid app.PID, target *rustTarget, attachment rust
 		}
 	}
 
-	if cause != nil {
+	if errors.Is(cause, rustexec.ErrUnsupportedCompiler) {
+		c.tracer.log.Info("Using generic instrumentation for Rust process", "pid", pid, "error", cause)
+	} else if cause != nil {
 		c.tracer.log.Debug("Rust context propagation unavailable", "pid", pid, "error", cause)
 	}
 }

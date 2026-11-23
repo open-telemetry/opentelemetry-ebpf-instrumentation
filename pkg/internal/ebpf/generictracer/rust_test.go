@@ -6,12 +6,15 @@
 package generictracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/generictracer"
 
 import (
+	"bytes"
 	"io"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/internal/rustexec"
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
@@ -62,4 +65,21 @@ func TestRustControllerCloseWaitsForAttachment(t *testing.T) {
 		t.Fatal("Close did not return after the attachment finished")
 	}
 	require.True(t, late.closed, "an attachment finishing after Close must close its probes")
+}
+
+func TestRustControllerReportsUnsupportedCompilerAtInfo(t *testing.T) {
+	var logs bytes.Buffer
+	const pid = app.PID(42)
+	target := &rustTarget{}
+	controller := &rustController{
+		tracer:  &Tracer{log: slog.New(slog.NewTextHandler(&logs, nil))},
+		targets: map[app.PID]*rustTarget{pid: target},
+	}
+	db := rustexec.Database{}
+	err := db.CheckCompiler(rustexec.Build{Arch: "amd64", Rustc: "1.96.0"})
+	controller.commit(pid, target, rustAttachment{}, err)
+
+	require.Contains(t, logs.String(), "level=INFO")
+	require.Contains(t, logs.String(), "Using generic instrumentation for Rust process")
+	require.Contains(t, logs.String(), "1.96.0")
 }
