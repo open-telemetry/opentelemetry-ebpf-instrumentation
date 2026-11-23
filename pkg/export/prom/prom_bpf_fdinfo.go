@@ -27,18 +27,21 @@ func ownedProgramIDs(fdinfoDir string) ([]ebpf.ProgramID, error) {
 	}
 
 	ids := make(map[ebpf.ProgramID]struct{})
+	var readErr error
 	for _, entry := range entries {
 		// The fdinfo of a program, and of a link, carries the program ID.
 		id, ok, err := fdinfoID(filepath.Join(fdinfoDir, entry.Name()), fdinfoProgramID)
 		if err != nil {
-			return nil, err
+			// The readable descriptors are still returned; the error marks the list incomplete.
+			readErr = errors.Join(readErr, err)
+			continue
 		}
 		if ok {
 			ids[ebpf.ProgramID(id)] = struct{}{}
 		}
 	}
 
-	return slices.Sorted(maps.Keys(ids)), nil
+	return slices.Sorted(maps.Keys(ids)), readErr
 }
 
 func fdinfoID(path, key string) (uint32, bool, error) {

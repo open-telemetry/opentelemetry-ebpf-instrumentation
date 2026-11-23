@@ -645,6 +645,6 @@ func TestInternalProgramIDsComeFromFDInfo(t *testing.T) {
 	collector.fdinfoDir = fdinfoDir
 	require.NoError(t, os.Mkdir(filepath.Join(fdinfoDir, "5"), 0o700))
 	ids, complete = collector.programIDs()
-	assert.Empty(t, ids)
+	assert.Equal(t, []ebpf.ProgramID{12}, ids, "readable descriptors are still reported")
 	assert.False(t, complete, "an unreadable descriptor must not evict cached programs")
 }

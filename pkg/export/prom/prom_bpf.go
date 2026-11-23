@@ -463,9 +463,8 @@ func (bc *BPFCollector) programIDs() ([]ebpf.ProgramID, bool) {
 	ids, err := ownedProgramIDs(bc.fdinfoDir)
 	if err != nil {
 		bc.log.Debug("failed to list OBI programs", "error", err)
-		return nil, false
 	}
-	return ids, true
+	return ids, err == nil
 }
 
 func nodeProgramIDs() ([]ebpf.ProgramID, bool) {
