@@ -162,6 +162,30 @@ type pythonExtractor struct {
 	hasPartialRoutes bool
 }
 
+type pythonStatementScanner struct {
+	routes          map[string]struct{}
+	hasFalcon       bool
+	hasFalconRoutes bool
+}
+
+func (s *pythonStatementScanner) scan(stmt string) {
+	if falconImportPattern.MatchString(stmt) {
+		s.hasFalcon = true
+	}
+
+	scanFastAPI(stmt, s.routes)
+	scanFlask(stmt, s.routes)
+
+	if s.hasFalcon && scanFalcon(stmt, s.routes) {
+		s.hasFalconRoutes = true
+	}
+}
+
+func (s *pythonStatementScanner) starts(line string) bool {
+	return startsFastAPI(line) || startsFlask(line) ||
+		s.hasFalcon && startsFalcon(line)
+}
+
 func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -174,19 +198,15 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 
 	var djangoRoutes []djangoRoute
 	djangoLists := map[string]*djangoList{}
+	pythonScanner := pythonStatementScanner{routes: e.routes}
 	djangoAliases := map[string]string{}
 	hasDjangoPath := false
-	hasFalcon := false
 	scanStmt := func(text string) {
-		if falconImportPattern.MatchString(text) {
-			hasFalcon = true
-		}
 		if startsFastAPI(text) || startsFlask(text) {
 			e.hasPartialRoutes = true
 		}
-		if scanPythonStmt(text, e.routes, hasFalcon) {
-			e.hasFalconRoutes = true
-		}
+		pythonScanner.scan(text)
+		e.hasFalconRoutes = e.hasFalconRoutes || pythonScanner.hasFalconRoutes
 		if match := djangoFromImportAliasPattern.FindStringSubmatch(text); match != nil {
 			djangoAliases[match[3]] = match[1] + "." + match[2]
 		} else if match := djangoImportAliasPattern.FindStringSubmatch(text); match != nil {
@@ -221,7 +241,7 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 
 		if stmt.Len() == 0 {
 			depth = parenDelta(line)
-			startsStmt := startsFastAPI(line) || startsFlask(line) || hasFalcon && startsFalcon(line) ||
+			startsStmt := pythonScanner.starts(line) ||
 				djangoImportStart.MatchString(line) ||
 				hasDjangoPath && (djangoPathStart.MatchString(line) || djangoI18nStart.MatchString(line) ||
 					djangoListAssignmentPattern.MatchString(line))
@@ -256,15 +276,6 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 	}
 	e.djangoRoutes[path] = djangoRoutes
 	return ctx.Err()
-}
-
-func scanPythonStmt(stmt string, routes map[string]struct{}, hasFalcon bool) bool {
-	scanFastAPI(stmt, routes)
-	scanFlask(stmt, routes)
-	if hasFalcon {
-		return scanFalcon(stmt, routes)
-	}
-	return false
 }
 
 // stripPythonComment removes a Python comment without changing quoted strings.
