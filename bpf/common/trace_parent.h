@@ -78,12 +78,11 @@ static __always_inline tp_info_pid_t *find_wire_server_parent(u32 pid, const tp_
 }
 
 static __always_inline tp_info_pid_t *find_tokio_parent_trace(const pid_connection_info_t *p_conn,
-                                                              u64 pid_tgid,
                                                               u32 pid,
-                                                              const rust_capabilities_t *rust,
+                                                              const rust_thread_state_t *thread,
                                                               const tp_info_t *wire_tp) {
     rust_task_key_t task = {};
-    tp_info_pid_t *rust_parent = rust_process_task(pid_tgid, pid, rust, &task)
+    tp_info_pid_t *rust_parent = rust_innermost_task(pid, thread, &task)
                                      ? bpf_map_lookup_elem(&rust_task_context, &task)
                                      : NULL;
     if (parent_trace_matches(rust_parent, wire_tp)) {
@@ -362,12 +361,15 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
     tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
 
     // A Tokio worker may poll many unrelated tasks. Never fall back to its
-    // last thread or connection parent, even without task tracking hooks;
-    // only task-owned or wire-matched parents identify the request.
+    // last thread or connection parent; only task-owned or wire-matched
+    // parents identify the request. Threads that never polled a task, such as
+    // std::thread or rayon workers, keep the thread-keyed lookup.
     const u32 rust_pid = obi_pid(pid_tgid);
     const rust_capabilities_t *rust = rust_process_capabilities(rust_pid);
-    if (rust && rust->tokio_runtime) {
-        return find_tokio_parent_trace(p_conn, pid_tgid, rust_pid, rust, wire_tp);
+    const rust_thread_state_t *rust_thread =
+        rust && rust->tokio_runtime ? bpf_map_lookup_elem(&rust_threads, &pid_tgid) : NULL;
+    if (rust_thread) {
+        return find_tokio_parent_trace(p_conn, rust_pid, rust_thread, wire_tp);
     }
 
     if (parent_trace_matches(node_tp, wire_tp)) {
