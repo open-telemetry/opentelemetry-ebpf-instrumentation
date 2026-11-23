@@ -83,10 +83,9 @@ static __always_inline tp_info_pid_t *find_tokio_parent_trace(const pid_connecti
                                                               const rust_capabilities_t *rust,
                                                               const tp_info_t *wire_tp) {
     rust_task_key_t task = {};
-    tp_info_pid_t *rust_parent =
-        rust->client_context && rust_process_task(pid_tgid, pid, rust, &task)
-            ? bpf_map_lookup_elem(&rust_task_context, &task)
-            : NULL;
+    tp_info_pid_t *rust_parent = rust_process_task(pid_tgid, pid, rust, &task)
+                                     ? bpf_map_lookup_elem(&rust_task_context, &task)
+                                     : NULL;
     if (parent_trace_matches(rust_parent, wire_tp)) {
         return rust_parent;
     }
