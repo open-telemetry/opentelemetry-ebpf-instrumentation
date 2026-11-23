@@ -57,8 +57,9 @@ func ExtractPythonRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarveste
 func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult, error) {
 	log := slog.With("component", "route.harvester.python")
 	e := pythonExtractor{
-		routes:       map[string]struct{}{},
-		djangoRoutes: map[string][]djangoRoute{},
+		completeRoutes: map[string]struct{}{},
+		partialRoutes:  map[string]struct{}{},
+		djangoRoutes:   map[string][]djangoRoute{},
 	}
 	kind := PartialRoutes
 	err := walkPythonFiles(ctx, dir, func(path string) error {
@@ -81,19 +82,46 @@ func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult
 		kind = CompleteRoutes
 	}
 
-	if err := resolveDjangoRoutes(ctx, dir, e.djangoRoutes, e.routes); err != nil {
+	if err := resolveDjangoRoutes(ctx, dir, e.djangoRoutes, e.completeRoutes); err != nil {
 		return nil, err
 	}
 
-	result := make([]string, 0, len(e.routes))
-	for route := range e.routes {
+	complete := make([]string, 0, len(e.completeRoutes))
+	partial := make([]string, 0, len(e.partialRoutes))
+	all := make(map[string]struct{}, len(e.completeRoutes)+len(e.partialRoutes))
+
+	for route := range e.completeRoutes {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		complete = append(complete, route)
+		all[route] = struct{}{}
+	}
+
+	for route := range e.partialRoutes {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		partial = append(partial, route)
+		all[route] = struct{}{}
+	}
+
+	result := make([]string, 0, len(all))
+	for route := range all {
 		result = append(result, route)
 	}
+
+	sort.Strings(complete)
+	sort.Strings(partial)
 	sort.Strings(result)
-	return &RouteHarvesterResult{Routes: result, Kind: kind}, nil
+
+	return &RouteHarvesterResult{
+		Routes:            result,
+		Kind:              kind,
+		Complete:          complete,
+		Partial:           partial,
+		HasSeparateRoutes: true,
+	}, nil
 }
 
 func walkPythonFiles(ctx context.Context, root string, fn func(string) error) error {
@@ -156,14 +184,16 @@ func skipPythonDir(name string) bool {
 }
 
 type pythonExtractor struct {
-	routes           map[string]struct{}
+	completeRoutes   map[string]struct{}
+	partialRoutes    map[string]struct{}
 	djangoRoutes     map[string][]djangoRoute
 	hasFalconRoutes  bool
 	hasPartialRoutes bool
 }
 
 type pythonStatementScanner struct {
-	routes          map[string]struct{}
+	completeRoutes  map[string]struct{}
+	partialRoutes   map[string]struct{}
 	hasFalcon       bool
 	hasFalconRoutes bool
 }
@@ -173,10 +203,10 @@ func (s *pythonStatementScanner) scan(stmt string) {
 		s.hasFalcon = true
 	}
 
-	scanFastAPI(stmt, s.routes)
-	scanFlask(stmt, s.routes)
+	scanFastAPI(stmt, s.partialRoutes)
+	scanFlask(stmt, s.partialRoutes)
 
-	if s.hasFalcon && scanFalcon(stmt, s.routes) {
+	if s.hasFalcon && scanFalcon(stmt, s.completeRoutes) {
 		s.hasFalconRoutes = true
 	}
 }
@@ -198,7 +228,10 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 
 	var djangoRoutes []djangoRoute
 	djangoLists := map[string]*djangoList{}
-	pythonScanner := pythonStatementScanner{routes: e.routes}
+	pythonScanner := pythonStatementScanner{
+		completeRoutes: e.completeRoutes,
+		partialRoutes:  e.partialRoutes,
+	}
 	djangoAliases := map[string]string{}
 	hasDjangoPath := false
 	scanStmt := func(text string) {

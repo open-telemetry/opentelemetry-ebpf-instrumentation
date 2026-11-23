@@ -282,9 +282,10 @@ func TestExtractPythonRoutesCanceled(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("@app.get('/users')\n"), 0o644))
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	extractor := pythonExtractor{routes: map[string]struct{}{}, djangoRoutes: map[string][]djangoRoute{}}
+	extractor := pythonExtractor{completeRoutes: map[string]struct{}{}, partialRoutes: map[string]struct{}{}, djangoRoutes: map[string][]djangoRoute{}}
 	require.ErrorIs(t, extractor.scanFile(ctx, path), context.Canceled)
-	assert.Empty(t, extractor.routes)
+	assert.Empty(t, extractor.completeRoutes)
+	assert.Empty(t, extractor.partialRoutes)
 	result, err := extractPythonRoutes(ctx, dir)
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, result)
@@ -301,11 +302,11 @@ func TestPythonFileScanStopsAtDeadline(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "server.py")
 	require.NoError(t, os.WriteFile(path, []byte(content.String()), 0o644))
-	extractor := pythonExtractor{routes: map[string]struct{}{}, djangoRoutes: map[string][]djangoRoute{}}
+	extractor := pythonExtractor{completeRoutes: map[string]struct{}{}, partialRoutes: map[string]struct{}{}, djangoRoutes: map[string][]djangoRoute{}}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
 	defer cancel()
 	require.ErrorIs(t, extractor.scanFile(ctx, path), context.DeadlineExceeded)
-	assert.Less(t, len(extractor.routes), lines)
+	assert.Less(t, len(extractor.completeRoutes)+len(extractor.partialRoutes), lines)
 }
 
 func routeKeys(routes map[string]struct{}) []string {
@@ -350,4 +351,32 @@ app.add_route('/files/{file_path:path}', FileResource())
 
 	matcher := RouteMatcherFromResult(*result)
 	assert.Equal(t, "/files/{file_path:path}", matcher.Find("/files/a/b.txt"))
+}
+
+func TestExtractPythonFalconRoutesAreNotCombinedWithFastAPI(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "fastapi_app.py"), []byte(`
+from fastapi import FastAPI
+
+app = FastAPI()
+router = APIRouter(prefix="/api")
+`), 0o644))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "falcon_app.py"), []byte(`
+import falcon
+
+app = falcon.App()
+app.add_route("/users/{user_id}", User())
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir)
+	require.NoError(t, err)
+
+	assert.Contains(t, result.Complete, "/users/{user_id}")
+	assert.Contains(t, result.Partial, "/api")
+
+	matcher := RouteMatcherFromResult(*result)
+	assert.Equal(t, "/users/{user_id}", matcher.Find("/users/123"))
+	assert.Empty(t, matcher.Find("/api/users/123"))
 }
