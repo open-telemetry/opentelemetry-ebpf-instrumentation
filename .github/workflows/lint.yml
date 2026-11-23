@@ -43,8 +43,7 @@ permissions:
   contents: read
 
 jobs:
-  # macOS runners lack Docker so they can't run `make docker-generate`. Run it
-  # once on Linux, share artifact with all lint jobs.
+  # Generate once on Linux and share artifacts with all lint jobs.
   generate-bpf:
     name: Generate BPF
     runs-on: ubuntu-26.04

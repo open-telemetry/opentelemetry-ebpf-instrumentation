@@ -1,6 +1,6 @@
 name: Generate BPF
 description: |
-  Run `make docker-generate` and publish the resulting `_bpfel.go` +
+  Run `make generate` and publish the resulting `_bpfel.go` +
   `_bpfel.o` files as a workflow artifact. Caller must `actions/checkout`
   first so this composite can resolve the local Go module + Makefile.
 
@@ -28,7 +28,7 @@ runs:
     - name: Set up mise tools
       uses: $/.github/actions/setup-mise
       env:
-        MISE_ENABLE_TOOLS: go
+        MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools
       with:
         cache-downloads: "${{ inputs.cache-downloads }}"
 
@@ -50,23 +50,9 @@ runs:
         restore-keys: |
           ${{ inputs.cache-key-prefix }}-${{ runner.os }}-${{ runner.arch }}-
 
-    - name: Pre-pull generator image
-      shell: bash
-      run: |
-        IMG=$(grep -E "^GEN_IMG \?= " Makefile | awk '{print $3}')
-        for i in 1 2 3 4 5; do
-          if docker pull "$IMG"; then
-            exit 0
-          fi
-          echo "pull attempt $i failed, retrying in $((i*5))s"
-          sleep $((i*5))
-        done
-        echo "all pull attempts failed"
-        exit 1
-
     - name: Generate BPF files
       shell: bash
-      run: make docker-generate
+      run: make generate
 
     - name: Upload generated BPF files
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -54,7 +54,7 @@ jobs:
       - name: Set up mise tools
         uses: $/.github/actions/setup-mise
         env:
-          MISE_ENABLE_TOOLS: go
+          MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools
         with:
           cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
 
@@ -83,7 +83,7 @@ jobs:
           key: semconv-deps-${{ hashFiles('schemas/obi/manifest.yaml') }}
 
       - name: Generate BPF + build test tools
-        run: make prereqs docker-generate
+        run: make prereqs generate
 
       - name: Run privileged unit tests
         run: sudo make test-privileged

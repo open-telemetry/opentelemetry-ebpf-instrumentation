@@ -7,6 +7,9 @@ on:
     paths:
       - ".github/workflows/pull_request_docker_build_test.yml"
       - "Dockerfile"
+      - "generator.Dockerfile"
+      - "mise.toml"
+      - "mise.lock"
       - "k8scache.Dockerfile"
       - "dependencies.Dockerfile"
       - ".dockerignore"
@@ -63,6 +66,16 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      - name: Build local generator OCI context
+        id: generator
+        if: matrix.file == 'Dockerfile'
+        env:
+          GENERATOR_OCI_LAYOUT: ${{ runner.temp }}/obi-generator-layout-${{ steps.short_sha.outputs.sha }}-${{ runner.arch }}
+        run: |
+          echo "base=ghcr.io/open-telemetry/obi-generator:local" >> "$GITHUB_OUTPUT"
+          echo "layout=$GENERATOR_OCI_LAYOUT" >> "$GITHUB_OUTPUT"
+          make generator-image-context GENERATOR_OCI_LAYOUT="$GENERATOR_OCI_LAYOUT"
+
       - name: Build Docker image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -73,3 +86,5 @@ jobs:
           build-args: |
             RELEASE_VERSION=${{ inputs.ref || github.ref_name }}
             RELEASE_REVISION=${{ steps.short_sha.outputs.sha }}
+            GENERATOR_BASE=${{ steps.generator.outputs.base }}
+          build-contexts: ${{ matrix.file == 'Dockerfile' && format('{0}=oci-layout://{1}:local', steps.generator.outputs.base, steps.generator.outputs.layout) || '' }}

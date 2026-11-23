@@ -43,21 +43,23 @@ IntelliJ IDEA, and terminal workflows.
 - eBPF enabled in the host.
 - For instrumenting Go programs, compile with at least Go 1.17. OBI support Go applications built with a major **Go version no earlier than 3 versions** behind the current stable major release.
 
-In addition, use the latest versions of the following components:
-
-- `go`
-- `clang`
-- `docker`
-- `make`
+Install GNU Make and [Mise](https://mise.jdx.dev/). From the repository root,
+run `mise install` to provision the pinned Go, clang, LLVM, clang-format, and
+clang-tidy toolchain. Docker is used for container builds, integration tests,
+and the fallback generation target.
 
 #### Compilation steps
 
-Compiling OBI is a two-tier process: first, we need to build the eBPF code (written in C) and generate the Go bindings. There are two `Makefile` targets for that, `generate` and `docker-generate`. The difference between them is that `generate` will attempt to use the local clang/LLVM toolchain, whereas `docker-generate` pulls a Docker image containing all of the tooling required - this is also the target used by OBI's GitHub CI.
-Once the eBPF files have been generated, we can use the `compile` `Makefile` target to build the main binary.
+The `generate` target builds eBPF code and Go bindings with the repository's
+Mise-pinned clang/LLVM toolchain. `docker-generate` remains available when you
+need the published generator image as a fallback. GitHub CI uses native
+generation. Once the eBPF files have been generated, use the `compile` target
+to build the main binary.
 
 ```
-make docker-generate # or make generate
-make compile
+mise install
+mise exec -- make generate
+mise exec -- make compile
 ```
 
 Both generate targets build the eBPF code for amd64 and arm64. To iterate faster locally, `BPF_TARGETS` selects a single architecture, for example `make generate BPF_TARGETS=arm64`.
@@ -88,7 +90,10 @@ make docker-clang-format # or make clang-format
 make docker-clang-tidy # or make clang-tidy
 ```
 
-CI formats and lints the C code with the `clang-format` and `clang-tidy` from the generator image, the same LLVM build as the clang that `make docker-generate` uses. The `docker-` targets run that same version. `make clang-format`, `make clang-tidy` and the pre-commit hook use the local tools instead: install the same major version as the generator image, and point `CLANG_FORMAT` and `CLANG_TIDY` at them if they are not the default `clang-format` and `clang-tidy` in your `PATH`.
+The `clang-format` and `clang-tidy` versions are pinned in Mise alongside
+clang/LLVM. The non-Docker `make clang-format` and `make clang-tidy` targets and
+the pre-commit hook use those tools; `docker-clang-format` and
+`docker-clang-tidy` remain available as fallbacks.
 
 #### Formatting the Go code
 

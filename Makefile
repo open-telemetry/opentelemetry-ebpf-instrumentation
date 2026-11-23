@@ -29,6 +29,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
 GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.18
+GENERATOR_BASE ?= ghcr.io/open-telemetry/obi-generator:local
 
 OCI_BIN ?= docker
 
@@ -49,6 +50,7 @@ CLANG_TIDY ?= clang-tidy
 
 # must match the LLVM version installed by generator.Dockerfile
 GEN_IMG_LLVM_BIN = /usr/lib/llvm22/bin
+GENERATOR_OCI_LAYOUT ?= $(TEST_OUTPUT)/obi-generator-layout
 
 CILIUM_EBPF_VER ?= v0.22.0
 CILIUM_EBPF_PKG := github.com/cilium/ebpf
@@ -407,10 +409,10 @@ docker-generate:
 verify: prereqs go-mod-tidy lint test license-header-check
 
 .PHONY: build
-build: docker-generate verify compile
+build: generate verify compile
 
 .PHONY: all
-all: docker-generate notices-update build
+all: generate notices-update build
 
 .PHONY: compile compile-cache
 compile:
@@ -543,7 +545,14 @@ java-verify: java-spotless-check java-test java-build
 image-build:
 	@echo "### Building the auto-instrumenter image"
 	$(call check_defined, IMG_ORG, Your Docker repository user name)
+	@set -e; \
+	_layout_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/obi-image-build.XXXXXX"); \
+	trap 'rm -rf -- "$$_layout_dir"' EXIT; \
+	_layout="$$_layout_dir/obi-generator-layout"; \
+	$(MAKE) generator-image-context GENERATOR_OCI_LAYOUT="$$_layout"; \
 	$(OCI_BIN) buildx build --load -t ${IMG} \
+		--build-arg GENERATOR_BASE=$(GENERATOR_BASE) \
+		--build-context $(GENERATOR_BASE)=oci-layout://$$_layout:local \
 		--build-arg RELEASE_VERSION=${RELEASE_VERSION} \
 		--build-arg RELEASE_REVISION=${RELEASE_REVISION} \
 		.
@@ -553,6 +562,19 @@ image-build:
 generator-image-build:
 	@echo "### Creating the image that generates the eBPF binaries"
 	$(OCI_BIN) buildx build --load -t $(GEN_IMG) -f generator.Dockerfile  .
+
+.PHONY: generator-image-context
+generator-image-context:
+	@echo "### Creating a local OCI context for the eBPF generator"
+	@_layout="$(abspath $(GENERATOR_OCI_LAYOUT))"; \
+	if [ "$$_layout" = / ] || [ "$$_layout" = "$(CURDIR)" ]; then \
+		echo "GENERATOR_OCI_LAYOUT must be a dedicated output directory" >&2; exit 1; \
+	fi; \
+	if [ -e "$$_layout" ]; then \
+		echo "GENERATOR_OCI_LAYOUT already exists; use a new dedicated path" >&2; exit 1; \
+	fi; \
+	mkdir -p -- "$$(dirname "$$_layout")"; \
+	$(OCI_BIN) buildx build --output "type=oci,name=local,dest=$$_layout,tar=false" -f generator.Dockerfile .
 
 
 .PHONY: prepare-integration-test
@@ -680,7 +702,7 @@ itest-coverage-data:
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt || true
 
 .PHONY: oats-prereq
-oats-prereq: docker-generate fetch-upstream-semconv
+oats-prereq: generate fetch-upstream-semconv
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: oats-test-sql
@@ -752,7 +774,7 @@ license-header-check:
 	   fi
 
 .PHONY: artifact
-artifact: docker-generate java-docker-build compile
+artifact: generate java-docker-build compile
 	@echo "### Packing generated artifact for $(GOOS)/$(GOARCH)"
 	@STAGING_DIR=$$(mktemp -d 2>/dev/null || mktemp -d -t obi.XXXXXX); \
 	trap "rm -rf $$STAGING_DIR" EXIT; \
@@ -792,7 +814,7 @@ release: artifact
 
 .PHONY: release-source
 RELEASE_SOURCE_VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || git symbolic-ref --short -q HEAD || echo main)
-release-source: docker-generate java-docker-build
+release-source: generate java-docker-build
 	@./scripts/release-source.sh --release-version "$(RELEASE_SOURCE_VERSION)" --release-dir "$(RELEASE_DIR)"
 	@$(MAKE) release-checksums RELEASE_VERSION=$(RELEASE_SOURCE_VERSION)
 
@@ -871,7 +893,7 @@ TARGET_BPF_FILES := $(patsubst ./%,$(NOTICES_DIR)/%,$(BPF_FILES))
 TARGET_BPF := $(TARGET_C_LICENSES) $(TARGET_BPF_FILES)
 
 .PHONY: notices-update
-notices-update: docker-generate go-notices-update java-notices-update $(TARGET_BPF)
+notices-update: generate go-notices-update java-notices-update $(TARGET_BPF)
 
 .PHONY: java-notices-update
 java-notices-update:
