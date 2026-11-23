@@ -1,4 +1,18 @@
 version: "2.0"
+attributes:
+    select:
+        http.server.request.duration:
+            include: []
+            exclude:
+                - http.route
+        traces:
+            include:
+                - service.peer.name
+            exclude: []
+exceptions:
+    enabled: false
+    go:
+        formatted_errors: false
 policy:
     default_action: exclude
     match_order: first_match_wins
@@ -54,6 +68,7 @@ instrumentation:
             traces: true
             metrics: true
             body_size_metrics: true
+            request_phase_spans: true
         filters:
             traces:
                 http.request.method:
@@ -89,6 +104,47 @@ instrumentation:
                 disabled_languages: []
                 java:
                     delay: 5s
+        query_parameters:
+            redaction:
+                names:
+                    - X-Amz-Signature
+                    - X-Amz-Credential
+                    - X-Amz-Security-Token
+                    - AWSAccessKeyId
+                    - Signature
+                    - SecurityToken
+                    - X-Goog-Signature
+                    - sig
+                    - token
+                    - access_token
+                    - refresh_token
+                    - id_token
+                    - jwt
+                    - session
+                    - sid
+                    - signature
+                    - api_key
+                    - apikey
+                    - client_secret
+                    - secret
+                    - password
+                    - pass
+                    - pwd
+                    - reset_token
+                    - invite_token
+                    - verify_token
+                    - otp
+                    - totp
+                    - mfa_code
+                    - verification_code
+                    - SAMLResponse
+                    - assertion
+                    - card
+                    - cc
+                    - pan
+                    - cvv
+                    - ssn
+                    - tax_id
         payload_extraction:
             enabled: []
             sqlpp:
@@ -115,6 +171,8 @@ instrumentation:
             metrics:
                 http.request.method:
                     not_match: OPTIONS
+    db:
+        sanitize_query_text: false
     sql:
         enabled:
             traces: true
@@ -226,6 +284,7 @@ instrumentation:
 runtimes:
     go:
         enabled: true
+        channel_links: true
     nodejs:
         enabled: true
     java:
@@ -329,6 +388,8 @@ engine:
         wakeup_len: 500
         batch_length: 100
         batch_timeout: 1s
+        stats:
+            wakeup_bytes: 4096
     propagation:
         context_propagation: disabled
         override_bpfloop_enabled: false
@@ -344,6 +405,8 @@ engine:
         global_scale_factor: 0
     bpf_filesystem:
         path: /sys/fs/bpf/
+    cgroup_filesystem:
+        path: ""
 safety:
     enforce_system_capabilities: false
 channels:
@@ -356,3 +419,4 @@ telemetry:
     metrics:
         reporters_cache_len: 256
         ttl: 5m0s
+        connection_info_ttl: 15m0s

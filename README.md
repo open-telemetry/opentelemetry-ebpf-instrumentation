@@ -9,14 +9,14 @@ It provides a lightweight and efficient way to collect telemetry data using eBPF
 
 ## Project Status
 
-OBI is currently in Development. Users should expect breaking changes between minor releases while the project remains in `v0`.
+Core OBI follows the `v1` compatibility and release rules in
+[VERSIONING.md](./VERSIONING.md).
 
 If you are evaluating OBI for production use:
 
 - pin to a specific semver release tag instead of relying on `latest`, which is a moving, non-stable tag
 - review release notes before upgrading between minor versions
-- expect configuration, behavior, supported environments, and emitted telemetry to change between `v0` minor releases
-- avoid assuming telemetry continuity for dashboards, alerts, or downstream processors before OBI declares those surfaces stable
+- check [TELEMETRY.md](./TELEMETRY.md) for the stable telemetry contract before relying on telemetry continuity for dashboards, alerts, or downstream processors
 
 For the project's versioning and stability policy, see [VERSIONING.md](./VERSIONING.md).
 For the environments and artifact platforms OBI currently documents as supported, see [SUPPORT_MATRIX.md](./SUPPORT_MATRIX.md).

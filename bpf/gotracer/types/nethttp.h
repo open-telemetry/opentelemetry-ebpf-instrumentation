@@ -17,7 +17,7 @@ static const char traceparent[] = "traceparent: ";
 
 typedef struct http_client_data {
     s64 content_length;
-    pid_info pid;
+    pid_info_t pid;
     unsigned char path[k_path_max_len];
     unsigned char raw_query[k_query_max_len];
     unsigned char host[k_host_max_len];
@@ -39,7 +39,11 @@ typedef struct server_http_func_invocation {
     u8 pattern[k_pattern_max_len];
     u8 is_tls;
     bool is_jsonrpc;
-    u8 _pad[7];
+    u8 proto_major;
+    u8 proto_minor;
+    // set when an exception capture saw this request's goroutine panic
+    bool panicked;
+    u8 _pad[4];
 } server_http_func_invocation_t;
 
 typedef struct http2_owned_stream_ref {

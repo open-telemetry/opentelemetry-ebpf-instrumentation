@@ -22,7 +22,8 @@ func testPythonGraphQL(t *testing.T) {
 	const (
 		comm          = "main"
 		address       = "http://localhost:8381/graphql/"
-		query         = `{"query": "query TestMe { testme }"}`
+		document      = "query NotSelected { unused: testme } query TestMe { testme }"
+		query         = `{"query": "` + document + `", "operationName": "TestMe"}`
 		operationName = "query"
 	)
 
@@ -36,6 +37,10 @@ func testPythonGraphQL(t *testing.T) {
 		resp, err := http.Post(address, "application/json", bytes.NewBuffer([]byte(query)))
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var result map[string]any
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&result))
+		require.NoError(ct, resp.Body.Close())
+		require.Equal(ct, map[string]any{"data": map[string]any{"testme": "ok!"}}, result)
 
 		resp, err = getJaeger(fullJaegerURL)
 		require.NoError(ct, err)
@@ -59,6 +64,6 @@ func testPythonGraphQL(t *testing.T) {
 
 		tag, found = jaeger.FindIn(span.Tags, "graphql.document")
 		assert.True(ct, found)
-		assert.Equal(ct, "query TestMe { testme }", tag.Value)
+		assert.Equal(ct, document, tag.Value)
 	}, testTimeout, 100*time.Millisecond)
 }

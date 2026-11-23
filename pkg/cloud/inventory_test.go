@@ -264,3 +264,23 @@ func TestInventoryPollingDoesNotWaitForOtherSources(t *testing.T) {
 	}
 	<-blocked.stopped
 }
+
+func TestInventoryUnavailableSourceDoesNotBlockOtherSources(t *testing.T) {
+	unavailable := &snapshotRefresher{err: ErrMetadataUnavailable}
+	ecs := &snapshotRefresher{snapshot: MetadataSnapshot{ServiceByIP: map[string]string{"10.0.0.1": "ecs"}}}
+	inventory := NewInventory([]MetadataRefresher{unavailable, ecs})
+	inventory.refresh(t.Context())
+	name, ok := inventory.ServiceNameForIP("10.0.0.1")
+	require.True(t, ok)
+	require.Equal(t, "ecs", name)
+
+	unavailable.err = nil
+	unavailable.snapshot = MetadataSnapshot{ServiceByIP: map[string]string{"10.0.0.2": "unavailable"}}
+	ecs.snapshot = MetadataSnapshot{ServiceByIP: map[string]string{"10.0.0.1": "ecs-updated"}}
+	inventory.refresh(t.Context())
+	name, ok = inventory.ServiceNameForIP("10.0.0.1")
+	require.True(t, ok)
+	require.Equal(t, "ecs-updated", name)
+	_, ok = inventory.ServiceNameForIP("10.0.0.2")
+	require.False(t, ok)
+}

@@ -40,6 +40,7 @@ func nodeSpanRecordBytes(t *testing.T, ev *NodeSpanEvent, payload string) *ringb
 func TestReadNodeSpanEventIntoSpan(t *testing.T) {
 	ev := NodeSpanEvent{
 		HasParentCtx: 1,
+		ParentFlags:  TPFlagSampled,
 		EndKtime:     1_000_000_000,
 	}
 	for i := range ev.ParentTraceId {
@@ -77,6 +78,7 @@ func TestReadNodeSpanEventIntoSpan(t *testing.T) {
 	assert.Equal(t, "0102030405060708090a0b0c0d0e0f10", span.TraceID.String())
 	assert.Equal(t, "eee19b7ec3c1b174", span.SpanID.String())
 	assert.Equal(t, "b7ad6b7169203331", span.ParentSpanID.String())
+	assert.Equal(t, uint8(TPFlagSampled), span.TraceFlags)
 
 	// attributes: the Statement JSON must decode with the same struct shape
 	// tracesgen.manualSpanAttributes uses
@@ -124,6 +126,20 @@ func TestReadNodeSpanEventIntoSpan_NoParentContext(t *testing.T) {
 	assert.Equal(t, "5b8efff798038103d269b633813fc60c", span.TraceID.String())
 	assert.False(t, span.ParentSpanID.IsValid())
 	assert.Empty(t, span.Statement)
+}
+
+func TestReadNodeSpanEventIntoSpan_UnsampledParent(t *testing.T) {
+	ev := NodeSpanEvent{HasParentCtx: 1, ParentFlags: 0, EndKtime: 2_000_000_000}
+	ev.ParentTraceId[0] = 1
+	ev.ParentSpanId[0] = 1
+
+	payload := `{"v":1,"name":"child","tid":"5b8efff798038103d269b633813fc60c",` +
+		`"sid":"eee19b7ec3c1b174","durNs":"1000","status":0,"attrs":{}}`
+
+	span, _, err := ReadNodeSpanEventIntoSpan(nodeSpanRecordBytes(t, &ev, payload))
+	require.NoError(t, err)
+
+	assert.Equal(t, uint8(0), span.TraceFlags)
 }
 
 func TestReadNodeSpanEventIntoSpan_RootUnderServerSpan(t *testing.T) {

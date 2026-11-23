@@ -1,0 +1,36 @@
+file_format: "1.0"
+log_level: debug
+logger_provider:
+  processors:
+    - batch:
+        schedule_delay: 100
+        exporter:
+          otlp_http:
+            endpoint: ${PYTHON_EXCEPTION_OTLP_ENDPOINT}/v1/logs
+tracer_provider:
+  processors:
+    - batch:
+        schedule_delay: 100
+        exporter:
+          otlp_http:
+            endpoint: ${PYTHON_EXCEPTION_OTLP_ENDPOINT}
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      exceptions:
+        enabled: true
+      policy:
+        default_action: exclude
+        poll_interval: 100ms
+      rules:
+        - action: include
+          match:
+            process:
+              open_ports: "${PYTHON_EXCEPTION_PORT}"
+      instrumentation:
+        http:
+          track_request_headers: true
+      engine:
+        batching:
+          batch_timeout: 10ms

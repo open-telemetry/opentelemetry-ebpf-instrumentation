@@ -7,11 +7,16 @@ on:
     branches: [main, release-*]
     paths:
       - ".github/actions/setup-mise/**"
+      - "mise.toml"
+      - "mise.lock"
+      - ".mise/tasks/**"
+      - ".mise/scripts/**"
       - ".github/workflows/pull_request_oats_test.yml"
       - ".github/actions/free-disk/**"
       - "**.go"
       - "go.mod"
       - "go.sum"
+      - "Makefile"
       - "bpf/**"
       - "cmd/**"
       - "configs/**"
@@ -39,7 +44,7 @@ permissions:
 jobs:
   generate-bpf:
     name: Generate BPF
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,12 +53,10 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/generate-bpf
-        with:
-          cache-key-prefix: go-build-oats
 
   test-matrix:
     name: "Build matrix"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
@@ -67,6 +70,8 @@ jobs:
         uses: $/.github/actions/setup-mise
         with:
           cache-downloads: false
+        env:
+          MISE_ENABLE_TOOLS: go
 
       - name: Build test matrix
         id: build-matrix
@@ -74,9 +79,9 @@ jobs:
           echo -n "matrix=" >> "$GITHUB_OUTPUT"
           mise run //oats:integration-test-matrix-json >> "$GITHUB_OUTPUT"
 
-  harness-unit-tests:
-    name: "OATS harness unit tests"
-    runs-on: ubuntu-latest
+  finalizer-unit-tests:
+    name: "OATS Weaver finalizer unit tests"
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,15 +89,15 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go with mise
+      - name: Set up mise tools
         uses: $/.github/actions/setup-mise
         with:
           cache-downloads: false
         env:
           MISE_ENABLE_TOOLS: go
 
-      - name: Run harness unit tests
-        working-directory: internal/test/oats/harness
+      - name: Run finalizer unit tests
+        working-directory: internal/test/oats/finalizer
         run: go test -race ./...
 
   build-obi-image:
@@ -104,7 +109,7 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - runner: ubuntu-latest
+          - runner: ubuntu-26.04
             arch: amd64
           - runner: ubuntu-24.04-arm
             arch: arm64
@@ -145,7 +150,7 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - runner: ubuntu-latest
+          - runner: ubuntu-26.04
             arch: amd64
           - runner: ubuntu-24.04-arm
             arch: arm64
@@ -155,11 +160,6 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
-
-      - name: Set up mise tools
-        uses: $/.github/actions/setup-mise
-        with:
-          cache-downloads: false
 
       - uses: $/.github/actions/free-disk
 
@@ -176,24 +176,15 @@ jobs:
 
       - name: Log in to Docker Hub
         if: steps.check-docker-token.outputs.has_token == 'true'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
 
-      - name: Go module cache
-        if: ${{ inputs.ref == '' || inputs.ref == null }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
-        with:
-          path: ~/go/pkg/mod
-          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            go-mod-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Set up Go with mise
+      - name: Set up mise tools
         uses: $/.github/actions/setup-mise
         with:
-          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
+          cache-downloads: false
         env:
           MISE_ENABLE_TOOLS: go
 
@@ -232,17 +223,27 @@ jobs:
 
       - name: Run oats tests
         env:
-          MATRIX_BASENAME: ${{ matrix.shard.basename }}
+          MATRIX_SUITE: ${{ matrix.shard.suite }}
+          OATS_CASES: ${{ join(matrix.shard.cases, ' ') }}
           TESTCASE_TIMEOUT: 5m
           PREBUILT_IMAGES: hatest-obi
-        run: mise run "//internal/test/oats:test:$MATRIX_BASENAME"
+        run: mise run "//oats:test:$MATRIX_SUITE"
 
       - name: Upload oats test logs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: oats-logs-${{ matrix.shard.basename }}-${{ matrix.platform.arch }}-${{ github.run_number }}
-          path: internal/test/oats/${{ matrix.shard.basename }}/build/*
+          path: internal/test/oats/${{ matrix.shard.suite }}/build/*
+
+      - name: Upload weaver live-check reports
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: weaver-reports-oats-${{ matrix.shard.basename }}-${{ matrix.platform.arch }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: internal/test/oats/${{ matrix.shard.suite }}/build/**/weaver-report-*.json
+          if-no-files-found: ignore
+          retention-days: 5
 
       - name: Process coverage data
         run: mise run itest-coverage-data

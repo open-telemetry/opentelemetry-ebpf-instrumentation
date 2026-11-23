@@ -29,13 +29,13 @@ which is the `schema_url` OBI stamps onto its OTLP telemetry (see
   permanent identity. Never edit a released file; add a new version instead.
 - The `versions:` block records the transformations (attribute/metric renames)
   between versions, newest first. The first release is an empty baseline.
-- The `schema_url:` inside each file MUST equal its served URL. `mise run
-  check:schema-files` enforces this.
+- The `schema_url:` inside each file MUST equal its served URL. `make
+  check-schema-files` enforces this.
 
 ## Releasing a new version
 
 Version management is release-driven. The version comes from `versions.yaml`
-(the OBI release version), and `mise run release:prerelease` runs `mise run generate:schema-next`
+(the OBI release version), and `make prerelease` runs `make generate-schema-next`
 automatically. For stable releases, it:
 
 - cuts `site/schemas/obi/<version>` (previous file plus a new, empty `<version>:`
@@ -45,7 +45,7 @@ automatically. For stable releases, it:
   `schema_url` in `schemas/obi/manifest.yaml` to `<version>`.
 
 These changes are part of the release-prep commit; on merge to `main` the file is
-deployed by `publish-schemas.yml`. `mise run check:schema-files` (run in CI) enforces
+deployed by `publish-schemas.yml`. `make check-schema-files` (run in CI) enforces
 that the emitted `OBISchemaURL` and the manifest both name the `versions.yaml`
 version and that a schema file for that version is actually published. For
 prereleases, generation leaves the published schemas and both URLs unchanged;
@@ -110,6 +110,16 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
+- HTTP metrics support `network.protocol.version` (`network_protocol_version` in
+  Prometheus). It is opt-in on the stable duration metrics to preserve existing series,
+  and enabled by default on the development body-size metrics. Select it through
+  `attributes.select` to split duration series by HTTP version. When selected, unknown
+  versions are omitted from OTLP attributes and use an empty Prometheus label.
+
+- HTTP metric data points for requests without a known route (for example with
+  `routes.incoming.unmatched: unset` or `routes.outgoing.unmatched: unset`) omit `http.route` (server) and `url.template` (client) in OTLP
+  instead of carrying an empty string, matching the spans. Prometheus labels are unchanged.
+
 - A SQL++ span from a server other than Couchbase (`db.system.name` `other_sql`) that names no
   collection or bucket is named `{db.operation.name}`, like other SQL spans, instead of
   `{db.operation.name} {server.address}:{server.port}`. Couchbase SQL++ spans are unchanged.
@@ -122,19 +132,50 @@ section empty once drained.
   As in semconv, `url.template` is on by default on the two body-size metrics but opt-in on
   `http.client.request.duration`, so client duration series no longer split by route unless
   `url.template` is selected.
-- The HTTP metrics no longer offer `url.path`, and the HTTP server metrics and
-  `rpc.server.call.duration` no longer offer `client.address`, following the semantic
-  conventions, which exclude these high-cardinality attributes from metrics. Both were opt-in,
-  so only an `attributes.select` that included them changes. `url.path` can still be used in
-  attribute filters, and the spans keep both attributes.
-- HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
-  `url.full`. HTTP server spans keep `url.query`.
-- The span reference (`site/docs/spans.md`) documents every span's name.
+- The development HTTP body-size metrics no longer offer `url.path`, and the HTTP server
+  body-size metrics and release-candidate `rpc.server.call.duration` no longer offer
+  `client.address`. These attributes remain available on the stable HTTP duration metrics.
+  They were opt-in, so only selections including them change. Attribute filters and spans
+  retain these attributes.
+- The opt-in `url.path` dimension on both stable HTTP duration metrics and `client.address`
+  on `http.server.request.duration` are deprecated as high-cardinality OBI extensions
+  outside the HTTP metric semantic conventions. They remain supported throughout OBI v1,
+  with removal planned for OBI v2. The notice also applies to the Prometheus labels
+  `url_path` and `client_address`. Use `http.route` on server duration metrics or opt into
+  `url.template` on client duration metrics for route aggregation, and spans for raw paths
+  or client addresses. See the [migration guidance](../TELEMETRY.md#deprecated-http-metric-dimensions).
+- The span reference (`site/docs/spans.md`) documents every span's name. The emitted
+  telemetry is unchanged.
 - The trace resource no longer carries `otel.scope.name`. Spans now carry the instrumentation
   scope itself (`go.opentelemetry.io/obi`, the OBI version and the schema URL), so resource
   filters on `otel.scope.name` must use the instrumentation scope name instead. Exporters to
   formats without a scope (Jaeger, Zipkin) still report `otel.scope.name` on each span. All
   OBI metric scopes now carry the OBI version and the schema URL.
+- PostgreSQL `db.namespace` is `{database}|{schema}` when the connection's schema is known
+  (the first `search_path` entry from the startup message, then `SET search_path`/`SET SCHEMA`),
+  and the database alone otherwise. Spans and `db.client.operation.duration` series change
+  value accordingly, splitting metric series per schema, and span names that fall back to the
+  namespace change with it.
+- Go MongoDB spans from mongo-driver v2 use the driver's command name for a few `Collection`
+  methods, as with mongo-driver v1 1.13.1 and later: `db.operation.name` `updateOrReplace`
+  becomes `update`, `countDocuments` becomes `aggregate` and `estimatedDocumentCount` becomes
+  `count`. This changes the span names and `db.operation.name` on `db.client.operation.duration`,
+  and `span.name` on the span metrics. Commands that don't go through a probed `Collection`
+  method, such as `BulkWrite`, are now reported as well, which adds spans and metric series.
+- HTTP server spans and metrics now derive `server.address` from the captured HTTP request
+  host, without its port, instead of the resolved service name. When the request host is
+  unavailable, the OTLP attribute is omitted and the Prometheus label is empty.
+- The Prometheus `bpf_probe_latency_seconds` histogram (`ebpf` metrics feature) exposes
+  cumulative `le` bucket counts for every bound, including empty buckets, instead of
+  per-bucket counts for the bounds that received executions only. Bucket values grow and new
+  `le` series appear, and `histogram_quantile` over this metric now returns correct values.
+  The OTLP `obi.bpf.probe.latency` histogram is unchanged.
+- MySQL and MariaDB spans and the database operation duration metrics carry `db.namespace` once
+  OBI has seen the connection's handshake or a database change, so their metric series split by
+  database.
+- MySQL and MariaDB spans for statements that name no table are named
+  `{db.operation.name} {db.namespace}` when the database is known (`SELECT sakila` instead of
+  `SELECT`). This changes `span.name` on the span metrics as well.
 
 ## Hosting notes
 

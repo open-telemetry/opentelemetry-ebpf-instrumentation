@@ -27,32 +27,38 @@ var (
 	grpcElf             *dwarf.Data
 	spanContextData     *dwarf.Data
 	autoSDKSpanData     *dwarf.Data
+	restfulData         *dwarf.Data
 	smallELF            *elf.File
 	smallGRPCElf        *elf.File
 	smallSpanContextELF *elf.File
 	autoSDKSpanELF      *elf.File
 	smallAutoSDKSpanELF *elf.File
+	smallRestfulELF     *elf.File
 )
 
 func compileELF(source string, extraArgs ...string) *elf.File {
+	execELF, err := compileELFWithEnv(source, nil, extraArgs...)
+	if err != nil {
+		panic(err)
+	}
+	return execELF
+}
+
+// compileELFWithEnv is compileELF with extra environment variables for go build.
+func compileELFWithEnv(source string, env []string, extraArgs ...string) (*elf.File, error) {
 	tempDir := os.TempDir()
 	tmpFilePath := path.Join(tempDir, "server.testexec")
 	cmdParts := []string{"build"}
 	cmdParts = append(cmdParts, extraArgs...)
 	cmdParts = append(cmdParts, "-o", tmpFilePath, source)
 	cmd := exec.Command("go", cmdParts...)
-	cmd.Env = []string{"GOOS=linux", "HOME=" + tempDir, "TMPDIR=" + tempDir}
+	cmd.Env = append([]string{"GOOS=linux", "HOME=" + tempDir, "TMPDIR=" + tempDir}, env...)
 	out := &bytes.Buffer{}
 	cmd.Stdout, cmd.Stderr = out, out
 	if err := cmd.Run(); err != nil {
-		fmt.Println("command output:\n" + out.String())
-		panic(err)
+		return nil, fmt.Errorf("%w, command output:\n%s", err, out.String())
 	}
-	execELF, err := elf.Open(tmpFilePath)
-	if err != nil {
-		panic(err)
-	}
-	return execELF
+	return elf.Open(tmpFilePath)
 }
 
 func TestMain(m *testing.M) {
@@ -80,6 +86,11 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	smallAutoSDKSpanELF = compileELF(baseDir+"/configs/offsets/autosdk/inspect.go", "-ldflags", "-s -w")
+	restfulData, err = compileELF(baseDir + "/configs/offsets/go-restful/inspect.go").DWARF()
+	if err != nil {
+		panic(err)
+	}
+	smallRestfulELF = compileELF(baseDir+"/configs/offsets/go-restful/inspect.go", "-ldflags", "-s -w")
 	m.Run()
 }
 
@@ -123,9 +134,17 @@ func dwarfStructField(t *testing.T, structType *dwarf.StructType, name string) *
 
 func TestGoOffsetsFromDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsetsFromDwarf(debugData)
+	readerType := dwarfStruct(t, debugData, "bufio.Reader")
+	requestType := dwarfStruct(t, debugData, "net/http.Request")
+	responseType := dwarfStruct(t, debugData, "net/http.Response")
 	// this test might fail if a future Go version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
+		BufReaderRPos:     uint64(dwarfStructField(t, readerType, "r").ByteOffset),
 		URLPtrPos:         uint64(16),
+		ReqProtoMajorPos:  uint64(dwarfStructField(t, requestType, "ProtoMajor").ByteOffset),
+		ReqProtoMinorPos:  uint64(dwarfStructField(t, requestType, "ProtoMinor").ByteOffset),
+		RespProtoMajorPos: uint64(dwarfStructField(t, responseType, "ProtoMajor").ByteOffset),
+		RespProtoMinorPos: uint64(dwarfStructField(t, responseType, "ProtoMinor").ByteOffset),
 		PathPtrPos:        uint64(56),
 		ConnFdPos:         uint64(0),
 		FdLaddrPos:        uint64(96),
@@ -175,11 +194,19 @@ func TestGrpcOffsetsFromDwarf(t *testing.T) {
 }
 
 func TestGoOffsetsWithoutDwarf(t *testing.T) {
+	readerType := dwarfStruct(t, debugData, "bufio.Reader")
 	offsets, err := structMemberOffsets(smallELF)
 	require.NoError(t, err)
+	requestType := dwarfStruct(t, debugData, "net/http.Request")
+	responseType := dwarfStruct(t, debugData, "net/http.Response")
 	// this test might fail if a future Go version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
+		BufReaderRPos:                     uint64(dwarfStructField(t, readerType, "r").ByteOffset),
 		URLPtrPos:                         uint64(16),
+		ReqProtoMajorPos:                  uint64(dwarfStructField(t, requestType, "ProtoMajor").ByteOffset),
+		ReqProtoMinorPos:                  uint64(dwarfStructField(t, requestType, "ProtoMinor").ByteOffset),
+		RespProtoMajorPos:                 uint64(dwarfStructField(t, responseType, "ProtoMajor").ByteOffset),
+		RespProtoMinorPos:                 uint64(dwarfStructField(t, responseType, "ProtoMinor").ByteOffset),
 		PathPtrPos:                        uint64(56),
 		ConnFdPos:                         uint64(0),
 		FdLaddrPos:                        uint64(96),
@@ -329,6 +356,42 @@ func TestSpanContextOffsetsWithoutDwarf(t *testing.T) {
 		SpanContextSpanIDPos:     uint64(16),
 		SpanContextTraceFlagsPos: uint64(24),
 	}, offsets)
+}
+
+func TestRestfulOffsetsFromDwarf(t *testing.T) {
+	offsets, _ := structMemberOffsetsFromDwarf(restfulData)
+	routeType := dwarfStruct(t, restfulData, "github.com/emicklei/go-restful/v3.Route")
+	pathOffset := uint64(dwarfStructField(t, routeType, "Path").ByteOffset)
+
+	assert.Equal(t, pathOffset, offsets[RestfulRoutePathPos])
+}
+
+func TestRestfulOffsetsWithoutDwarf(t *testing.T) {
+	offsets, err := structMemberOffsets(smallRestfulELF)
+	require.NoError(t, err)
+
+	routeType := dwarfStruct(t, restfulData, "github.com/emicklei/go-restful/v3.Route")
+	pathOffset := uint64(dwarfStructField(t, routeType, "Path").ByteOffset)
+
+	assert.Equal(t, pathOffset, offsets[RestfulRoutePathPos])
+}
+
+func TestPrefetchedRestfulRoutePathOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		version string
+		offset  uint64
+	}{
+		{"3.0.0", 64},
+		{"3.5.2", 64},
+		{"3.6.0", 72},
+		{"3.13.0", 72},
+		{"3.14.0", 72},
+	} {
+		assertPrefetchedOffset(t, track, "github.com/emicklei/go-restful/v3.Route", "Path", tc.version, tc.offset)
+	}
 }
 
 func TestCurrentAutoSDKDependencyABI(t *testing.T) {
@@ -490,6 +553,42 @@ func TestOffsetsForLibVersions_PreVersionFlags(t *testing.T) {
 		HTTP2ZeroFortyFive: uint64(0),
 		PqOneElevenZero:    uint64(0),
 	}, offsets)
+}
+
+func TestOffsetsForLibVersions_MongoV2(t *testing.T) {
+	offsets := offsetsForLibVersions(FieldOffsets{}, map[string]string{
+		"go.mongodb.org/mongo-driver/v2": "v2.8.0",
+	}, slog.Default())
+
+	mustMatch(t, FieldOffsets{
+		MongoOneThirteenOne: uint64(1),
+	}, offsets)
+}
+
+func TestOffsetsForLibVersions_MongoV1AndV2(t *testing.T) {
+	// map iteration order is random, so repeat to catch an order-dependent flag
+	const runs = 50
+
+	for _, tc := range []struct {
+		v1   string
+		want uint64
+	}{
+		{v1: "v1.12.1", want: 0},
+		{v1: "v1.17.0", want: 1},
+	} {
+		t.Run(tc.v1, func(t *testing.T) {
+			for range runs {
+				offsets := offsetsForLibVersions(FieldOffsets{}, map[string]string{
+					"go.mongodb.org/mongo-driver":    tc.v1,
+					"go.mongodb.org/mongo-driver/v2": "v2.8.0",
+				}, slog.Default())
+
+				mustMatch(t, FieldOffsets{
+					MongoOneThirteenOne: tc.want,
+				}, offsets)
+			}
+		})
+	}
 }
 
 func goAutoSDKActivationTestModules() moduleVersions {

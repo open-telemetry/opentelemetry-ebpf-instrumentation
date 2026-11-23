@@ -204,7 +204,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
       version: "v[0-9]*"
 `), &pipeConfig))
 
-	swi.Add(criteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue, FindingCriteria(&pipeConfig), nil))
+	swi.Add(criteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue, FindingCriteria(&pipeConfig), nil, nil))
 
 	nodesRunner, err := swi.Instance(t.Context())
 	require.NoError(t, err)
@@ -440,7 +440,7 @@ func TestWatcherKubeEnricherHoldsProcessUntilPodIsKnown(t *testing.T) {
   exclude_instrument:
   - k8s_namespace: kube-system
 `), &pipeConfig))
-	swi.Add(criteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue, FindingCriteria(&pipeConfig), nil))
+	swi.Add(criteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue, FindingCriteria(&pipeConfig), nil, nil))
 
 	nodesRunner, err := swi.Instance(t.Context())
 	require.NoError(t, err)
@@ -700,6 +700,24 @@ func TestWatcherKubeEnricherPublishesPodBeforeLaterProcessTermination(t *testing
 	deleted := testutil.ReadChannel(t, outputCh, timeout)
 	require.Len(t, deleted, 1)
 	assert.Equal(t, EventDeleted, deleted[0].Type)
+}
+
+func TestWatcherKubeEnricherForwardsExecutableReplacement(t *testing.T) {
+	output := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(1))
+	t.Cleanup(output.Close)
+	events := output.Subscribe()
+	store := kube.NewStore(&fakeInformer{}, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	wk := newWatcherKubeEnricher(store, nil, output)
+	process := ProcessAttrs{pid: containerPID, startTime: 100, executable: cacheKey{Dev: 1, Ino: 2}}
+	wk.containerByPID[containerPID] = container.Info{ContainerID: containerID}
+	wk.processByContainer[containerID] = []ProcessAttrs{process}
+	replacement := []Event[ProcessAttrs]{{Type: EventExecutableReplaced, Obj: process}}
+
+	wk.enrichProcessEvent(replacement)
+
+	require.Equal(t, replacement, testutil.ReadChannel(t, events, timeout))
+	require.NotContains(t, wk.containerByPID, app.PID(containerPID))
+	require.NotContains(t, wk.processByContainer, containerID)
 }
 
 func TestWatcherKubeEnricherDrainsPodEventsInBatches(t *testing.T) {

@@ -48,6 +48,144 @@ import (
 
 const timeout = 5 * time.Second
 
+func TestConnectionInfoIsAnIndependentPresenceMetric(t *testing.T) {
+	previousTimeNow := timeNow
+	timeNow = time.Now
+	t.Cleanup(func() { timeNow = previousTimeNow })
+
+	ctx := t.Context()
+	registry, promURL := newPrometheusTestServer(t)
+	features := export.FeatureConnectionInfo
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{
+			Port:                        registry.Port,
+			Path:                        "/metrics",
+			TTL:                         2 * time.Second,
+			ConnectionInfoTTL:           4 * time.Second,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		},
+		&perapp.GlobalMetricsConfig{Features: features},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{}},
+		request.UnresolvedNames{},
+		promInput,
+		processEvents,
+		nil,
+	)(ctx)
+	require.NoError(t, err)
+	go exporter(ctx)
+	exportModes := services.NewExportModes()
+	exportModes.AllowMetrics()
+	client := svc.Attrs{
+		Features:    features,
+		ExportModes: exportModes,
+		UID:         svc.UID{Name: "frontend", Namespace: "shop"},
+	}
+	span := request.Span{
+		Service:        client,
+		Type:           request.EventTypeHTTPClient,
+		Host:           "frontend-pod",
+		HostName:       "catalog",
+		OtherNamespace: "shop",
+	}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		promInput.Send([]request.Span{span})
+		awaitSpanProcessing()
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, "traces_service_graph_connection_info{")
+		assert.Contains(ct, exported, `client="frontend"`)
+		assert.Contains(ct, exported, `server="catalog"`)
+		assert.NotContains(ct, exported, "http_client_request_duration_seconds_count")
+	}, timeout, 100*time.Millisecond)
+
+	time.Sleep(500 * time.Millisecond)
+	promInput.Send([]request.Span{span})
+	awaitSpanProcessing()
+	time.Sleep(600 * time.Millisecond)
+	assert.Contains(t, getMetrics(t, promURL), "traces_service_graph_connection_info{")
+	time.Sleep(1600 * time.Millisecond)
+	assert.Contains(t, getMetrics(t, promURL), "traces_service_graph_connection_info{", "connection info should outlive the global metrics TTL")
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.NotContains(ct, getMetrics(ct, promURL), "traces_service_graph_connection_info{")
+	}, timeout, 100*time.Millisecond)
+}
+
+func TestConnectionInfoTTLDefaultsToTempoDuration(t *testing.T) {
+	assert.Equal(t, export.DefaultConnectionInfoTTL, export.ConnectionInfoTTLOrDefault(0))
+}
+
+func TestConnectionInfoPrometheusConnectionTypeLabel(t *testing.T) {
+	getters := attributes.PrometheusGetters(
+		request.SpanPromGetters(request.UnresolvedNames{}),
+		[]attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source},
+	)
+	tracker := otel.NewPidServiceTracker()
+	tracker.AddPID(1, svc.UID{Name: "catalog", Namespace: "shop"})
+	labelNames := labelNamesSvcGraph(getters)
+	assert.Equal(t, attr.ConnectionType.Prom(), labelNames[len(labelNames)-1])
+
+	for _, test := range []struct {
+		name string
+		span request.Span
+		want string
+	}{
+		{
+			name: "direct HTTP uses empty label value",
+			span: request.Span{
+				Type:           request.EventTypeHTTPClient,
+				Service:        svc.Attrs{UID: svc.UID{Name: "frontend", Namespace: "shop"}},
+				HostName:       "catalog",
+				OtherNamespace: "shop",
+			},
+		},
+		{
+			name: "database",
+			span: request.Span{Type: request.EventTypeSQLClient, HostName: "postgres"},
+			want: "database",
+		},
+		{
+			name: "messaging",
+			span: request.Span{Type: request.EventTypeKafkaClient, HostName: "broker"},
+			want: "messaging_system",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			values := labelValuesSvcGraph(&test.span, getters, &tracker)
+			assert.Equal(t, test.want, values[len(values)-1])
+		})
+	}
+}
+
+func TestConnectionInfoRawIPRemainsDistinctDestination(t *testing.T) {
+	getters := attributes.PrometheusGetters(
+		request.SpanPromGetters(request.UnresolvedNames{Outgoing: "outgoing"}),
+		[]attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source},
+	)
+	labelNames := labelNamesSvcGraph(getters)
+	for _, address := range []string{"10.0.0.8", "2001:db8::8"} {
+		span := &request.Span{
+			Service:  svc.Attrs{UID: svc.UID{Name: "frontend", Namespace: "shop"}},
+			Type:     request.EventTypeHTTPClient,
+			HostName: address,
+		}
+		for _, graphGetter := range getters {
+			if graphGetter.ExposedName == attr.Server.Prom() {
+				assert.Equal(t, "outgoing", graphGetter.Get(span), "the connection-info-specific label must bypass unresolved-name collapse")
+			}
+		}
+		values := labelValuesConnectionInfo(span, getters, &otel.PidServiceTracker{})
+		labels := make(map[string]string, len(values))
+		for i, name := range labelNames {
+			labels[name] = values[i]
+		}
+		assert.Equal(t, address, labels[attr.Server.Prom()])
+		assert.Empty(t, labels[attr.ServerNamespace.Prom()])
+	}
+}
+
 // application_red keeps the RED histograms while dropping the four Opt-In body size
 // histograms, which is the whole point of splitting them into their own feature.
 func TestAppMetrics_BodySizeFeature(t *testing.T) {
@@ -114,6 +252,92 @@ func TestAppMetrics_BodySizeFeature(t *testing.T) {
 	}
 }
 
+func TestAppMetrics_HTTPProtocolVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		selection       attributes.Selection
+		durationVersion bool
+		bodySizeVersion bool
+	}{
+		{name: "default", bodySizeVersion: true},
+		{
+			name: "included",
+			selection: attributes.Selection{
+				"http.*": {Include: []string{string(attr.NetworkProtocolVersion)}},
+			},
+			durationVersion: true,
+			bodySizeVersion: true,
+		},
+		{
+			name: "excluded",
+			selection: attributes.Selection{
+				"http.*": {Exclude: []string{string(attr.NetworkProtocolVersion)}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			features := export.FeatureApplicationRED | export.FeatureApplicationSizes
+			ctx := t.Context()
+			registry, promURL := newPrometheusTestServer(t)
+			promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+			tc.selection.Normalize()
+			exporter, err := PrometheusEndpoint(
+				&global.ContextInfo{Prometheus: registry.Manager},
+				&PrometheusConfig{
+					Port:                        registry.Port,
+					Path:                        "/metrics",
+					TTL:                         3 * time.Minute,
+					SpanMetricsServiceCacheSize: 10,
+					Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+				},
+				&perapp.GlobalMetricsConfig{Features: features},
+				&attributes.SelectorConfig{SelectionCfg: tc.selection, UseV2Selection: true},
+				request.UnresolvedNames{}, promInput, processEvents, nil,
+			)(ctx)
+			require.NoError(t, err)
+			go exporter(ctx)
+
+			versions := []request.ProtoVersion{
+				request.ProtoVersionHTTP10, request.ProtoVersionHTTP11, request.ProtoVersionHTTP2, request.ProtoVersionUnknown,
+			}
+			var spans []request.Span
+			for _, version := range versions {
+				for _, event := range []request.EventType{request.EventTypeHTTP, request.EventTypeHTTPClient} {
+					spans = append(spans, request.Span{
+						Service: svc.Attrs{Features: features, UID: svc.UID{Instance: "foo"}},
+						Type:    event, ProtoVersion: version, Method: "GET", Status: 200,
+						RequestStart: 100, End: 200, ContentLength: 512,
+					})
+				}
+			}
+			promInput.Send(spans)
+
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				exported := getMetrics(ct, promURL)
+				for _, name := range []attributes.Name{
+					attributes.HTTPServerDuration, attributes.HTTPServerRequestSize, attributes.HTTPServerResponseSize,
+					attributes.HTTPClientDuration, attributes.HTTPClientRequestSize, attributes.HTTPClientResponseSize,
+				} {
+					versionEnabled := tc.bodySizeVersion
+					if name == attributes.HTTPServerDuration || name == attributes.HTTPClientDuration {
+						versionEnabled = tc.durationVersion
+					}
+					count := regexp.QuoteMeta(name.Prom) + `_count\{[^}]*`
+					if !versionEnabled {
+						assert.NotRegexp(ct, count+`network_protocol_version=`, exported)
+						assert.Regexp(ct, count+`\} 4(\n|$)`, exported)
+						continue
+					}
+					for _, version := range versions {
+						assert.Regexp(ct, count+`network_protocol_version="`+regexp.QuoteMeta(version.String())+`"[^}]*\} 1(\n|$)`, exported)
+					}
+				}
+			}, timeout, 10*time.Millisecond)
+		})
+	}
+}
+
 func TestAppMetrics_HTTPErrorType(t *testing.T) {
 	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
 	ctx := t.Context()
@@ -171,6 +395,45 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 			assert.Regexp(ct, name+`\{error_type="",[^}]*http_response_status_code="200"[^}]*\} 1`, exported)
 		}
 		assert.NotContains(ct, exported, `error_type="-32601"`)
+	}, timeout, 100*time.Millisecond)
+}
+
+func TestAppMetrics_HTTP2ServerAddress(t *testing.T) {
+	ctx := t.Context()
+	registry, promURL := newPrometheusTestServer(t)
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{
+			Port:                        registry.Port,
+			Path:                        "/metrics",
+			TTL:                         3 * time.Minute,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
+			attributes.HTTPServerDuration.Section: attributes.InclusionLists{Include: []string{string(attr.ServerAddr)}},
+		}},
+		request.UnresolvedNames{}, promInput, processEvents, nil,
+	)(ctx)
+	require.NoError(t, err)
+	go exporter(ctx)
+
+	span := request.Span{
+		Type:             request.EventTypeHTTP,
+		Method:           "GET",
+		Path:             "/users",
+		Status:           200,
+		Host:             "10.0.0.1",
+		RequestAuthority: "api.example.com:8443",
+	}
+	span.HostName = "service-name"
+	span.Service = svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}
+	promInput.Send([]request.Span{span})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.Regexp(ct, `http_server_request_duration_seconds_count\{[^}]*server_address="api.example.com"[^}]*\} 1`, getMetrics(ct, promURL))
 	}, timeout, 100*time.Millisecond)
 }
 
@@ -355,7 +618,6 @@ func TestAppMetricsExpiration(t *testing.T) {
 
 	var g attributes.AttrGroups
 	g.Add(attributes.GroupKubernetes)
-	g.Add(attributes.GroupHTTPRoutes)
 
 	// GIVEN a Prometheus Metrics Exporter with a metrics expire time of 3 minutes
 	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
@@ -383,7 +645,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
-					Include: []string{"http_route", "k8s.app.version"},
+					Include: []string{"url_path", "k8s.app.version"},
 				},
 				attributes.Resource.Section: attributes.InclusionLists{
 					Exclude: []string{"cloud.account.id", "k8s.pod.name"},
@@ -426,11 +688,11 @@ func TestAppMetricsExpiration(t *testing.T) {
 	promInput.Send([]request.Span{
 		{
 			Type:    request.EventTypeHTTP,
-			Route:   "/foo",
+			Path:    "/foo",
 			End:     123 * time.Second.Nanoseconds(),
 			Service: svcAttrs001,
 		},
-		{Service: svcAttrs, Type: request.EventTypeHTTP, Route: "/baz", End: 456 * time.Second.Nanoseconds()},
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
 
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
@@ -444,8 +706,8 @@ func TestAppMetricsExpiration(t *testing.T) {
 	// THEN the metrics are exported
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
-		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/foo",k8s_app_version="v0.0.1"} 123`)
-		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/baz",k8s_app_version=""} 456`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 123`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
 		assert.Regexp(ct, containsTargetInfo, exported)
 		assert.Regexp(ct, containsTargetInfoCloudRegion, exported)
 		assert.NotRegexp(ct, containsTargetInfoCloudAccount, exported)
@@ -464,7 +726,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	promInput.Send([]request.Span{
 		{
 			Type:    request.EventTypeHTTP,
-			Route:   "/foo",
+			Path:    "/foo",
 			End:     123 * time.Second.Nanoseconds(),
 			Service: svcAttrs001,
 		},
@@ -474,8 +736,8 @@ func TestAppMetricsExpiration(t *testing.T) {
 	// within its TTL
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
-		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/foo",k8s_app_version="v0.0.1"} 246`)
-		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/baz",k8s_app_version=""} 456`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
 		assert.Regexp(ct, containsTargetInfo, exported)
 	}, timeout, 100*time.Millisecond)
 
@@ -486,22 +748,22 @@ func TestAppMetricsExpiration(t *testing.T) {
 	// THEN /foo is still visible but /baz has expired
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
-		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/foo",k8s_app_version="v0.0.1"} 246`)
-		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/baz",k8s_app_version=""}`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
+		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
 		assert.Regexp(ct, containsTargetInfo, exported)
 	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN the metrics labels that disappeared are received again
 	now.Advance(4 * time.Minute)
 	promInput.Send([]request.Span{
-		{Service: svcAttrs, Type: request.EventTypeHTTP, Route: "/baz", End: 456 * time.Second.Nanoseconds()},
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
 
 	// THEN they are reported again, starting from zero in the case of counters
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
-		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/baz",k8s_app_version=""} 456`)
-		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/foo",k8s_app_version="v0.0.1"}`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
+		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"}`)
 		assert.Regexp(ct, containsTargetInfo, exported)
 	}, timeout, 100*time.Millisecond)
 

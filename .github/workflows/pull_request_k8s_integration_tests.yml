@@ -7,6 +7,11 @@ on:
     branches: [main, release-*]
     paths:
       - ".github/actions/setup-mise/**"
+      - "mise.toml"
+      - "mise.lock"
+      - ".mise/tasks/**"
+      - ".mise/scripts/**"
+      - ".github/actions/setup-mise/**"
       - ".github/workflows/pull_request_k8s_integration_tests.yml"
       - ".github/actions/free-disk/**"
       - "**.go"
@@ -39,7 +44,7 @@ permissions:
 jobs:
   generate-bpf:
     name: Generate BPF
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -55,7 +60,7 @@ jobs:
 
   test-matrix:
     name: "Build matrix"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       MISE_ENABLE_TOOLS: go
     timeout-minutes: 45
@@ -80,7 +85,7 @@ jobs:
 
   build-images:
     name: Build shared test images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     needs: [generate-bpf]
     steps:
@@ -115,7 +120,7 @@ jobs:
     permissions:
       checks: write
       pull-requests: write
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       MISE_ENABLE_TOOLS: go
     timeout-minutes: 45
@@ -253,6 +258,15 @@ jobs:
           path: |
             testoutput/*.log
             testoutput/kind
+
+      - name: Upload weaver live-check reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: weaver-reports-k8s-${{ matrix.basename }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: testoutput/kind/weaver-report-*.json
+          if-no-files-found: ignore
+          retention-days: 5
 
       - name: Check final disk usage
         if: always()

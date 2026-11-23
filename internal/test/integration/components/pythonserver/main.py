@@ -1,5 +1,6 @@
 from flask import Flask, request, Response
 import os
+import subprocess
 import click
 import requests
 import time
@@ -108,6 +109,50 @@ def nested_logger():
     requests.get("http://testservergrpcgo:8080/smoke", timeout=5)
     app.logger.info(f"nested: after client {rid}")
     return "ok"
+
+
+FORKED_STATUS = 230
+EXECD_STATUS = 231
+PERL_GET = (
+    r'my $s = IO::Socket::INET->new("localhost:8380") or exit 1;'
+    r' print $s "GET /execd HTTP/1.0\r\nHost: localhost\r\n\r\n";'
+    r' my $l = <$s>; exit($l =~ / 231 / ? 0 : 1);'
+)
+
+
+@app.route("/fork/<int:jobs>")
+def fork_jobs(jobs):
+    for _ in range(jobs):
+        pid = os.fork()
+        if pid == 0:
+            status = 1
+            try:
+                if requests.get("http://localhost:8380/forked", timeout=5).status_code == FORKED_STATUS:
+                    status = 0
+            finally:
+                os._exit(status)
+        _, status = os.waitpid(pid, 0)
+        if status != 0:
+            return Response(status=500)
+    return Response(status=200)
+
+
+@app.route("/forked")
+def forked():
+    return Response(status=FORKED_STATUS)
+
+
+@app.route("/exec/<int:jobs>")
+def exec_jobs(jobs):
+    for _ in range(jobs):
+        if subprocess.call(["perl", "-MIO::Socket::INET", "-e", PERL_GET]) != 0:
+            return Response(status=500)
+    return Response(status=200)
+
+
+@app.route("/execd")
+def execd():
+    return Response(status=EXECD_STATUS)
 
 
 if __name__ == '__main__':

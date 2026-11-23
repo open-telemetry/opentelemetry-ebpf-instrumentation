@@ -3,9 +3,9 @@ import org.cyclonedx.model.Component
 plugins {
     java
     id("com.gradleup.shadow") version "9.6.1"
-    id("com.github.jk1.dependency-license-report") version "3.1.4"
-    id("me.champeau.jmh") version "0.7.3"
-    id("org.cyclonedx.bom") version "3.5.0"
+    id("com.github.jk1.dependency-license-report") version "3.1.5"
+    id("me.champeau.jmh") version "0.7.4"
+    id("org.cyclonedx.bom") version "3.6.1"
     id("com.diffplug.spotless")
 }
 
@@ -19,8 +19,8 @@ java {
 
 configure<com.diffplug.gradle.spotless.SpotlessExtension> {
     java {
-        // Use Google Java Format
-        googleJavaFormat()
+        // Keep formatting consistent between JDK 17 CI and JDK 21 Docker builds.
+        googleJavaFormat("1.28.0")
         // Or use Eclipse formatter
         // eclipse()
 
@@ -43,8 +43,8 @@ repositories {
 }
 
 dependencies {
-    implementation("net.bytebuddy:byte-buddy:1.18.14-jdk5")
-    implementation("net.bytebuddy:byte-buddy-agent:1.18.14-jdk5")
+    implementation("net.bytebuddy:byte-buddy:1.18.17-jdk5")
+    implementation("net.bytebuddy:byte-buddy-agent:1.18.17-jdk5")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.14.4")
     testImplementation("org.junit.platform:junit-platform-launcher:1.14.4")

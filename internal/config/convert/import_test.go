@@ -34,6 +34,7 @@ func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.ChannelSendTimeout, got.ChannelSendTimeout)
 	require.Equal(t, obi.DefaultConfig.EnforceSysCaps, got.EnforceSysCaps)
 	require.Equal(t, obi.DefaultConfig.EBPF.WakeupLen, got.EBPF.WakeupLen)
+	require.Equal(t, obi.DefaultConfig.EBPF.StatsWakeupDataBytes, got.EBPF.StatsWakeupDataBytes)
 	require.Equal(t, obi.DefaultConfig.EBPF.BatchLength, got.EBPF.BatchLength)
 	require.Equal(t, obi.DefaultConfig.EBPF.BatchTimeout, got.EBPF.BatchTimeout)
 	require.Equal(t, obi.DefaultConfig.EBPF.ContextPropagation, got.EBPF.ContextPropagation)
@@ -57,6 +58,43 @@ func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	require.NotContains(t, got.Traces.Instrumentations, instrumentations.InstrumentationDNS)
 	require.Contains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationHTTP)
 	require.NotContains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationDNS)
+	require.Equal(t, export.DefaultConnectionInfoTTL, got.OTELMetrics.ConnectionInfoTTL)
+	require.Equal(t, export.DefaultConnectionInfoTTL, got.Prometheus.ConnectionInfoTTL)
+}
+
+func TestV2ConnectionInfoTTLOverrideIsIndependentFromMetricsTTL(t *testing.T) {
+	t.Parallel()
+
+	_, ext := RuntimeToV2(nil)
+	ext.Capture.Telemetry.Metrics.TTL = schema.Duration(4 * time.Minute)
+	ext.Capture.Telemetry.Metrics.ConnectionInfoTTL = schema.Duration(11 * time.Minute)
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, 4*time.Minute, got.OTELMetrics.TTL)
+	require.Equal(t, 11*time.Minute, got.OTELMetrics.ConnectionInfoTTL)
+	require.Equal(t, 11*time.Minute, got.Prometheus.ConnectionInfoTTL)
+
+	ext.Capture.Telemetry.Metrics.ConnectionInfoTTL = schema.Duration(-time.Minute)
+	_, err = V2ToRuntime(ext)
+	require.EqualError(t, err, "capture.telemetry.metrics.connection_info_ttl must not be negative")
+
+	_, parsed, err := schema.ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      telemetry:
+        metrics:
+          ttl: 4m
+          connection_info_ttl: 11m
+`))
+	require.NoError(t, err)
+	parsedConfig, err := V2ToRuntime(parsed)
+	require.NoError(t, err)
+	require.Equal(t, 4*time.Minute, parsedConfig.OTELMetrics.TTL)
+	require.Equal(t, 11*time.Minute, parsedConfig.OTELMetrics.ConnectionInfoTTL)
+	require.Equal(t, 11*time.Minute, parsedConfig.Prometheus.ConnectionInfoTTL)
 }
 
 func TestV2ToRuntimeFlowLimitAliases(t *testing.T) {
@@ -161,6 +199,82 @@ network:
 	)
 }
 
+func TestV2ToRuntimeStatsWakeupDataBytes(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		batching string
+		want     int
+	}{
+		{"omitted", "wakeup_len: 500", obi.DefaultConfig.EBPF.StatsWakeupDataBytes},
+		{"explicit zero", "stats: {wakeup_bytes: 0}", 0},
+		{"non-default", "stats: {wakeup_bytes: 8192}", 8192},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, standalone, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      engine:
+        batching:
+          ` + test.batching + `
+`))
+			require.NoError(t, err)
+			got, err := V2ToRuntime(standalone)
+			require.NoError(t, err)
+			require.Equal(t, test.want, got.EBPF.StatsWakeupDataBytes)
+
+			receiver, err := schema.ParseReceiverYAML([]byte(`
+version: "2.0"
+engine:
+  batching:
+    ` + test.batching + `
+`))
+			require.NoError(t, err)
+			got, err = V2ToRuntime(receiver)
+			require.NoError(t, err)
+			require.Equal(t, test.want, got.EBPF.StatsWakeupDataBytes)
+		})
+	}
+}
+
+func TestV2ToRuntimeStatsWakeupDataBytesExplicitZeroRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.EBPF.StatsWakeupDataBytes = 0
+	_, ext := RuntimeToV2(&cfg)
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Zero(t, got.EBPF.StatsWakeupDataBytes)
+}
+
+func TestV2ToRuntimeRejectsNegativeStatsWakeupDataBytes(t *testing.T) {
+	t.Parallel()
+
+	_, ext, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      engine:
+        batching:
+          stats:
+            wakeup_bytes: -1
+`))
+	require.NoError(t, err)
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.ErrorContains(t, got.ValidateStatic(), "StatsWakeupDataBytes")
+}
+
 func TestV2ToRuntimeRejectsNegativeChannelBufferLength(t *testing.T) {
 	t.Parallel()
 
@@ -240,6 +354,53 @@ extensions:
 	require.NoError(t, err)
 	require.True(t, got.Metrics.Features.AppRED())
 	require.False(t, got.Metrics.Features.AppSizes())
+}
+
+func TestDocumentToRuntimeRequestPhaseSpans(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		http             string
+		wantHTTPDisabled bool
+	}{
+		{
+			name: "omitted",
+			http: "{}",
+		},
+		{
+			name: "enabled explicitly",
+			http: "{request_phase_spans: true}",
+		},
+		{
+			name:             "HTTP disabled",
+			http:             "{request_phase_spans: false}",
+			wantHTTPDisabled: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      instrumentation:
+        http:
+          enabled: ` + tt.http + `
+`))
+			require.NoError(t, err)
+
+			got, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.wantHTTPDisabled, got.Traces.DisableHTTPRequestPhaseSpans)
+		})
+	}
 }
 
 func TestV2ToRuntimeHTTPBodySizeMetrics(t *testing.T) {
@@ -416,17 +577,20 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.BpfDebug = true
 	cfg.EBPF.ProtocolDebug = true
 	cfg.EBPF.WakeupLen = 8
+	cfg.EBPF.StatsWakeupDataBytes = 8192
 	cfg.EBPF.BatchLength = 9
 	cfg.EBPF.BatchTimeout = 10 * time.Second
 	cfg.EBPF.ContextPropagation = config.ContextPropagationAll
 	cfg.EBPF.OverrideBPFLoopEnabled = true
 	cfg.EBPF.DisableBlackBoxCP = true
+	cfg.EBPF.DisableGoChannelLinks = true
 	cfg.EBPF.PopulateTraceContext = true
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
 	cfg.EBPF.ForceBPFMapReader = config.MapReaderLegacy
 	cfg.EBPF.MapsConfig.GlobalScaleFactor = 2
 	cfg.EBPF.BPFFSPath = "/tmp/bpf"
+	cfg.EBPF.CgroupFSPath = "/host/sys/fs/cgroup"
 	cfg.EBPF.MaxTransactionTime = 11 * time.Second
 	cfg.EBPF.TrackRequestHeaders = true
 	cfg.EBPF.HTTPRequestTimeout = 12 * time.Second
@@ -438,6 +602,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.BufferSizes.TCP = 105
 	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
+	cfg.Attributes.SanitizeDBQueryText = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201
 	cfg.EBPF.MSSQLPreparedStatementsCacheSize = 202
@@ -457,6 +622,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.OTELMetrics.ReportersCacheLen = 302
 	cfg.OTELMetrics.MetricsEndpoint = "http://localhost:4318"
 	cfg.OTELMetrics.TTL = 303 * time.Second
+	cfg.OTELMetrics.ConnectionInfoTTL = 304 * time.Second
 	cfg.OTELMetrics.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationHTTP,
 	}
@@ -565,12 +731,15 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.True(t, got.Java.DebugInstrumentation)
 	require.Equal(t, 7*time.Second, got.Java.Timeout)
 
+	require.Equal(t, 8192, got.EBPF.StatsWakeupDataBytes)
 	require.Equal(t, config.ContextPropagationAll, got.EBPF.ContextPropagation)
+	require.True(t, got.EBPF.DisableGoChannelLinks)
 	require.Equal(t, config.TCBackendTCX, got.EBPF.TCBackend)
 	require.Equal(t, config.MapReaderLegacy, got.EBPF.ForceBPFMapReader)
 	require.Equal(t, 2, got.EBPF.MapsConfig.GlobalScaleFactor)
 	require.Equal(t, uint32(100), got.EBPF.BufferSizes.HTTP)
 	require.Equal(t, uint32(103), got.EBPF.BufferSizes.MSSQL)
+	require.True(t, got.Attributes.SanitizeDBQueryText)
 	require.Equal(t, 202, got.EBPF.MSSQLPreparedStatementsCacheSize)
 	require.Equal(t, config.CudaModeOn, got.EBPF.InstrumentCuda)
 
@@ -604,6 +773,8 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.Equal(t, 301, got.Traces.ReportersCacheLen)
 	require.Equal(t, 302, got.OTELMetrics.ReportersCacheLen)
 	require.Equal(t, 303*time.Second, got.OTELMetrics.TTL)
+	require.Equal(t, 304*time.Second, got.OTELMetrics.ConnectionInfoTTL)
+	require.Equal(t, 304*time.Second, got.Prometheus.ConnectionInfoTTL)
 
 	require.Equal(t, "198.51.100.1", got.Stats.AgentIP)
 	require.Equal(t, obi.AgentTypeIface(obi.NetworkAgentIPIfaceLocal), got.Stats.AgentIPIface)
@@ -1326,9 +1497,28 @@ func TestV2ToRuntimePartialInstrumentationPreservesDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.EBPF.MySQLPreparedStatementsCacheSize, got.EBPF.MySQLPreparedStatementsCacheSize)
 }
 
+func TestV2ToRuntimePartialDBSanitizeQueryText(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				DB: schema.DBInstrumentation{SanitizeQueryText: true},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.True(t, got.Attributes.SanitizeDBQueryText)
+	require.False(t, obi.DefaultConfig.Attributes.SanitizeDBQueryText)
+	require.Equal(t, obi.DefaultConfig.EBPF.MySQLPreparedStatementsCacheSize, got.EBPF.MySQLPreparedStatementsCacheSize)
+}
+
 func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 	t.Parallel()
 
+	goChannelLinks := false
 	got, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
@@ -1348,6 +1538,9 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 				Debug: schema.EngineDebug{
 					BPF: true,
 				},
+				CgroupFileSystem: schema.CgroupFileSystem{
+					Path: "/host/sys/fs/cgroup",
+				},
 			},
 			Network: schema.CaptureNetwork{
 				Capture: schema.NetworkCapture{
@@ -1363,6 +1556,9 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 				},
 			},
 			Runtimes: schema.CaptureRuntimes{
+				Go: schema.GoRuntime{
+					ChannelLinks: &goChannelLinks,
+				},
 				Java: schema.JavaRuntime{
 					Debug: schema.JavaDebug{
 						Enabled: true,
@@ -1389,6 +1585,9 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.ChannelSendTimeoutPanic, got.ChannelSendTimeoutPanic)
 
 	require.True(t, got.EBPF.BpfDebug)
+	require.Equal(t, "/host/sys/fs/cgroup", got.EBPF.CgroupFSPath)
+	require.True(t, got.EBPF.DisableGoChannelLinks)
+	require.Equal(t, obi.DefaultConfig.EBPF.BPFFSPath, got.EBPF.BPFFSPath)
 	require.Equal(t, obi.DefaultConfig.EBPF.WakeupLen, got.EBPF.WakeupLen)
 	require.Equal(t, obi.DefaultConfig.EBPF.BatchLength, got.EBPF.BatchLength)
 	require.Equal(t, obi.DefaultConfig.EBPF.TCBackend, got.EBPF.TCBackend)

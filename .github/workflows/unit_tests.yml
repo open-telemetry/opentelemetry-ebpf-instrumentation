@@ -7,6 +7,11 @@ on:
     branches: [main, release-*]
     paths:
       - ".github/actions/setup-mise/**"
+      - "mise.toml"
+      - "mise.lock"
+      - ".mise/tasks/**"
+      - ".mise/scripts/**"
+      - ".github/actions/setup-mise/**"
       - ".github/workflows/unit_tests.yml"
       - ".github/actions/generate-bpf/**"
       - "**.go"
@@ -39,7 +44,7 @@ permissions:
 jobs:
   generate-bpf:
     name: Generate BPF
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,7 +59,7 @@ jobs:
 
   matrix:
     name: Build test matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       MISE_ENABLE_TOOLS: go
     timeout-minutes: 5
@@ -96,7 +101,7 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - runner: ubuntu-latest
+          - runner: ubuntu-26.04
             arch: amd64
           - runner: ubuntu-24.04-arm
             arch: arm64

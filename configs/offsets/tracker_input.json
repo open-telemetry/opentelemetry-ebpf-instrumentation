@@ -7,10 +7,12 @@
         "Method",
         "URL",
         "ContentLength",
-        "Header"
+        "Header",
+        "ProtoMajor",
+        "ProtoMinor"
       ],
       "net/url.URL": ["Path", "RawQuery", "Host", "Scheme"],
-      "net/http.Response": ["StatusCode", "ContentLength"],
+      "net/http.Response": ["StatusCode", "ContentLength", "ProtoMajor", "ProtoMinor"],
       "net.TCPAddr": ["IP", "Port"],
       "context.valueCtx": ["val"],
       "bufio.Writer": ["buf", "n", "wr"],
@@ -41,7 +43,7 @@
       "net/rpc.Request": ["ServiceMethod"],
       "database/sql.driverConn": ["ci"],
       "net/textproto.Reader": ["R"],
-      "bufio.Reader": ["buf", "w"],
+      "bufio.Reader": ["buf", "w", "r"],
       "runtime.mstats": [
         "numgc",
         "[1.17.0]heapStats",
@@ -250,6 +252,13 @@
     "versions": ">= v1.6.0,!= v1.7.5",
     "fields": {
       "github.com/gin-gonic/gin.nodeValue": ["fullPath"]
+    }
+  },
+  "github.com/emicklei/go-restful/v3": {
+    "inspect": "./configs/offsets/go-restful/inspect.go",
+    "versions": ">= v3.0.0",
+    "fields": {
+      "github.com/emicklei/go-restful/v3.Route": ["Path"]
     }
   },
   "github.com/go-sql-driver/mysql": {

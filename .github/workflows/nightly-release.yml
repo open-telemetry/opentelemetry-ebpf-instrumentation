@@ -21,7 +21,7 @@ jobs:
   compute-version:
     name: Compute nightly version
     if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:

@@ -77,8 +77,14 @@ func testSessionManagerCumulativeReconnect(t *testing.T, version string) {
 					for range 3 {
 						records = append(records, netTraceRuntimeEvent{exceptionType: "Example.Failure"})
 					}
+					for range 6 {
+						records = append(records, netTraceRuntimeEvent{exceptionType: "Example.Other"})
+					}
 				} else {
-					records = append(records, netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 3})
+					records = append(records,
+						netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 3},
+						netTraceRuntimeEvent{exceptionType: "Other", exceptionCount: 6},
+					)
 				}
 			}
 		}
@@ -201,7 +207,10 @@ func testSessionManagerCumulativeReconnect(t *testing.T, version string) {
 			require.False(t, batch[0].Removed)
 			snapshot := batch[0].Dotnet
 			require.NotNil(t, snapshot)
-			require.Equal(t, uint64(3*(index+1)), snapshot.Exceptions["Failure"])
+			require.Equal(t, map[string]uint64{
+				"Failure": uint64(3 * (index + 1)),
+				"Other":   uint64(6 * (index + 1)),
+			}, batch[0].DotnetExceptions)
 			require.NotNil(t, snapshot.ProcessCPUCount)
 			require.Equal(t, int64(2*(index/2+1)), *snapshot.ProcessCPUCount)
 			afterUser, afterSystem, err := readProcessCPUTimes(process)
@@ -240,33 +249,35 @@ func testSessionManagerCumulativeReconnect(t *testing.T, version string) {
 
 func exceptionSessionIDFromRequest(payload []byte) (string, error) {
 	reader := bytes.NewReader(payload)
-	// Session fields and first provider's keywords and level precede its strings.
-	if _, err := io.CopyN(io.Discard, reader, 25); err != nil {
+	// Buffer size, format and rundown flag precede the provider count.
+	if _, err := io.CopyN(io.Discard, reader, 9); err != nil {
 		return "", err
 	}
-	for range 2 {
-		if _, err := readIPCString(reader); err != nil {
+	var providerCount uint32
+	if err := binary.Read(reader, binary.LittleEndian, &providerCount); err != nil {
+		return "", err
+	}
+	for range providerCount {
+		if _, err := io.CopyN(io.Discard, reader, 12); err != nil {
 			return "", err
 		}
+		provider, err := readIPCString(reader)
+		if err != nil {
+			return "", err
+		}
+		arguments, err := readIPCString(reader)
+		if err != nil {
+			return "", err
+		}
+		if provider != "System.Diagnostics.Metrics" {
+			continue
+		}
+		value, ok := strings.CutPrefix(arguments, "SessionId=")
+		if !ok {
+			return "", errors.New("Meter provider has no session ID")
+		}
+		sessionID, _, _ := strings.Cut(value, ";")
+		return sessionID, nil
 	}
-	if _, err := io.CopyN(io.Discard, reader, 12); err != nil {
-		return "", err
-	}
-	provider, err := readIPCString(reader)
-	if err != nil {
-		return "", err
-	}
-	arguments, err := readIPCString(reader)
-	if err != nil || provider == "Microsoft-Windows-DotNETRuntime" {
-		return "", err
-	}
-	if provider != "System.Diagnostics.Metrics" {
-		return "", fmt.Errorf("unexpected exception provider %q", provider)
-	}
-	value, ok := strings.CutPrefix(arguments, "SessionId=")
-	if !ok {
-		return "", errors.New("Meter provider has no session ID")
-	}
-	sessionID, _, _ := strings.Cut(value, ";")
-	return sessionID, nil
+	return "", nil
 }

@@ -74,6 +74,9 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 		if spec.Programs["obi_protocol_http"] != nil {
 			ebpfcommon.FixupSpec(spec, false)
 		}
+		if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
+			ebpfcommon.DisableJavaHTTP1Atomics(spec)
+		}
 		uprobe.PrepareSpecs(spec)
 
 		if len(consts) > 0 && consts[0] != nil {
@@ -160,6 +163,25 @@ func forEachCombination(t *testing.T, prefix string, loadFn func() (*ebpf.Collec
 // the valid_pid() paths the loader can pick (ebpfcommon.PIDFilterConstants)
 var pidNamespaceModes = []any{uint32(ebpfcommon.PIDNamespaceInit), uint32(ebpfcommon.PIDNamespacePod)}
 
+func TestBPFVerifierHTTPSampling(t *testing.T) {
+	if err := rlimit.RemoveMemlock(); err != nil {
+		t.Skipf("cannot remove memlock limit (insufficient privileges?): %v", err)
+	}
+
+	forEachCombination(t, "generictracer", generictracerbpf.LoadBpf, []constOption{
+		{"pid_ns_mode", pidNamespaceModes},
+		{"g_bpf_debug", []any{true}},
+		{"g_bpf_traceparent_enabled", []any{true}},
+		{"g_bpf_header_propagation", []any{true}},
+		{"g_bpf_java_http1_enabled", []any{true}},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
+		{"filter_pids", []any{int32(1)}},
+		{"capture_header_buffer", []any{int32(1)}},
+		{"max_transaction_time", []any{uint64(60_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(262144)}},
+	})
+}
+
 // TestBPFVerifierWithConstants verifies that BPF programs pass the kernel verifier
 // across all combinations of constant values (also default ones).
 // Different constant values cause the verifier to evaluate different code paths
@@ -200,6 +222,12 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"ringbuf_metrics_enabled", []any{true, false}},
 	})
 
+	forEachCombination(t, "generictracer/BpfExceptions", generictracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_exceptions_enabled", []any{true}},
+		{"g_traces_ctx_v1_enabled", []any{true}},
+	})
+
 	// nodejs_runtime_metrics_enabled only gates the decode path in nodejs.c,
 	// which shares no code with the constants above except the debug and
 	// traceparent machinery — a dedicated small matrix keeps the nodejs path
@@ -221,6 +249,21 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"http_max_captured_bytes", []any{uint32(262144)}},
 		{"tcp_max_captured_bytes", []any{uint32(65536)}},
+		{"g_traces_ctx_v1_enabled", []any{false}},
+	})
+
+	// Header capture with the loader's defaults for the other constants: large
+	// buffers and the obi_ctx writers compiled away change what the verifier can prune.
+	forEachCombination(t, "generictracer/BpfHeaderCapture", generictracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_traceparent_enabled", []any{true}},
+		{"g_bpf_header_propagation", []any{true}},
+		{"g_bpf_java_http1_enabled", []any{true}},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
+		{"capture_header_buffer", []any{int32(1)}},
+		{"filter_pids", []any{int32(1)}},
+		{"max_transaction_time", []any{uint64(300_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(0)}},
 		{"g_traces_ctx_v1_enabled", []any{false}},
 	})
 
@@ -260,6 +303,18 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"capture_header_buffer", []any{int32(1)}},
 		{"http_max_captured_bytes", []any{uint32(262144)}},
 		{"tcp_max_captured_bytes", []any{uint32(65536)}},
+		{"g_traces_ctx_v1_enabled", []any{false}},
+	})
+	// see generictracer/BpfHeaderCapture
+	forEachCombination(t, "gotracer/BpfHeaderCapture", gotracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_traceparent_enabled", []any{true}},
+		{"g_bpf_header_propagation", []any{true}},
+		{"g_bpf_probe_write_user_enabled", []any{true}},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
+		{"capture_header_buffer", []any{int32(1)}},
+		{"max_transaction_time", []any{uint64(300_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(0)}},
 		{"g_traces_ctx_v1_enabled", []any{false}},
 	})
 	loadAndVerify(t, "gotracer/Bpf/no-write-user", gotracerbpf.LoadBpf, map[string]any{

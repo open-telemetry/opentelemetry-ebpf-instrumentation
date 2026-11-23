@@ -97,6 +97,7 @@ var ringbufWriteMetrics = [...]struct {
 	{name: "events", key: uint32(ebpfcommon.BpfRingbufIdRINGBUF_EVENTS)},
 	{name: "gpu_events", key: uint32(ebpfcommon.BpfRingbufIdRINGBUF_GPU_EVENTS)},
 	{name: "log_events", key: uint32(ebpfcommon.BpfRingbufIdRINGBUF_LOG_EVENTS)},
+	{name: "exception_events", key: uint32(ebpfcommon.BpfRingbufIdRINGBUF_EXCEPTION_EVENTS)},
 }
 
 func BPFMetrics(
@@ -338,7 +339,7 @@ func (bc *BPFCollector) Collect(ch chan<- prometheus.Metric) {
 			bc.probeLatencyDesc,
 			metric.program.runCount,
 			metric.program.runTime.Seconds(),
-			metric.program.buckets,
+			metric.program.cumulativeBuckets(),
 			metric.probeID,
 			metric.probeType,
 			metric.probeName,
@@ -628,6 +629,20 @@ func (bp *BPFProgram) updateBuckets(latency float64, count uint64) {
 			break
 		}
 	}
+}
+
+// cumulativeBuckets converts the per-bucket counts, which the OTel exporter consumes as they
+// are, into the cumulative "le" counts a Prometheus histogram requires.
+func (bp *BPFProgram) cumulativeBuckets() map[float64]uint64 {
+	buckets := make(map[float64]uint64, len(imetrics.BpfLatenciesBuckets))
+
+	var cumulative uint64
+	for _, bound := range imetrics.BpfLatenciesBuckets {
+		cumulative += bp.buckets[bound]
+		buckets[bound] = cumulative
+	}
+
+	return buckets
 }
 
 // Assert that discardEncoding implements the correct interfaces for map iterators.

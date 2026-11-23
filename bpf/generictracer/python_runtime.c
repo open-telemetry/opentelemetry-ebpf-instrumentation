@@ -52,7 +52,7 @@ SEC("uprobe/python_gc_done")
 int GUARDED_PROG(obi_uprobe_python_gc_done, struct pt_regs *, ctx) {
     (void)ctx;
 
-    pid_info key = {};
+    pid_info_t key = {};
     task_pid(&key);
 
     bpf_dbg_printk("python GC probe pid=%d ns=%d", key.user_pid, key.ns);

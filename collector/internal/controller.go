@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/pipeline"
 
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
@@ -18,7 +19,7 @@ import (
 )
 
 // sharedController manages an OBI instance that can be shared between
-// traces and metrics receivers with the same component ID.
+// traces, metrics, and logs receivers with the same component ID.
 type sharedController struct {
 	mu      sync.Mutex
 	config  *obi.Config
@@ -29,7 +30,7 @@ type sharedController struct {
 	runDone chan struct{}
 }
 
-// Controller represents an individual receiver (traces or metrics) that
+// Controller represents an individual receiver (traces, metrics, or logs) that
 // shares the underlying OBI instance with other receivers of the same component ID.
 type Controller struct {
 	id     component.ID
@@ -45,7 +46,7 @@ var runOBI = instrumenter.RunWithProtocolMetricSelection
 var (
 	// sharedControllers holds shared controller instances keyed by component ID.
 	// This allows multiple OBI receivers (e.g., obi/instance1, obi/instance2) to run
-	// independently, while traces and metrics receivers with the same ID share one instance.
+	// independently, while traces, metrics, and logs receivers with the same ID share one instance.
 	sharedControllers   = make(map[component.ID]*sharedController)
 	sharedControllersMu sync.Mutex
 )
@@ -53,7 +54,7 @@ var (
 // NewController creates a new Controller for the given component ID and config.
 // Receivers with the same component ID share the same underlying OBI instance.
 // Receivers with different component IDs get separate OBI instances.
-func NewController(id component.ID, cfg *obi.Config, v2 bool) (*Controller, error) {
+func NewController(id component.ID, cfg *obi.Config, v2 bool, signal pipeline.Signal) (*Controller, error) {
 	sharedControllersMu.Lock()
 	defer sharedControllersMu.Unlock()
 
@@ -66,13 +67,15 @@ func NewController(id component.ID, cfg *obi.Config, v2 bool) (*Controller, erro
 		}
 		sharedControllers[id] = shared
 	} else {
-		// Update config with any new consumers
-		// The traces or metrics consumer might be set by different receivers
-		if cfg.Traces.TracesExport != nil {
+		// Merge only the registering signal. Other callbacks may be validation
+		// placeholders and must not overwrite an existing consumer.
+		switch signal {
+		case pipeline.SignalTraces:
 			shared.config.Traces.TracesExport = cfg.Traces.TracesExport
-		}
-		if cfg.OTELMetrics.MetricsExport != nil {
+		case pipeline.SignalMetrics:
 			shared.config.OTELMetrics.MetricsExport = cfg.OTELMetrics.MetricsExport
+		case pipeline.SignalLogs:
+			shared.config.Logs.LogsExport = cfg.Logs.LogsExport
 		}
 	}
 

@@ -11,6 +11,8 @@ services:
     environment:
       DOTNET_ThreadPool_ThreadTimeoutMs: "2000"
       DOTNET_PROCESSOR_COUNT: "${DOTNET_RUNTIME_PROCESSOR_COUNT:-}"
+      DOTNET_gcServer: "${DOTNET_RUNTIME_SERVER_GC:-0}"
+      DOTNET_gcConcurrent: "${DOTNET_RUNTIME_BACKGROUND_GC:-1}"
     cpus: ${DOTNET_RUNTIME_CPUS:-2}
     cpuset: "${DOTNET_RUNTIME_CPUSET:-}"
     entrypoint: ["dotnet", "/app/workload/dotnet-runtime-metrics.dll", "--http"]
@@ -35,6 +37,7 @@ services:
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-dotnet-runtime-metrics.yml
       GOCOVERDIR: /coverage
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_EXECUTABLE_PATH: dotnet
       OTEL_SERVICE_NAME: dotnet-runtime
       OTEL_EBPF_SERVICE_NAMESPACE: integration-test
@@ -50,7 +53,7 @@ services:
         condition: service_started
 
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.163.1@sha256:1175b03003053962012f5a231f5567f66a3e8fdb960c7835c0e48f7aa1555806
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
     command: ["--config=/etc/otelcol-config.yml"]
     volumes:
       - ./configs/otelcol-config-dotnet-runtime-metrics.yml:/etc/otelcol-config.yml:ro

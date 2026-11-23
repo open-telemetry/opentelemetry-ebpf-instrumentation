@@ -13,7 +13,7 @@ services:
       - "2181:2181"
 
   kafka:
-    image: confluentinc/cp-kafka:7.9.6@sha256:9e178783dba8cf44cd8b1d260f548a587a21235921957edd4ed7aa7d060b0852
+    image: confluentinc/cp-kafka:7.9.11@sha256:46c6fadd440e686d88c00f281ff09975e78e3fb71b0c05fdea729c7f52151567
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -39,9 +39,7 @@ services:
         condition: service_started
   # eBPF auto instrumenter
   autoinstrumenter:
-    build:
-      context: ../../../..
-      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:

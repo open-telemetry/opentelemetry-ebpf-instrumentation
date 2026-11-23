@@ -7,9 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +24,9 @@ const (
 	registryDir = "../../schemas/obi"
 
 	resolveTimeout = 2 * time.Minute
+
+	// Probing the runtime must not hang a test run when a daemon is wedged.
+	runtimeProbeTimeout = 15 * time.Second
 )
 
 // provenance names where a resolved definition comes from: a dependency's
@@ -73,6 +79,7 @@ type resolveOutput struct {
 		Attributes      []resolvedAttribute `json:"attributes"`
 		Spans           []resolvedSignal    `json:"spans"`
 		Metrics         []resolvedSignal    `json:"metrics"`
+		Events          []resolvedSignal    `json:"events"`
 		AttributeGroups []resolvedSignal    `json:"attribute_groups"`
 	} `json:"registry"`
 	Refinements struct {
@@ -100,59 +107,90 @@ func (s resolvedSignal) label(t *testing.T) string {
 	return s.metricName(t)
 }
 
-// requireWeaver checks that the Mise-managed Weaver CLI is available. If it is
-// unavailable, the check skips locally and fails in CI.
-func requireWeaver(t *testing.T) {
+var weaverImageRE = regexp.MustCompile(`(?m)^FROM\s+(otel/weaver:\S+)\s+AS\s+weaver`)
+
+func weaverImage(t *testing.T) string {
+	t.Helper()
+	body, err := os.ReadFile("../../dependencies.Dockerfile")
+	require.NoError(t, err)
+	m := weaverImageRE.FindSubmatch(body)
+	require.Lenf(t, m, 2, "could not find the weaver image in dependencies.Dockerfile")
+	return string(m[1])
+}
+
+// requireWeaverRuntime returns the container runtime that runs the pinned
+// weaver image, the same one `make lint-schema` uses, rather than a `weaver`
+// binary on PATH so the result matches the version OBI targets. If the runtime
+// is unavailable it skips: these guarantees are only assertable when weaver can
+// actually resolve the registry, and `make lint-schema` covers real resolution
+// errors separately.
+func requireWeaverRuntime(t *testing.T) string {
 	t.Helper()
 	if testing.Short() {
-		t.Skip("provenance checks are skipped in -short mode; run `mise run test:schema`")
+		t.Skip("the check runs a container; skipped in -short mode. Run `make test-schema`")
 	}
-	if _, err := exec.LookPath("weaver"); err != nil {
+	ociBin := os.Getenv("OCI_BIN")
+	if ociBin == "" {
+		ociBin = "docker"
+	}
+	// The binary existing is not enough: Docker Desktop leaves its CLI on PATH
+	// with the daemon stopped, which would fail the check for a reason that
+	// says nothing about the registry.
+	if err := runtimeUsable(t, ociBin); err != nil {
+		// Skipping keeps `go test ./...` usable on a machine with no reachable
+		// container runtime, but in CI that would silently void the guarantee,
+		// so fail there instead.
 		if os.Getenv("CI") != "" {
-			t.Fatalf("weaver is required for the provenance check in CI: %v", err)
+			t.Fatalf("%s is required for the provenance check in CI: %v", ociBin, err)
 		}
-		t.Skipf("weaver is not installed (%v); run `mise install`", err)
+		t.Skipf("%s is not usable (%v); skipping provenance check", ociBin, err)
 	}
 	// Without the pinned upstream registry weaver cannot resolve, and the
 	// failure says nothing about the registry under test. Skip as the drift
 	// tests do, but fail closed in CI where the fetch is part of the target.
 	if _, err := os.Stat(upstreamDeps); os.IsNotExist(err) {
 		if os.Getenv("CI") != "" {
-			t.Fatalf("%s is required for the provenance check in CI; run `mise run fetch-upstream-semconv`", upstreamDeps)
+			t.Fatalf("%s is required for the provenance check in CI; run `make fetch-upstream-semconv`", upstreamDeps)
 		}
-		t.Skipf("%s is not populated; run `mise run fetch-upstream-semconv`", upstreamDeps)
+		t.Skipf("%s is not populated; run `make fetch-upstream-semconv`", upstreamDeps)
 	}
+	return ociBin
 }
 
-// weaverCommand runs the Mise-managed `weaver` CLI from the registry directory.
-func weaverCommand(ctx context.Context, t *testing.T, args ...string) *exec.Cmd {
+// weaverCommand runs `weaver <args>` in the pinned image with the registry
+// mounted read-only as its working directory.
+func weaverCommand(ctx context.Context, t *testing.T, ociBin string, args ...string) *exec.Cmd {
 	t.Helper()
 
 	registryAbs, err := filepath.Abs(registryDir)
 	require.NoError(t, err)
 
-	cmd := exec.CommandContext(ctx, "weaver", args...)
-	cmd.Dir = registryAbs
-	return cmd
+	runArgs := []string{
+		"run", "--rm", "-i",
+		"-v", registryAbs + ":/obi-registry:ro", "-w", "/obi-registry",
+		weaverImage(t),
+	}
+	return exec.CommandContext(ctx, ociBin, append(runArgs, args...)...)
 }
 
-// resolveRegistry runs `weaver registry resolve --v2` and returns the resolved registry.
+// resolveRegistry runs `weaver registry resolve --v2` through the pinned weaver
+// image and returns the resolved registry.
 func resolveRegistry(t *testing.T) resolveOutput {
 	t.Helper()
-	return resolveRegistryAt(t, "")
+	return resolveRegistryAt(t, "/obi-registry")
 }
 
+// resolveRegistryAt resolves the registry at a path inside the weaver
+// container, where the OBI registry is mounted at /obi-registry.
 func resolveRegistryAt(t *testing.T, registry string) resolveOutput {
 	t.Helper()
-	requireWeaver(t)
+	ociBin := requireWeaverRuntime(t)
 
 	ctx, cancel := context.WithTimeout(t.Context(), resolveTimeout)
 	defer cancel()
 
-	registryAbs, err := filepath.Abs(filepath.Join(registryDir, registry))
-	require.NoError(t, err)
-	cmd := weaverCommand(ctx, t,
-		"registry", "resolve", "--registry", registryAbs, "--v2", "--format", "json")
+	cmd := weaverCommand(ctx, t, ociBin,
+		"registry", "resolve", "--registry", registry, "--v2", "--format", "json")
 
 	// weaver can exit non-zero when diagnostics exist (e.g. the expected
 	// definition/2 UnstableFileFormat warnings), yet still writes the resolved
@@ -168,11 +206,29 @@ func resolveRegistryAt(t *testing.T, registry string) resolveOutput {
 		}
 		require.NoErrorf(t, jsonErr,
 			"weaver resolve produced no parseable registry JSON (run error: %v)\n%s\n"+
-				"the provenance check cannot be skipped once weaver is installed",
+				"the provenance check cannot be skipped once the runtime is present",
 			err, stderr)
 	}
 	require.NotEmpty(t, res.Registry.Metrics, "weaver resolve returned no metrics")
 	return res
+}
+
+// runtimeUsable reports whether the container runtime can actually run
+// something, not merely whether its CLI is installed.
+func runtimeUsable(t *testing.T, bin string) error {
+	t.Helper()
+
+	if _, err := exec.LookPath(bin); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), runtimeProbeTimeout)
+	defer cancel()
+
+	if out, err := exec.CommandContext(ctx, bin, "info").CombinedOutput(); err != nil {
+		return fmt.Errorf("%s info: %w: %s", bin, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // TestOBIMetricOverridesResolveToLocalNarrowedDefinition verifies that every

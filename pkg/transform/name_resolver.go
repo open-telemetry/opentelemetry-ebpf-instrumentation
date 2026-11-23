@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	memorystore "go.opentelemetry.io/obi/pkg/internal/rdns/store"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -88,24 +89,13 @@ type NameResolverConfig struct {
 	Azure AzureNameResolverConfig `yaml:"-" env:"-"`
 }
 
-// AzureNameResolverConfig configures the discovery scope for Uniform scale sets.
+// AzureNameResolverConfig configures the discovery scope for Uniform and Flexible scale sets.
 type AzureNameResolverConfig struct {
 	SubscriptionID string
 	ResourceGroup  string
 }
 
-// CloudMetadataConfig configures overrides for detected cloud metadata.
-type CloudMetadataConfig struct {
-	// ClusterName overrides automatic cluster detection.
-	ClusterName string `yaml:"cluster_name" env:"OTEL_EBPF_CLUSTER_NAME"`
-	// Region overrides automatic region detection.
-	Region string `yaml:"region" env:"OTEL_EBPF_CLOUD_REGION"`
-	// RefreshInterval controls how often the cloud metadata inventory is refreshed.
-	RefreshInterval time.Duration `yaml:"refresh_interval" env:"OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL" validate:"gt=0"`
-
-	// Route53 provides configuration for Route53 metadata extraction
-	Route53 Route53MetadataConfig `yaml:"route53"`
-}
+type CloudMetadataConfig = metadata.CloudMetadataConfig
 
 // GCENameResolverConfig configures service resolution for zonal managed instance groups.
 type GCENameResolverConfig struct {

@@ -1,0 +1,23 @@
+file_format: definition/2
+attributes:
+  - key: obi.request.phase
+    type:
+      members:
+        - id: queue
+          value: queue
+          brief: Time spent waiting for the request handler to start.
+          stability: development
+        - id: processing
+          value: processing
+          brief: Time spent executing the request handler.
+          stability: development
+    stability: development
+    brief: Phase of a request represented by an OBI child span.
+
+attribute_groups:
+  - id: registry.obi.traces
+    visibility: public
+    brief: Attributes carried on OBI request phase spans.
+    stability: development
+    attributes:
+      - ref: obi.request.phase

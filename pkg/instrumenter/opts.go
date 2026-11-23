@@ -40,3 +40,9 @@ func OverrideAppExportQueue(q *msg.Queue[[]request.Span]) Option {
 		info.OverrideAppExportQueue = q
 	}
 }
+
+// WithCriteriaUpdater enables compatible runtime discovery changes through updater.Update.
+// It cannot be combined with WithDynamicSelector.
+func WithCriteriaUpdater(updater *discover.CriteriaUpdater) Option {
+	return func(info *global.ContextInfo) { info.CriteriaUpdates = updater.Updates() }
+}

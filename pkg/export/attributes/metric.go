@@ -404,6 +404,12 @@ var (
 		Unit:    "By",
 		Type:    InstrumentUpDownCounter,
 	})
+	DotnetGCHeapFragmentation = metric(Name{
+		Section: "dotnet.gc.last_collection.heap.fragmentation.size",
+		OTEL:    "dotnet.gc.last_collection.heap.fragmentation.size",
+		Unit:    "By",
+		Type:    InstrumentUpDownCounter,
+	})
 	DotnetGCCommittedMemory = metric(Name{
 		Section: "dotnet.gc.last_collection.memory.committed_size",
 		OTEL:    "dotnet.gc.last_collection.memory.committed_size",
@@ -688,6 +694,12 @@ var (
 	StatTCPSuccessfulConnections = metric(Name{
 		Section: "obi.stat.tcp.successful.connections",
 		OTEL:    "obi.stat.tcp.successful.connections",
+		Type:    InstrumentCounter,
+	})
+	StatTCPResets = metric(Name{
+		Section: "obi.stat.tcp.resets",
+		OTEL:    "obi.stat.tcp.resets",
+		Unit:    "{segment}",
 		Type:    InstrumentCounter,
 	})
 )

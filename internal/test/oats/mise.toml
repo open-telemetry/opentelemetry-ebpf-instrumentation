@@ -1,106 +1,53 @@
 [tasks."integration-test-matrix-json"]
 hide = true
-run = 'cd "$MISE_MONOREPO_ROOT" && ./scripts/generate-dir-matrix.sh internal/test/oats /harness/'
+run = 'cd "$MISE_MONOREPO_ROOT" && go run ./scripts/oats-matrix --suite-root internal/test/oats'
 
 [tasks.prereqs]
 hide = true
-depends = ["//:generate", "//:fetch-upstream-semconv"]
-run = 'mkdir -p "${TEST_OUTPUT:-$MISE_MONOREPO_ROOT/testoutput}/run"'
-
-[tasks."test:sql"]
-description = "Run OATS tests for SQL databases"
-depends = ["prereqs"]
-dir = "sql"
-run = [
-  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
-]
-
-[tasks."test:redis"]
-description = "Run OATS tests for Redis"
-depends = ["prereqs"]
-dir = "redis"
-run = [
-  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
-]
-
-[tasks."test:kafka"]
-description = "Run OATS tests for Kafka"
-depends = ["prereqs"]
-dir = "kafka"
-run = [
-  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
-]
-
-[tasks."test:http"]
-description = "Run OATS tests for HTTP"
-depends = ["prereqs"]
-dir = "http"
-run = [
-  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
-]
-
-[tasks."test:mongo"]
-description = "Run OATS tests for MongoDB"
-depends = ["prereqs"]
-dir = "mongo"
-run = [
-  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
-]
-
-[tasks."test:memcached"]
-description = "Run OATS tests for Memcached"
-depends = ["prereqs"]
-dir = "memcached"
-run = [
-  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
-]
+depends = ["//:fetch-upstream-semconv"]
+run = '"$MISE_MONOREPO_ROOT/scripts/oats-prereqs.sh"'
 
 [tasks."test:ai"]
-description = "Run OATS tests for AI instrumentation"
+description = "Run the OATS AI suite"
 depends = ["prereqs"]
-dir = "ai"
-run = [
-  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
-]
-
-[tasks."test:nats"]
-description = "Run OATS tests for NATS"
-depends = ["prereqs"]
-dir = "nats"
-run = [
-  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
-]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" ai'
 
 [tasks."test:amqp"]
-description = "Run OATS tests for AMQP"
+description = "Run the OATS AMQP suite"
 depends = ["prereqs"]
-dir = "amqp"
-run = [
-  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
-]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" amqp'
 
-[tasks."test:debug"]
-description = "Run the OATS Kafka suite in manual debug mode"
+[tasks."test:http"]
+description = "Run the OATS HTTP suite"
 depends = ["prereqs"]
-dir = "kafka"
-run = [
-  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  'TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
-]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" http'
 
-[tasks.test]
-description = "Run the OATS component suites in parallel"
+[tasks."test:kafka"]
+description = "Run the OATS Kafka suite"
 depends = ["prereqs"]
-run = [
-  { tasks = ["test:sql", "test:mongo", "test:redis", "test:kafka", "test:http", "test:memcached", "test:ai", "test:nats", "test:amqp"] },
-  { task = "//:itest-coverage-data" },
-]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" kafka'
+
+[tasks."test:memcached"]
+description = "Run the OATS Memcached suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" memcached'
+
+[tasks."test:mongo"]
+description = "Run the OATS MongoDB suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" mongo'
+
+[tasks."test:nats"]
+description = "Run the OATS NATS suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" nats'
+
+[tasks."test:redis"]
+description = "Run the OATS Redis suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" redis'
+
+[tasks."test:sql"]
+description = "Run the OATS SQL suite"
+depends = ["prereqs"]
+run = '"$MISE_MONOREPO_ROOT/scripts/run-oats-suite.sh" sql'

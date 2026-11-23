@@ -39,7 +39,8 @@ flowchart TD
         ROUT:::optional --> KD(Kubernetes<br/>decorator)
         KD:::optional --> DOCKDEC
         DOCKDEC:::optional --> NR
-        NR(Name resolver):::optional --> AF
+        NR(Name resolver):::optional --> PM
+        PM(Peer metadata):::optional --> AF
         
         AF(Attributes filter):::optional --> OTELT(OTEL/ALLOY<br/> traces<br/> exporter):::optional
 

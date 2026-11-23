@@ -38,6 +38,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
@@ -271,6 +272,7 @@ discovery:
 			// after normalization, network feature is added from network > enable: true
 			Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureNetwork,
 		},
+		Logs: otelcfg.LogsConfig{BatchMaxSize: 512, QueueSize: 2048, BatchTimeout: time.Second},
 		OTELMetrics: otelcfg.MetricsConfig{
 			OTELIntervalMS:    60_000,
 			CommonEndpoint:    "localhost:3131",
@@ -295,7 +297,8 @@ discovery:
 				MaxSize:  128,
 				MaxScale: 16,
 			},
-			TTL: 5 * time.Minute,
+			TTL:               5 * time.Minute,
+			ConnectionInfoTTL: export.DefaultConnectionInfoTTL,
 		},
 		Traces: otelcfg.TracesConfig{
 			Protocol:          otelcfg.ProtocolUnset,
@@ -328,6 +331,7 @@ discovery:
 				instrumentations.InstrumentationALL,
 			},
 			TTL:                         time.Second,
+			ConnectionInfoTTL:           export.DefaultConnectionInfoTTL,
 			SpanMetricsServiceCacheSize: 10000,
 			NativeHistogram:             prom.DefaultNativeHistogramConfig,
 			Buckets: export.Buckets{
@@ -393,9 +397,11 @@ discovery:
 			CacheLen: 1024,
 			CacheTTL: 5 * time.Minute,
 		},
+		PeerMetadata: DefaultConfig.PeerMetadata,
 		CloudMetadata: transform.CloudMetadataConfig{
-			Route53:         transform.Route53MetadataConfig{RefreshInterval: 5 * time.Minute},
-			RefreshInterval: 30 * time.Second,
+			DetectionEnabled: true,
+			Route53:          transform.Route53MetadataConfig{RefreshInterval: 5 * time.Minute},
+			RefreshInterval:  30 * time.Second,
 		},
 		Discovery: services.DiscoveryConfig{
 			ExcludeOTelInstrumentedServices: true,
@@ -584,6 +590,24 @@ func TestUnmarshalMapIgnoresGCESettings(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, cfg.NameResolver.GCE)
 	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+}
+
+func TestConfigV1KeepsQueryRedactionReplacement(t *testing.T) {
+	t.Setenv("OTEL_EBPF_SENSITIVE_QUERY_PARAMS_REPLACEMENT", "hidden")
+	cfg, err := LoadConfig(bytes.NewBufferString(`attributes:
+  sensitive_query_params_replacement: hidden
+  sensitive_query_params:
+    add: [customer_secret]
+    replacement: hidden
+`))
+	require.NoError(t, err)
+	require.Nil(t, cfg.Attributes.SensitiveQueryParams.Replacement)
+	require.Contains(t, cfg.Attributes.SensitiveQueryParams.Effective(), "customer_secret")
+
+	cfg.Attributes.SensitiveQueryParams.Replacement = new("hidden")
+	data, err := yaml.Marshal(cfg.Attributes)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "replacement")
 }
 
 func TestConfig_ShutdownTimeout(t *testing.T) {
@@ -1099,6 +1123,25 @@ network:
 	require.NoError(t, cfg.Validate())
 }
 
+func TestConfigValidate_KubeMetaCacheTLS(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+attributes:
+  kubernetes:
+    enable: true
+    meta_cache_address: k8s-cache:50055
+network:
+  enable: true
+`))
+	require.NoError(t, err)
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{CAFile: "ca.pem"}
+	require.NoError(t, cfg.Validate())
+
+	cfg.Attributes.Kubernetes.MetaCacheTLS.CertFile = "client.pem"
+	require.ErrorContains(t, cfg.Validate(), "cert_file and key_file must be set together")
+}
+
 func TestConfigValidate_KubeReconnectInitialIntervalZero(t *testing.T) {
 	userConfig := bytes.NewBufferString(`
 otel_metrics_export:
@@ -1215,6 +1258,58 @@ func TestConfigValidateStaticSkipsHostCompatibility(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "host is incompatible")
 	require.NoError(t, cfg.ValidateStatic())
+}
+
+func TestConfigValidateStaticForApplicationRefresh(t *testing.T) {
+	cfg := loadConfig(t, envMap{"OTEL_EBPF_TRACE_PRINTER": "text"})
+	require.False(t, cfg.Enabled(FeatureAppO11y))
+	require.False(t, cfg.Enabled(FeatureNetO11y))
+	require.False(t, cfg.Enabled(FeatureStatsO11y))
+	require.ErrorContains(t, cfg.ValidateStatic(), "at least one of")
+	require.ErrorContains(t, cfg.Validate(), "at least one of")
+	require.NoError(t, cfg.ValidateStaticForApplicationRefresh())
+	require.False(t, cfg.Enabled(FeatureAppO11y))
+
+	for _, tc := range []struct {
+		name   string
+		change func(*Config)
+		error  string
+	}{
+		{
+			name:   "runtime settings",
+			change: func(c *Config) { c.JVMRuntimeMetrics.SamplingInterval = 0 },
+			error:  "jvm_runtime_metrics.sampling_interval must be greater than 0",
+		},
+		{
+			name:   "trace printer",
+			change: func(c *Config) { c.TracePrinter = "invalid" },
+			error:  "invalid value for trace_printer",
+		},
+		{
+			name:   "application exporter",
+			change: func(c *Config) { c.TracePrinter = debug.TracePrinterDisabled },
+			error:  "you need to define at least one exporter",
+		},
+		{
+			name: "application metrics",
+			change: func(c *Config) {
+				c.Prometheus.Port = 9090
+				c.Metrics.Features = export.FeatureApplicationSizes
+			},
+			error: "application_sizes needs the application RED metrics",
+		},
+		{
+			name:   "network exporter",
+			change: func(c *Config) { c.NetworkFlows.Enable = true },
+			error:  "enabling network metrics requires",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			invalid := *cfg
+			tc.change(&invalid)
+			require.ErrorContains(t, invalid.ValidateStaticForApplicationRefresh(), tc.error)
+		})
+	}
 }
 
 func TestConfigValidatePrometheusPaths(t *testing.T) {

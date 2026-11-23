@@ -85,7 +85,9 @@ spans:
         requirement_level: required
       - ref: db.namespace
         requirement_level:
-          conditionally_required: if the exchange named a database
+          conditionally_required: >-
+            if the exchange named a database or schema; PostgreSQL reports
+            `{database}|{schema}`, or the schema alone when only it is known
       - ref: db.collection.name
         requirement_level:
           conditionally_required: if the operation could be parsed and names a table

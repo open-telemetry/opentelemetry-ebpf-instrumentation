@@ -7,14 +7,15 @@ import "go.opentelemetry.io/obi/pkg/config"
 
 // CaptureEngine describes lower-level capture engine settings.
 type CaptureEngine struct {
-	Debug         EngineDebug   `yaml:"debug"`
-	PIDFilter     PIDFilter     `yaml:"pid_filter"`
-	Batching      Batching      `yaml:"batching"`
-	Propagation   Propagation   `yaml:"propagation"`
-	Traffic       Traffic       `yaml:"traffic"`
-	Transactions  Transactions  `yaml:"transactions"`
-	Maps          Maps          `yaml:"maps"`
-	BPFFileSystem BPFFileSystem `yaml:"bpf_filesystem"`
+	Debug            EngineDebug      `yaml:"debug"`
+	PIDFilter        PIDFilter        `yaml:"pid_filter"`
+	Batching         Batching         `yaml:"batching"`
+	Propagation      Propagation      `yaml:"propagation"`
+	Traffic          Traffic          `yaml:"traffic"`
+	Transactions     Transactions     `yaml:"transactions"`
+	Maps             Maps             `yaml:"maps"`
+	BPFFileSystem    BPFFileSystem    `yaml:"bpf_filesystem"`
+	CgroupFileSystem CgroupFileSystem `yaml:"cgroup_filesystem"`
 }
 
 // EngineDebug describes capture engine debug toggles.
@@ -30,9 +31,15 @@ type PIDFilter struct {
 
 // Batching describes event batching behavior.
 type Batching struct {
-	WakeupLen    int      `yaml:"wakeup_len"`
-	BatchLength  int      `yaml:"batch_length"`
-	BatchTimeout Duration `yaml:"batch_timeout"`
+	WakeupLen    int           `yaml:"wakeup_len"`
+	BatchLength  int           `yaml:"batch_length"`
+	BatchTimeout Duration      `yaml:"batch_timeout"`
+	Stats        StatsBatching `yaml:"stats"`
+}
+
+// StatsBatching describes event batching for the network stats ring buffer.
+type StatsBatching struct {
+	WakeupBytes int `yaml:"wakeup_bytes"`
 }
 
 // Propagation describes context propagation engine settings.
@@ -62,5 +69,10 @@ type Maps struct {
 
 // BPFFileSystem describes the BPF filesystem mount path.
 type BPFFileSystem struct {
+	Path string `yaml:"path"`
+}
+
+// CgroupFileSystem describes the host cgroup v2 mount path.
+type CgroupFileSystem struct {
 	Path string `yaml:"path"`
 }

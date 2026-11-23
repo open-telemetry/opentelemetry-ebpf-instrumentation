@@ -4,6 +4,7 @@
 package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -208,4 +209,37 @@ func checkReportedPythonEvents(t *testing.T, comm, namespace string, numEvents i
 			assert.NotNil(ct, addr)
 		}
 	}, testTimeout, 100*time.Millisecond)
+}
+
+// forked children exit before discovery sees them; calls after exec wait for discovery
+func testForkedChildrenPython(t *testing.T) {
+	const (
+		url  = "http://localhost:8381"
+		jobs = 5
+	)
+	waitForTestComponents(t, url)
+
+	ti.DoHTTPGet(t, url+"/fork/"+strconv.Itoa(jobs), 200)
+	ti.DoHTTPGet(t, url+"/exec/"+strconv.Itoa(jobs), 200)
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	count := func(ct require.TestingT, metric, status string) int {
+		results, err := pq.Query(metric + `{http_response_status_code="` + status + `",` +
+			`service_namespace="integration-test",service_name="python-testserver"}`)
+		require.NoError(ct, err)
+		return totalPromCount(ct, results)
+	}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.Equal(ct, jobs, count(ct, "http_client_request_duration_seconds_count", "230"),
+			"each forked child's call")
+		// the exec'd program's own calls had time to be reported
+		assert.Equal(ct, jobs, count(ct, "http_server_request_duration_seconds_count", "231"),
+			"the requests of the exec'd program")
+	}, testTimeout, 100*time.Millisecond)
+
+	assert.Never(t, func() bool {
+		results, err := pq.Query(`http_client_request_duration_seconds_count{http_response_status_code="231"}`)
+		return err != nil || len(results) > 0
+	}, 5*time.Second, 500*time.Millisecond, "calls after exec wait for discovery to evaluate the new program")
 }

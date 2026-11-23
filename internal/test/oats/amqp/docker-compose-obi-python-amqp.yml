@@ -1,8 +1,4 @@
 services:
-  lgtm:
-    network_mode: host
-    ports: []
-
   artemis:
     image: apache/activemq-artemis:2.44.0@sha256:0305c26f19eda00c0506d0953cfe265600a72ac1b17f7934412120c01a595cff
     network_mode: host
@@ -31,9 +27,7 @@ services:
         condition: service_healthy
 
   autoinstrumenter:
-    build:
-      context: ../../../..
-      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:
@@ -64,7 +58,7 @@ services:
   # Collector in front of lgtm (host networking): receives OBI's OTLP on 4319
   # and fans out to lgtm (127.0.0.1:4317) and weaver (127.0.0.1:4327).
   collector:
-    image: otel/opentelemetry-collector-contrib:0.163.1@sha256:1175b03003053962012f5a231f5567f66a3e8fdb960c7835c0e48f7aa1555806
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
     network_mode: host
     volumes:
       - ./configs:/configs
@@ -79,7 +73,7 @@ services:
   # weaver's OTLP listener is moved to 4327; the admin API stays on 4320. The OATS
   # harness stops it after the checks and fails the test on any actionable advisory.
   weaver:
-    image: otel/weaver:v0.27.0@sha256:3049b4079049d4abb1b5632f511ada2c33505a1c60f3f8535e93f87f0696f056
+    image: otel/weaver:v0.28.0@sha256:5857bb81d8cc7ed608cdcae37c4b459eb020f21dd4acade35f7933cd6762fbcc
     network_mode: host
     user: "0:0"
     working_dir: /obi-registry

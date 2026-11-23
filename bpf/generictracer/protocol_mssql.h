@@ -13,6 +13,7 @@
 #include <common/connection_info.h>
 #include <common/large_buffers.h>
 #include <common/ringbuf.h>
+#include <common/usdt.h>
 
 #include <generictracer/maps/protocol_cache.h>
 #include <generictracer/protocol_common.h>
@@ -111,12 +112,59 @@ static __always_inline u8 is_mssql(connection_info_t *conn_info,
     return 1;
 }
 
+// Copies up to chunk bytes of src to rbuf at offset captured when they fit, and
+// returns how many were copied. Checking captured against a bound derived from
+// the constant chunk lets the verifier prove the write stays inside rbuf.
+static __always_inline u32 mssql_append_response_chunk(unsigned char *rbuf,
+                                                       const u32 captured,
+                                                       const unsigned char *src,
+                                                       const u32 len,
+                                                       const u32 chunk) {
+    // keep the compiler from folding the bound checks the verifier relies on
+    u64 off = captured;
+    barrier_var(off);
+    u64 n = len;
+    barrier_var(n);
+
+    if (n == 0 || off > k_tcp_res_len - chunk) {
+        return 0;
+    }
+    if (n > chunk) {
+        n = chunk;
+    }
+
+    bpf_probe_read(rbuf + off, n, src);
+
+    return n;
+}
+
+// Keeps the start of the response in rbuf. Clients read the response in pieces
+// of any size (often the TDS header on its own first), so each read is appended
+// right after the previous one until rbuf is full. resp_len still counts the
+// bytes before this read, so rbuf always holds min(resp_len, k_tcp_res_len)
+// contiguous bytes.
+static __always_inline void
+mssql_capture_response_start(tcp_req_t *req, const unsigned char *u_buf, const u32 bytes_len) {
+    u32 captured = req->resp_len;
+    u32 consumed = 0;
+
+#pragma unroll
+    for (u32 chunk = k_tcp_res_len; chunk > 0; chunk /= 2) {
+        if (captured >= k_tcp_res_len || consumed >= bytes_len) {
+            return;
+        }
+
+        const u32 n = mssql_append_response_chunk(
+            req->rbuf, captured, u_buf + consumed, bytes_len - consumed, chunk);
+        captured += n;
+        consumed += n;
+    }
+}
+
 // Tracks accumulated response length and detects the TDS End-Of-Message bit.
 // Returns -1 to wait for more data, 0 when the response is complete.
 static __always_inline int mssql_response_eom(tcp_req_t *req, const void *u_buf, u32 bytes_len) {
-    if (req->resp_len == 0 && bytes_len >= k_mssql_hdr_size) {
-        bpf_probe_read(req->rbuf, k_mssql_hdr_size, u_buf);
-    }
+    mssql_capture_response_start(req, u_buf, bytes_len);
 
     req->resp_len += bytes_len;
 

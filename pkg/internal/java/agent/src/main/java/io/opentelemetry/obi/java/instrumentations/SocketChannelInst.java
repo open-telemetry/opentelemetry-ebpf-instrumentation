@@ -5,8 +5,6 @@
 
 package io.opentelemetry.obi.java.instrumentations;
 
-import static io.opentelemetry.obi.java.instrumentations.util.ByteBufferExtractor.b;
-
 import io.opentelemetry.obi.java.Agent;
 import io.opentelemetry.obi.java.ebpf.IOCTLPacket;
 import io.opentelemetry.obi.java.ebpf.NativeMemory;
@@ -74,143 +72,75 @@ public class SocketChannelInst {
   }
 
   public static final class WriteAdvice {
+    // Report before ciphertext reaches the peer: its response may complete send()
+    // and release the header reservation before SocketChannel.write() returns.
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static int write(@Advice.Argument(0) final ByteBuffer src) {
-      if (src == null) {
-        return -1;
-      }
-      return b(src).position();
-    }
-
-    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void write(
         @Advice.Argument(0) final ByteBuffer src,
-        @Advice.Enter int savedPos,
         @Advice.FieldValue("localAddress") SocketAddress localSocket,
         @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {
-
       if (!(localSocket instanceof InetSocketAddress)
-          || !(remoteSocket instanceof InetSocketAddress)) {
+          || !(remoteSocket instanceof InetSocketAddress)
+          || src == null) {
         return;
       }
-
-      if (src == null) {
-        return;
-      }
-
-      if (savedPos < 0) {
-        return;
-      }
-
-      ByteBuffer dup = src.duplicate();
-      b(dup).position(savedPos);
-      String bufKey = ByteBufferExtractor.keyFromFreshBuffer(dup);
-
+      String bufKey = ByteBufferExtractor.keyFromFreshBuffer(src);
       if (SSLStorage.debugOn) {
         System.err.println("[SocketChannelInst] write advice, lookup: " + bufKey);
       }
-
-      BytesWithLen unencrypted = SSLStorage.getUnencryptedBuffer(bufKey);
+      BytesWithLen unencrypted = SSLStorage.takeUnencryptedBuffer(bufKey);
       if (SSLStorage.debugOn) {
         System.err.println("[SocketChannelInst] write advice, unencrypted: " + unencrypted);
       }
       if (unencrypted == null) {
         return;
       }
-      InetSocketAddress inetSocketAddress = (InetSocketAddress) localSocket;
-      InetSocketAddress remoteSocketAddress = (InetSocketAddress) remoteSocket;
-
-      Connection c =
+      InetSocketAddress local = (InetSocketAddress) localSocket;
+      InetSocketAddress remote = (InetSocketAddress) remoteSocket;
+      Connection connection =
           new Connection(
-              inetSocketAddress.getAddress(),
-              inetSocketAddress.getPort(),
-              remoteSocketAddress.getAddress(),
-              remoteSocketAddress.getPort());
-
-      NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + unencrypted.len);
-      int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, c, unencrypted.len);
-      IOCTLPacket.writePacketBuffer(p, wOff, unencrypted.buf, 0, unencrypted.len);
-      Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
+              local.getAddress(), local.getPort(), remote.getAddress(), remote.getPort());
+      NativeMemory packet = new NativeMemory(IOCTLPacket.packetPrefixSize + unencrypted.len);
+      int offset =
+          IOCTLPacket.writePacketPrefix(packet, 0, OperationType.SEND, connection, unencrypted.len);
+      IOCTLPacket.writePacketBuffer(packet, offset, unencrypted.buf, 0, unencrypted.len);
+      Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, packet.getAddress());
     }
   }
 
   public static final class WriteAdviceArray {
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static int[] write(@Advice.Argument(0) final ByteBuffer[] srcs) {
-      if (srcs == null) {
-        return null;
-      }
-      int[] positions = new int[srcs.length];
-      for (int i = 0; i < srcs.length; i++) {
-        if (srcs[i] == null) {
-          positions[i] = -1;
-          continue;
-        }
-        positions[i] = b(srcs[i]).position();
-      }
-
-      return positions;
-    }
-
-    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void write(
         @Advice.Argument(0) final ByteBuffer[] srcs,
-        @Advice.Enter int[] savedSrcPositions,
         @Advice.FieldValue("localAddress") SocketAddress localSocket,
         @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {
       if (!(localSocket instanceof InetSocketAddress)
           || !(remoteSocket instanceof InetSocketAddress)
-          || (srcs == null)) {
+          || srcs == null) {
         return;
       }
-
-      if (savedSrcPositions == null) {
-        return;
-      }
-
-      ByteBuffer[] dups = new ByteBuffer[srcs.length];
-
-      for (int i = 0; i < srcs.length; i++) {
-        if (srcs[i] == null) {
-          continue;
-        }
-        if (savedSrcPositions[i] != -1) {
-          dups[i] = srcs[i].duplicate();
-          b(dups[i]).position(savedSrcPositions[i]);
-        }
-      }
-
-      ByteBuffer srcBuffer = ByteBufferExtractor.flattenFreshByteBufferArray(dups);
-      String bufKey = ByteBufferExtractor.keyFromUsedBuffer(srcBuffer);
-
+      ByteBuffer buffer = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
+      String bufKey = ByteBufferExtractor.keyFromUsedBuffer(buffer);
       if (SSLStorage.debugOn) {
         System.err.println("[SocketChannelInst] write array advice, lookup: " + bufKey);
       }
-
-      BytesWithLen unencrypted = SSLStorage.getUnencryptedBuffer(bufKey);
+      BytesWithLen unencrypted = SSLStorage.takeUnencryptedBuffer(bufKey);
       if (SSLStorage.debugOn) {
         System.err.println("[SocketChannelInst] unencrypted: " + unencrypted);
       }
       if (unencrypted == null) {
         return;
       }
-
-      SSLStorage.removeBufferMapping(bufKey);
-
-      InetSocketAddress inetSocketAddress = (InetSocketAddress) localSocket;
-      InetSocketAddress remoteSocketAddress = (InetSocketAddress) remoteSocket;
-
-      Connection c =
+      InetSocketAddress local = (InetSocketAddress) localSocket;
+      InetSocketAddress remote = (InetSocketAddress) remoteSocket;
+      Connection connection =
           new Connection(
-              inetSocketAddress.getAddress(),
-              inetSocketAddress.getPort(),
-              remoteSocketAddress.getAddress(),
-              remoteSocketAddress.getPort());
-
-      NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + unencrypted.len);
-      int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, c, unencrypted.len);
-      IOCTLPacket.writePacketBuffer(p, wOff, unencrypted.buf, 0, unencrypted.len);
-      Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
+              local.getAddress(), local.getPort(), remote.getAddress(), remote.getPort());
+      NativeMemory packet = new NativeMemory(IOCTLPacket.packetPrefixSize + unencrypted.len);
+      int offset =
+          IOCTLPacket.writePacketPrefix(packet, 0, OperationType.SEND, connection, unencrypted.len);
+      IOCTLPacket.writePacketBuffer(packet, offset, unencrypted.buf, 0, unencrypted.len);
+      Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, packet.getAddress());
     }
   }
 

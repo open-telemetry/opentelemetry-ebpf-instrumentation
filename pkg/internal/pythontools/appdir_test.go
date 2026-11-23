@@ -51,3 +51,31 @@ func TestAppDirDoesNotUseSearchPaths(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(root, "work"), got)
 }
+
+func TestAppDirForPIDGunicornChdir(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "srv", "app"), 0o755))
+
+	tests := []struct {
+		name string
+		args []string
+		env  map[string]string
+	}{
+		{name: "relative", args: []string{"--chdir", "app", "orders:app"}},
+		{name: "relative attached", args: []string{"--chdir=app", "orders:app"}},
+		{name: "environment", args: []string{"orders:app"}, env: map[string]string{"GUNICORN_CMD_ARGS": "--chdir app"}},
+		{name: "absolute", args: []string{"--chdir", "/srv/app", "orders:app"}},
+		{name: "default", args: []string{"orders:app"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fileInfo := mockPythonProcess(t, root, "python", append([]string{"/venv/bin/gunicorn"}, tt.args...), tt.env, "/srv/app")
+
+			got, err := AppDirForPID(fileInfo.Pid(), tt.env)
+
+			require.NoError(t, err)
+			assert.Equal(t, filepath.Join(root, "srv", "app"), got)
+		})
+	}
+}

@@ -21,9 +21,10 @@ type Enrich struct {
 
 // Enrichers groups metadata enricher settings.
 type Enrichers struct {
-	Kubernetes           KubernetesEnricher `yaml:"kubernetes"`
-	Cloud                CloudEnricher      `yaml:"cloud"`
-	AdditionalProperties map[string]any     `yaml:",inline"`
+	Kubernetes           KubernetesEnricher   `yaml:"kubernetes"`
+	Cloud                CloudEnricher        `yaml:"cloud"`
+	PeerMetadata         PeerMetadataEnricher `yaml:"peer_metadata"`
+	AdditionalProperties map[string]any       `yaml:",inline"`
 }
 
 // KubernetesMode describes Kubernetes metadata enricher activation.
@@ -76,9 +77,19 @@ type ResourceLabels map[string][]string
 // KubernetesMetadataCache describes the Kubernetes metadata cache connection
 // and source label settings.
 type KubernetesMetadataCache struct {
-	Address           string                 `yaml:"address"`
-	RestrictLocalNode bool                   `yaml:"restrict_local_node"`
-	SourceLabels      KubernetesSourceLabels `yaml:"source_labels"`
+	Address           string                     `yaml:"address"`
+	RestrictLocalNode bool                       `yaml:"restrict_local_node"`
+	SourceLabels      KubernetesSourceLabels     `yaml:"source_labels"`
+	TLS               KubernetesMetadataCacheTLS `yaml:"tls"`
+}
+
+// KubernetesMetadataCacheTLS describes the TLS settings of the Kubernetes
+// metadata cache connection.
+type KubernetesMetadataCacheTLS struct {
+	CAFile     string `yaml:"ca_file"`
+	CertFile   string `yaml:"cert_file"`
+	KeyFile    string `yaml:"key_file"`
+	ServerName string `yaml:"server_name"`
 }
 
 // KubernetesSourceLabels describes metadata labels used as service identity
@@ -90,10 +101,17 @@ type KubernetesSourceLabels struct {
 
 // CloudEnricher describes cloud metadata enrichment settings.
 type CloudEnricher struct {
+	Detection            CloudDetection `yaml:"detection"`
 	ClusterName          string         `yaml:"cluster_name"`
 	Region               string         `yaml:"region"`
 	RefreshInterval      Duration       `yaml:"refresh_interval"`
 	Route53              Route53        `yaml:"route53"`
+	AdditionalProperties map[string]any `yaml:",inline"`
+}
+
+// CloudDetection describes cloud metadata detection settings.
+type CloudDetection struct {
+	Enabled              *bool          `yaml:"enabled,omitempty"`
 	AdditionalProperties map[string]any `yaml:",inline"`
 }
 

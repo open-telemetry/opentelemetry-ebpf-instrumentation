@@ -177,6 +177,99 @@ func TestOpenAISpan_Responses(t *testing.T) {
 	assert.Equal(t, "gpt-5-mini", ai.Request.Model)
 }
 
+func TestOpenAISpan_Decisions(t *testing.T) {
+	questions := `[{"type":"predicate","name":"damaged","instructions":[{"type":"input_text","text":"Does the customer report a damaged item?"},{"type":"input_json","data":{"policy":"returns"}}]},{"type":"choice","name":"priority","instructions":"Choose the handling priority.","choices":[{"value":"urgent","description":"Immediate handling"},{"value":true,"description":"Flag for manual review"}]},{"type":"score","name":"severity","instructions":"Rate the damage severity.","levels":[{"label":"minor","description":"Cosmetic damage"},{"label":"major","description":"Item is unusable"}]}]`
+	requestBody := `{"model":"gpt-6-luna","input":"The package arrived with a broken screen.","questions":` + questions + `}`
+	responseBody := `{
+  "model": "gpt-6-luna",
+  "answers": [
+    {"type": "predicate", "name": "damaged", "probability": 0.95}
+  ],
+  "usage": {
+    "input_tokens": 42,
+    "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+    "output_tokens": 0,
+    "output_tokens_details": {"reasoning_tokens": 0},
+    "total_tokens": 42
+  }
+}`
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/decisions", requestBody)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), responseBody)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType)
+
+	ai := span.GenAI.OpenAI
+	assert.Equal(t, "gpt-6-luna", ai.ResponseModel)
+	assert.Equal(t, "gpt-6-luna", ai.Request.Model)
+	assert.Equal(t, "The package arrived with a broken screen.", ai.Request.Input)
+	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"The package arrived with a broken screen."}]}]`, ai.Request.GetInput())
+	assert.Equal(t, questions, string(ai.Request.Questions))
+	assertTokenCount(t, ai.Usage.InputTokens, 42, true)
+	assertTokenCount(t, ai.Usage.OutputTokens, 0, true)
+	assert.Equal(t, "decision", ai.OperationName)
+	assert.Equal(t, "decisions", ai.APIType)
+}
+
+func TestOpenAISpan_DecisionsInputArray(t *testing.T) {
+	input := `[{"role":"developer","content":"Assess the customer report."},{"role":"user","content":[{"type":"input_text","text":"The package arrived with a broken screen."},{"type":"input_text","text":"The screen does not turn on."}]}]`
+	questions := `[{"type":"predicate","name":"damaged","instructions":"Is it damaged?"}]`
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/decisions", `{"model":"gpt-6-luna","input":`+input+`,"questions":`+questions+`}`)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), `{}`)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	ai := span.GenAI.OpenAI
+	assert.Equal(t, input, string(ai.Request.InputItems))
+	assert.JSONEq(t, `[{"role":"developer","parts":[{"type":"text","content":"Assess the customer report."}]},{"role":"user","parts":[{"type":"text","content":"The package arrived with a broken screen."},{"type":"text","content":"The screen does not turn on."}]}]`, ai.Request.GetInput())
+	assert.Equal(t, questions, string(ai.Request.Questions))
+	assert.Equal(t, request.DecisionOperationName, ai.OperationName)
+	assert.Equal(t, "decisions", ai.APIType)
+}
+
+func TestOpenAISpan_DecisionsInputJSON(t *testing.T) {
+	input := `[{"role":"user","content":[{"type":"input_json","data":{"order":{"charges":[49,49]}}}]}]`
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/decisions", `{"model":"gpt-6-luna","input":`+input+`}`)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), `{}`)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, input, string(span.GenAI.OpenAI.Request.InputItems))
+	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"input_json","data":{"order":{"charges":[49,49]}}}]}]`, span.GenAI.OpenAI.Request.GetInput())
+}
+
+func TestOpenAISpan_NonDecisionsRequestDoesNotCaptureQuestions(t *testing.T) {
+	requestBody := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}],"questions":[{"type":"predicate","instructions":"Ignored"}]}`
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/chat/completions", requestBody)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), completionsResponseBody)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.ChatOperationName, span.GenAI.OpenAI.OperationName)
+	assert.Empty(t, span.GenAI.OpenAI.Request.Questions)
+}
+
+func TestOpenAISpan_DecisionsUsageDoesNotReportInferenceOperation(t *testing.T) {
+	req := makeRequest(t, http.MethodGet, "http://api.openai.com/v1/organization/usage/decisions", "")
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), `{}`)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.OtherOperationName, span.GenAI.OpenAI.OperationName)
+	assert.Empty(t, span.GenAI.OpenAI.APIType)
+}
+
 func TestOpenAISpan_ChatCompletions(t *testing.T) {
 	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/chat/completions", completionsRequestBody)
 	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), completionsResponseBody)

@@ -52,7 +52,7 @@ typedef struct call_protocol_args {
     protocol_selector_t protocols;
     u8 skip_tp_parsing;
     u8 use_bpf_loop;
-    u8 pad[1];
+    u8 wire_tp_found;
     int bytes_len;
     u16 orig_dport;
     u16 _pad2;
@@ -60,6 +60,11 @@ typedef struct call_protocol_args {
     u64 self_ref_parent_id;
     u64 sock_ptr;
     lw_thread_t lw_thread;
+    // The user buffer u_buf holds a truncated copy of, or 0. Only the HTTP/1
+    // header scan reads it, to cover its whole window.
+    u64 user_buf;
+    u32 user_len;
+    u8 _pad3[4];
 } call_protocol_args_t;
 
 static __always_inline void read_request_buf(http_info_t *info, const call_protocol_args_t *args) {
@@ -83,7 +88,7 @@ typedef struct protocol_info {
 
 // Here we keep information on the ongoing filtered connections, PID/TID and connection type
 typedef struct http_connection_metadata {
-    pid_info pid;
+    pid_info_t pid;
     u8 type;
     u8 _pad[3];
 } http_connection_metadata_t;
@@ -109,7 +114,7 @@ typedef struct http2_grpc_request {
     u8 _pad1[3];
     // we need this to filter traces from unsolicited processes that share the executable
     // with other instrumented processes
-    pid_info pid;
+    pid_info_t pid;
     u64 new_conn_id;
     tp_info_t tp;
 } http2_grpc_request_t;
@@ -120,11 +125,19 @@ const http2_grpc_request_t *unused_http2 __attribute__((unused));
 
 // Checks whether the request target after the method+space is valid.
 // Accepts origin-form (/...), absolute-form (http:// or https://).
+// Asterisk-form (OPTIONS *) is handled by the caller.
 // The usage of '|' is intended to minimise the size of jitted code affecting
 // older kernel versions - it replaces branching with bitwise operations whose
 // result are equivalent in this particular context.
 static __always_inline u8 is_http_request_target(unsigned char c) {
     return (c == '/') | (((c | 0x20) == 'h'));
+}
+
+// Checks whether the CONNECT target starts like an authority-form (host:port),
+// i.e. a hostname, an IPv4 address or a bracketed IPv6 address.
+static __always_inline u8 is_http_connect_predicate(unsigned char c) {
+    return ((c >= 'A') & (c <= 'Z')) | ((c >= 'a') & (c <= 'z')) | ((c >= '0') & (c <= '9')) |
+           (c == '[');
 }
 
 static __always_inline u8 is_http_request_buf(const unsigned char *p) {
@@ -144,6 +157,16 @@ static __always_inline u8 is_http_request_buf(const unsigned char *p) {
         target = p[5];
     } else if (__builtin_memcmp(p, "OPTIONS ", 8) == 0) {
         target = p[8];
+        if (target == '*') {
+            return 1;
+        }
+    } else if (__builtin_memcmp(p, "TRACE ", 6) == 0) {
+        target = p[6];
+    } else if (__builtin_memcmp(p, "QUERY ", 6) == 0) {
+        target = p[6];
+    } else if (__builtin_memcmp(p, "CONNECT ", 8) == 0) {
+        target = p[8];
+        return is_http_connect_predicate(target);
     } else {
         return 0;
     }

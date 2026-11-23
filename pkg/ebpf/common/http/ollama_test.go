@@ -302,6 +302,203 @@ func TestOllamaSpan_GenAIHelpers(t *testing.T) {
 	assert.Equal(t, 9, reportedValue(span.GenAIOutputTokenCount()))
 }
 
+// --- /api/embed and legacy /api/embeddings ---
+
+const (
+	ollamaEmbedModel        = "all-minilm:l6-v2"
+	ollamaEmbedRequest      = `{"model":"all-minilm:l6-v2","input":"why is the sky blue?"}`
+	ollamaEmbedResponse     = `{"model":"all-minilm:l6-v2","embeddings":[[0.0100353705,-0.0017759022,0.05005609,0.04692976]],"total_duration":301430470,"load_duration":283978494,"prompt_eval_count":8}`
+	ollamaLegacyRequest     = `{"model":"all-minilm:l6-v2","prompt":"why is the sky blue?"}`
+	ollamaLegacyResponse    = `{"embedding":[0.0100353705,-0.0017759022,0.05005609]}`
+	ollamaEmbedErrorMissing = `{"error":"model \"nope\" not found, try pulling it first"}`
+)
+
+func TestOllamaSpan_Embed(t *testing.T) {
+	span, ok := runOllamaSpan(t, "/api/embed", ollamaEmbedRequest, ollamaEmbedResponse)
+	require.True(t, ok)
+
+	assert.Equal(t, request.HTTPSubtypeOllama, span.SubType)
+	ai := span.GenAI.Ollama
+	assert.Equal(t, request.EmbeddingOperationName, ai.OperationName)
+	assert.Equal(t, "ollama", ai.ProviderName)
+	assert.Equal(t, ollamaEmbedModel, ai.Request.Model)
+	assert.Equal(t, ollamaEmbedModel, ai.ResponseModel)
+	assert.Equal(t, "why is the sky blue?", ai.Request.Input)
+	assert.Equal(t, 8, tokenValue(ai.Usage.InputTokens))
+	assert.False(t, isReported(ai.Usage.OutputTokens.Get()))
+	assert.Equal(t, 4, ai.GetEmbeddingDimensions())
+	assert.Empty(t, ai.GetFinishReasons())
+	assert.Empty(t, ai.GetOutput(), "vectors must not be exported as output messages")
+	assert.False(t, ai.Request.Stream, "a missing stream flag means streaming on chat, but embeddings never stream")
+}
+
+func TestOllamaSpan_EmbedIgnoresStreamFlag(t *testing.T) {
+	reqBody := `{"model":"all-minilm:l6-v2","input":"x","stream":true}`
+	span, ok := runOllamaSpan(t, "/api/embed", reqBody, ollamaEmbedResponse)
+	require.True(t, ok)
+
+	assert.False(t, span.GenAI.Ollama.Request.Stream)
+}
+
+func TestOllamaSpan_EmbedBatchUsesFirstVector(t *testing.T) {
+	reqBody := `{"input":["a","b"],"model":"all-minilm"}`
+	respBody := `{"model":"all-minilm:l6-v2","embeddings":[[0.1,0.2,0.3],[0.4,0.5,0.6]],"prompt_eval_count":6}`
+	span, ok := runOllamaSpan(t, "/api/embed", reqBody, respBody)
+	require.True(t, ok)
+
+	ai := span.GenAI.Ollama
+	assert.Equal(t, "all-minilm", ai.Request.Model)
+	assert.Empty(t, ai.Request.Input)
+	assert.Equal(t, 3, ai.GetEmbeddingDimensions())
+	assert.Equal(t, 6, tokenValue(ai.Usage.InputTokens))
+}
+
+func TestOllamaSpan_LegacyEmbeddings(t *testing.T) {
+	span, ok := runOllamaSpan(t, "/api/embeddings", ollamaLegacyRequest, ollamaLegacyResponse)
+	require.True(t, ok)
+
+	ai := span.GenAI.Ollama
+	assert.Equal(t, request.EmbeddingOperationName, ai.OperationName)
+	assert.Equal(t, ollamaEmbedModel, ai.Request.Model)
+	assert.Equal(t, ollamaEmbedModel, ai.ResponseModel, "the legacy response has no model, so it falls back to the request")
+	assert.Equal(t, "why is the sky blue?", ai.Request.Prompt)
+	assert.Equal(t, 3, ai.GetEmbeddingDimensions())
+	assert.False(t, isReported(span.GenAIInputTokenCount()), "the legacy response has no token counts")
+}
+
+func TestOllamaSpan_EmbedEmptyVectors(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		reqBody  string
+		respBody string
+	}{
+		{name: "embed", path: "/api/embed", reqBody: `{"model":"all-minilm:l6-v2","input":""}`, respBody: `{"model":"all-minilm:l6-v2","embeddings":[]}`},
+		{name: "legacy", path: "/api/embeddings", reqBody: `{"model":"all-minilm:l6-v2","prompt":""}`, respBody: `{"embedding":[]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span, ok := runOllamaSpan(t, tt.path, tt.reqBody, tt.respBody)
+			require.True(t, ok)
+			assert.Zero(t, span.GenAI.Ollama.GetEmbeddingDimensions())
+		})
+	}
+}
+
+func TestOllamaSpan_EmbedError(t *testing.T) {
+	for _, path := range []string{"/api/embed", "/api/embeddings"} {
+		t.Run(path, func(t *testing.T) {
+			span, ok := runOllamaSpan(t, path, `{"model":"nope","input":"x"}`, ollamaEmbedErrorMissing)
+			require.True(t, ok)
+
+			ai := span.GenAI.Ollama
+			assert.Equal(t, request.EmbeddingOperationName, ai.OperationName)
+			assert.Equal(t, "nope", ai.Request.Model)
+			assert.Zero(t, ai.GetEmbeddingDimensions())
+		})
+	}
+}
+
+func TestOllamaSpan_EmbedRejectsOtherProviders(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		respBody string
+	}{
+		{name: "OpenAI on legacy path", path: "/api/embeddings", respBody: `{"object":"list","data":[{"object":"embedding","embedding":[0.1,0.2],"index":0}],"model":"m","usage":{"prompt_tokens":5,"total_tokens":5}}`},
+		{name: "OpenAI on embed path", path: "/proxy/api/embed", respBody: `{"object":"list","data":[{"object":"embedding","embedding":[0.1,0.2],"index":0}],"model":"m"}`},
+		{name: "OpenAI error", path: "/api/embeddings", respBody: `{"error":{"message":"bad key","type":"invalid_request_error"}}`},
+		{name: "DashScope", path: "/api/embed", respBody: `{"output":{"embeddings":[{"embedding":[0.1,0.2],"text_index":0}]},"usage":{"total_tokens":5}}`},
+		{name: "array of objects", path: "/api/embed", respBody: `{"embeddings":[{"values":[0.1,0.2]}]}`},
+		{name: "object of arrays", path: "/api/embed", respBody: `{"embeddings":{"float":[[0.1,0.2]]}}`},
+		{name: "legacy array of objects", path: "/api/embeddings", respBody: `{"embedding":[{"values":[0.1,0.2]}]}`},
+		{name: "legacy array of strings", path: "/api/embeddings", respBody: `{"embedding":["a","b"]}`},
+		{name: "unrelated JSON", path: "/api/embed", respBody: `{"status":"ok"}`},
+		{name: "not JSON", path: "/api/embed", respBody: `upstream connect error`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span, ok := runOllamaSpan(t, tt.path, `{"model":"m","input":"x"}`, tt.respBody)
+			assert.False(t, ok)
+			assert.Nil(t, span.GenAI)
+		})
+	}
+}
+
+func TestOllamaSpan_EmbedTruncatedResponse(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		reqBody  string
+		respBody string
+		wantDims int
+	}{
+		{
+			name:     "embed inside first vector",
+			path:     "/api/embed",
+			reqBody:  ollamaEmbedRequest,
+			respBody: `{"model":"all-minilm:l6-v2","embeddings":[[0.0100353705,-0.00177`,
+		},
+		{
+			name:     "embed inside second vector",
+			path:     "/api/embed",
+			reqBody:  ollamaEmbedRequest,
+			respBody: `{"model":"all-minilm:l6-v2","embeddings":[[0.1,0.2,0.3],[0.4,0.5`,
+			wantDims: 3,
+		},
+		{
+			name:     "embed right after first vector",
+			path:     "/api/embed",
+			reqBody:  ollamaEmbedRequest,
+			respBody: `{"model":"all-minilm:l6-v2","embeddings":[[0.1,0.2,0.3]`,
+			wantDims: 3,
+		},
+		{
+			name:     "legacy inside vector",
+			path:     "/api/embeddings",
+			reqBody:  ollamaLegacyRequest,
+			respBody: `{"embedding":[0.0100353705,-0.00177`,
+		},
+		{
+			name:     "legacy right after opening bracket",
+			path:     "/api/embeddings",
+			reqBody:  ollamaLegacyRequest,
+			respBody: `{"embedding":[`,
+		},
+		{
+			name:     "legacy inside first number",
+			path:     "/api/embeddings",
+			reqBody:  ollamaLegacyRequest,
+			respBody: `{"embedding":[-`,
+		},
+		{
+			name:     "requested dimensions survive truncation",
+			path:     "/api/embed",
+			reqBody:  `{"model":"all-minilm:l6-v2","input":"x","dimensions":128}`,
+			respBody: `{"model":"all-minilm:l6-v2","embeddings":[[0.0100353705,-0.00177`,
+			wantDims: 128,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span, ok := runOllamaSpan(t, tt.path, tt.reqBody, tt.respBody)
+			require.True(t, ok)
+
+			ai := span.GenAI.Ollama
+			assert.Equal(t, request.EmbeddingOperationName, ai.OperationName)
+			assert.Equal(t, ollamaEmbedModel, ai.Request.Model)
+			assert.Equal(t, tt.wantDims, ai.GetEmbeddingDimensions())
+			assert.False(t, isReported(span.GenAIInputTokenCount()), "prompt_eval_count follows the vectors")
+		})
+	}
+}
+
+func TestOllamaSpan_ShapeCheckOnlyAppliesToEmbeddings(t *testing.T) {
+	span, ok := runOllamaSpan(t, "/api/chat", ollamaChatRequest, `{"model":"llama3.2","done":true}`)
+	require.True(t, ok)
+	assert.Equal(t, request.ChatOperationName, span.GenAI.Ollama.OperationName)
+}
+
 // --- Helpers ---
 
 func runOllamaSpan(t *testing.T, path, reqBody, respBody string) (request.Span, bool) {

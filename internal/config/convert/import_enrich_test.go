@@ -4,6 +4,8 @@
 package convert
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -45,6 +48,9 @@ func TestV2ToRuntimeEnrichAttributesAndKubernetesRoundTrip(t *testing.T) {
 	cfg.Attributes.Kubernetes.DropExternal = true
 	cfg.Attributes.Kubernetes.DisableInformers = []string{"node", "service"}
 	cfg.Attributes.Kubernetes.MetaCacheAddress = "kube-cache:8999"
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{
+		CAFile: "/tls/ca.crt", CertFile: "/tls/client.crt", KeyFile: "/tls/client.key", ServerName: "k8s-cache",
+	}
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = true
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = "app.kubernetes.io/name"
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = "app.kubernetes.io/part-of"
@@ -83,15 +89,34 @@ func TestV2ToRuntimeEnrichAttributesAndKubernetesRoundTrip(t *testing.T) {
 	require.Equal(t, cfg.Attributes.ExtraGroupAttributes, got.Attributes.ExtraGroupAttributes)
 }
 
+func TestV2ToRuntimeKubernetesMetadataCacheTLSOverride(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Enrich: &schema.Enrich{Enrichers: schema.Enrichers{Kubernetes: schema.KubernetesEnricher{
+			MetadataCache: schema.KubernetesMetadataCache{
+				Address: "k8s-cache:50055",
+				TLS:     schema.KubernetesMetadataCacheTLS{CAFile: "/tls/ca.crt"},
+			},
+		}}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "k8s-cache:50055", got.Attributes.Kubernetes.MetaCacheAddress)
+	require.Equal(t, kubecache.ClientTLSConfig{CAFile: "/tls/ca.crt"}, got.Attributes.Kubernetes.MetaCacheTLS)
+}
+
 func TestV2ToRuntimeCloudEnricherRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	cfg := defaultRuntimeConfig()
+	cfg.CloudMetadata.DetectionEnabled = false
 	cfg.CloudMetadata.ClusterName = "cluster-a"
 	cfg.CloudMetadata.Region = "us-gov-west-1"
 	cfg.CloudMetadata.RefreshInterval = 45 * time.Second
 	cfg.CloudMetadata.Route53.RefreshInterval = 7 * time.Minute
 	cfg.CloudMetadata.Route53.HostedZoneIDs = []string{"Z123", "/hostedzone/Z456"}
+	cfg.NameResolver.Sources = []transform.Source{transform.SourceK8s}
 
 	_, ext := RuntimeToV2(&cfg)
 	got, err := V2ToRuntime(ext)
@@ -124,11 +149,122 @@ extensions:
 	require.NoError(t, err)
 
 	require.Equal(t, transform.CloudMetadataConfig{
-		Region:          "us-gov-west-1",
-		RefreshInterval: obi.DefaultConfig.CloudMetadata.RefreshInterval,
-		Route53:         transform.Route53MetadataConfig{RefreshInterval: 2 * time.Minute, HostedZoneIDs: []string{"Z123", "Z456"}},
+		DetectionEnabled: true,
+		Region:           "us-gov-west-1",
+		RefreshInterval:  obi.DefaultConfig.CloudMetadata.RefreshInterval,
+		Route53:          transform.Route53MetadataConfig{RefreshInterval: 2 * time.Minute, HostedZoneIDs: []string{"Z123", "Z456"}},
 	}, got.CloudMetadata)
 	require.Equal(t, []transform.Source{transform.SourceRoute53}, got.NameResolver.Sources)
+}
+
+func TestDocumentToRuntimeCloudDetectionDisabled(t *testing.T) {
+	t.Parallel()
+
+	doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          detection:
+            enabled: false
+`))
+	require.NoError(t, err)
+
+	got, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+
+	require.False(t, got.CloudMetadata.DetectionEnabled)
+	require.False(t, got.CloudMetadata.Route53.DiscoverHostedZones)
+	require.Equal(t, []transform.Source{transform.SourceK8s}, got.NameResolver.Sources)
+}
+
+func TestDocumentToRuntimeRejectsCloudSourcesWhenDetectionDisabled(t *testing.T) {
+	t.Parallel()
+
+	for _, source := range []string{"ecs", "route53", "gce", "azure", "ECS"} {
+		t.Run(source, func(t *testing.T) {
+			t.Parallel()
+
+			doc, _, err := schema.ParseStandaloneYAML([]byte(fmt.Sprintf(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          detection:
+            enabled: false
+      service_name:
+        sources: [%s]
+`, source)))
+			require.NoError(t, err)
+
+			_, err = DocumentToRuntime(doc)
+
+			require.ErrorContains(t, err, fmt.Sprintf(
+				"enrich.service_name.sources: %q requires enrich.enrichers.cloud.detection.enabled to be true",
+				source,
+			))
+		})
+	}
+}
+
+func TestDocumentToRuntimePreservesNonCloudSourcesWhenDetectionDisabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		sources     string
+		wantSources []transform.Source
+	}{
+		{
+			name:    "explicit non-cloud sources",
+			sources: "[k8s, dns, rdns]",
+			wantSources: []transform.Source{
+				transform.SourceK8s,
+				transform.SourceDNS,
+				transform.SourceRDNS,
+			},
+		},
+		{
+			name:    "empty sources",
+			sources: "[]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc, _, err := schema.ParseStandaloneYAML([]byte(fmt.Sprintf(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          detection:
+            enabled: false
+      service_name:
+        sources: %s
+`, tt.sources)))
+			require.NoError(t, err)
+
+			got, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+
+			if len(tt.wantSources) == 0 {
+				require.Empty(t, got.NameResolver.Sources)
+			} else {
+				require.Equal(t, tt.wantSources, got.NameResolver.Sources)
+			}
+		})
+	}
 }
 
 func TestV2ToRuntimeKubernetesMode(t *testing.T) {
@@ -238,6 +374,13 @@ func TestV2ToRuntimeRejectsUnsupportedEnrichment(t *testing.T) {
 			},
 		},
 		{
+			name: "cloud detection",
+			path: "enrich.enrichers.cloud.detection.enable",
+			mutate: func(enrich *schema.Enrich) {
+				enrich.Enrichers.Cloud.Detection.AdditionalProperties = map[string]any{"enable": false}
+			},
+		},
+		{
 			name: "Route53 enricher",
 			path: "enrich.enrichers.cloud.route53.custom",
 			mutate: func(enrich *schema.Enrich) {
@@ -298,4 +441,66 @@ extensions:
 	ext.Enrich.ServiceName.Azure.AdditionalProperties = map[string]any{"typo": true}
 	_, err = V2ToRuntime(ext)
 	require.ErrorContains(t, err, "enrich.service_name.azure.typo")
+}
+
+func TestRoute53DiscoveryIsV2Only(t *testing.T) {
+	for _, test := range []struct {
+		name, enrich string
+		discovery    bool
+	}{
+		{name: "omitted resolver sources", discovery: true},
+		{name: "explicit non-Route53 sources", enrich: `enrich:
+  service_name:
+    sources: [k8s, ecs]`},
+		{name: "empty sources", enrich: `enrich:
+  service_name:
+    sources: []`},
+		{name: "default sources with explicit zones", enrich: `enrich:
+  enrichers:
+    cloud:
+      route53:
+        hosted_zone_ids: [Z123]`},
+		{name: "case insensitive source", discovery: true, enrich: `enrich:
+  service_name:
+    sources: [RoUtE53]`},
+		{name: "explicit zones", enrich: `enrich:
+  service_name:
+    sources: [route53]
+  enrichers:
+    cloud:
+      route53:
+        hosted_zone_ids: [Z123]`},
+		{name: "discover zones", discovery: true, enrich: `enrich:
+  service_name:
+    sources: [route53]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			data := "file_format: '1.0'\nextensions:\n  obi:\n    version: '2.0'\n"
+			if test.enrich != "" {
+				data += "    " + strings.ReplaceAll(test.enrich, "\n", "\n    ") + "\n"
+			}
+			doc, _, err := schema.ParseStandaloneYAML([]byte(data))
+			require.NoError(t, err)
+			cfg, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+			require.Equal(t, test.discovery, cfg.CloudMetadata.Route53.DiscoverHostedZones)
+			if test.enrich == "" {
+				require.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS, transform.SourceRoute53}, cfg.NameResolver.Sources)
+			}
+		})
+	}
+	cfg, err := obi.LoadConfig(strings.NewReader("name_resolver:\n  sources: [route53]\n"))
+	require.NoError(t, err)
+	require.False(t, cfg.CloudMetadata.Route53.DiscoverHostedZones)
+	require.ErrorContains(t, cfg.ValidateStatic(), "hosted_zone_ids is required")
+}
+
+func TestRoute53DiscoveryPreservesMigratedV1Defaults(t *testing.T) {
+	cfg, err := obi.LoadConfig(strings.NewReader("{}"))
+	require.NoError(t, err)
+	doc, _ := RuntimeToV2(cfg)
+	got, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS}, got.NameResolver.Sources)
+	require.False(t, got.CloudMetadata.Route53.DiscoverHostedZones)
 }

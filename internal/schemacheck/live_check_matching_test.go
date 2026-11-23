@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -379,7 +378,7 @@ type liveCheckReport struct {
 // schemas/obi/.weaver.toml, and returns its JSON report.
 func liveCheck(t *testing.T, samples []liveCheckSample) liveCheckReport {
 	t.Helper()
-	requireWeaver(t)
+	ociBin := requireWeaverRuntime(t)
 
 	input, err := json.Marshal(samples)
 	require.NoError(t, err)
@@ -387,10 +386,8 @@ func liveCheck(t *testing.T, samples []liveCheckSample) liveCheckReport {
 	ctx, cancel := context.WithTimeout(t.Context(), liveCheckTimeout)
 	defer cancel()
 
-	registryAbs, err := filepath.Abs(registryDir)
-	require.NoError(t, err)
-	cmd := weaverCommand(ctx, t,
-		"registry", "live-check", "--registry", registryAbs,
+	cmd := weaverCommand(ctx, t, ociBin,
+		"registry", "live-check", "--registry", "/obi-registry",
 		"--input-source", "stdin", "--input-format", "json",
 		"--format", "json", "--no-stream")
 	cmd.Stdin = bytes.NewReader(input)
@@ -467,27 +464,35 @@ func TestEmittedSpansMatchTheirDeclaredSpan(t *testing.T) {
 	}
 }
 
+func TestRequestPhaseMatchingIgnoresSpanName(t *testing.T) {
+	samples := exportedRequestPhases(t)
+	for i := range samples {
+		samples[i].Span.Name = "renamed " + samples[i].Span.Name
+	}
+
+	report := liveCheck(t, samples)
+	require.Len(t, report.Samples, len(samples))
+
+	for i := range samples {
+		t.Run(samples[i].Span.Name, func(t *testing.T) {
+			span := report.Samples[i].Span
+			require.NotNil(t, span)
+
+			match := span.LiveCheckResult.MatchInfo
+			require.NotNil(t, match)
+
+			assert.Equal(t, "obi.request.phase", match.Signal)
+			require.Len(t, match.Entries, 1)
+			assert.Equal(t, "match.span.request.phase", match.Entries[0].Matcher)
+		})
+	}
+}
+
 // compactReport runs live-check over the samples with the compact report
 // template the integration suites read, and parses it as weavercheck does.
 func compactReport(t *testing.T, samples []any) *weavercheck.Report {
 	t.Helper()
-	requireWeaver(t)
-
-	input, err := json.Marshal(samples)
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithTimeout(t.Context(), liveCheckTimeout)
-	defer cancel()
-
-	registryAbs, err := filepath.Abs(registryDir)
-	require.NoError(t, err)
-	cmd := weaverCommand(ctx, t,
-		"registry", "live-check", "--registry", registryAbs,
-		"--input-source", "stdin", "--input-format", "json",
-		"--format", "compact", "--templates", filepath.Join(registryAbs, ".live_check_templates"), "--no-stream")
-	cmd.Stdin = bytes.NewReader(input)
-	// live-check exits non-zero when it reports a violation.
-	out, _ := cmd.Output()
+	out := rawCompactReport(t, samples)
 
 	report, err := weavercheck.Parse(out)
 	require.NoError(t, err, "compact report: %s", out)
@@ -496,6 +501,28 @@ func compactReport(t *testing.T, samples []any) *weavercheck.Report {
 	assert.Equal(t, report.Statistics.AdviceLevelCounts["violation"], report.ViolationsSeen,
 		"violations the template saw")
 	return report
+}
+
+// rawCompactReport runs live-check over the samples with the compact report
+// template and returns the report verbatim, as the suites archive it.
+func rawCompactReport(t *testing.T, samples []any) []byte {
+	t.Helper()
+	ociBin := requireWeaverRuntime(t)
+
+	input, err := json.Marshal(samples)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(t.Context(), liveCheckTimeout)
+	defer cancel()
+
+	cmd := weaverCommand(ctx, t, ociBin,
+		"registry", "live-check", "--registry", "/obi-registry",
+		"--input-source", "stdin", "--input-format", "json",
+		"--format", "compact", "--templates", "/obi-registry/.live_check_templates", "--no-stream")
+	cmd.Stdin = bytes.NewReader(input)
+	// live-check exits non-zero when it reports a violation.
+	out, _ := cmd.Output()
+	return out
 }
 
 // unexpectedKeys returns the attribute keys of the unexpected_attribute
@@ -532,6 +559,23 @@ func TestCompactReportListsUndeclaredSpans(t *testing.T) {
 	})
 	require.Len(t, report.Unmatched, 1, "unmatched groups: %+v", report.Unmatched)
 	assert.Equal(t, []string{"undeclared"}, report.Unmatched[0].Names)
+}
+
+// A metric the registry does not declare is a violation, which weavercheck
+// fails on.
+func TestCompactReportFailsOnUndeclaredMetrics(t *testing.T) {
+	report := compactReport(t, []any{map[string]any{"metric": map[string]any{
+		"name": "obi.undeclared", "instrument": "counter", "unit": "1",
+		"data_points": []map[string]any{{"attributes": []liveCheckAttribute{}, "value": 1}},
+	}}})
+
+	var violations []string
+	for _, f := range report.Findings {
+		if f.Level == "violation" {
+			violations = append(violations, f.Type)
+		}
+	}
+	assert.Equal(t, []string{"missing_metric"}, violations, "findings: %+v", report.Findings)
 }
 
 // The compact template drops two kinds of unexpected_attribute: the resource
@@ -576,4 +620,48 @@ func TestCompactReportUnexpectedAttributeExceptions(t *testing.T) {
 			assert.Equal(t, 1, f.Count, "exception.message on the application span is dropped: %+v", f)
 		}
 	}
+}
+
+// The compact report lists, per matched signal, the attribute keys seen on its
+// samples: span attributes, and the data-point attributes of a metric.
+// cmd/obi-weaver-coverage compares them with each signal's declared attributes.
+func TestCompactReportListsAttributesPerSignal(t *testing.T) {
+	span := func(name string, attrs ...liveCheckAttribute) liveCheckSample {
+		attrs = append(attrs, liveCheckAttribute{Name: "server.port", Value: 8080})
+		return liveCheckSample{Span: liveCheckSpan{Name: name, Kind: "server", Attributes: attrs}}
+	}
+	metric := map[string]any{"metric": map[string]any{
+		"name": "http.server.request.duration", "instrument": "histogram", "unit": "s",
+		"data_points": []map[string]any{{
+			"attributes": []liveCheckAttribute{
+				{Name: "http.request.method", Value: "GET"},
+				{Name: "url.scheme", Value: "http"},
+			},
+			"count": 1, "sum": 0.1, "bucket_counts": []int{1}, "explicit_bounds": []float64{},
+		}},
+	}}
+
+	out := rawCompactReport(t, []any{
+		span("GET /users",
+			liveCheckAttribute{Name: "http.request.method", Value: "GET"},
+			liveCheckAttribute{Name: "url.path", Value: "/users"},
+			liveCheckAttribute{Name: "http.response.status_code", Value: 200}),
+		span("GET",
+			liveCheckAttribute{Name: "http.request.method", Value: "GET"},
+			liveCheckAttribute{Name: "url.path", Value: "/"},
+			liveCheckAttribute{Name: "error.type", Value: "500"}),
+		metric,
+	})
+
+	var report struct {
+		MatchedSignals   map[string]int      `json:"matched_signals"`
+		SignalAttributes map[string][]string `json:"signal_attributes"`
+	}
+	require.NoError(t, json.Unmarshal(out, &report), "compact report: %s", out)
+
+	assert.Equal(t, map[string]int{"obi.http.server": 2, "http.server.request.duration": 1}, report.MatchedSignals)
+	assert.Equal(t, map[string][]string{
+		"obi.http.server":              {"error.type", "http.request.method", "http.response.status_code", "server.port", "url.path"},
+		"http.server.request.duration": {"http.request.method", "url.scheme"},
+	}, report.SignalAttributes)
 }

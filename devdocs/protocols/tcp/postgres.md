@@ -89,6 +89,32 @@ from [sql_detect_transform.go](../../../pkg/ebpf/common/sql_detect_transform.go)
 SQL statement normalisation and pruning live in the
 [sqlprune package](../../../pkg/internal/sqlprune).
 
+## Database namespace
+
+OBI sets `db.namespace` to `{database}|{schema}`, following the PostgreSQL semantic
+conventions, and to the database alone when no schema is known. Both come from
+traffic OBI observes on the connection:
+
+- The **StartupMessage** gives the database (`database`, defaulting to `user`) and
+  the schema: the first entry of the `search_path` parameter, or of a
+  `-c search_path=...` / `--search_path=...` setting in `options` (split like
+  libpq does: whitespace separates arguments and `\` escapes the next character). `"$user"` and
+  empty entries are skipped; unquoted names have only ASCII letters lower-cased,
+  quoted names are kept as written.
+- A successful (no `ErrorResponse`) `SET [SESSION] search_path TO|= ...` or
+  `SET [SESSION] SCHEMA '...'` replaces the schema with the first entry of the new
+  list. It is applied when sent as a simple query, or when an extended-protocol
+  `Execute` runs that statement, even if it was parsed in an earlier round trip.
+  A prepared statement is only cached once PostgreSQL acknowledges its `Parse` with
+  `ParseComplete`, so a rejected `Parse` never replaces the statement PostgreSQL kept. `RESET search_path`, `RESET ALL`,
+  `DISCARD ALL` and `SET search_path TO DEFAULT` restore the startup schema.
+  `SET LOCAL` and multi-statement queries are ignored.
+
+`db.namespace` therefore reflects the schema provided when the connection was
+established, updated by the statements above. Connections opened before OBI
+attached report no namespace, and a schema changed by other means (for example
+inside a function or a rolled back transaction) is not tracked.
+
 ## Tests
 
 The kernel-side classifier has a host-compilable unit test in

@@ -6,7 +6,10 @@
 package generictracer
 
 import (
+	"bytes"
+	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
@@ -14,6 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 )
 
 func newTestValidPids(t *testing.T, words uint32) *ebpf.Map {
@@ -104,4 +109,66 @@ func TestValidateValidPidsMapRejectsAnotherSize(t *testing.T) {
 
 	tracer.bpfObjects.ValidPids = newTestValidPids(t, validPidsWords-1)
 	require.Error(t, tracer.validateValidPidsMap())
+}
+
+func TestValidPidsUpdateAfterCloseIsSkipped(t *testing.T) {
+	// on cancellation the ringbuf closes the tracer while the attacher can still update it
+	tracer := newTestValidPidsTracer(t, 41000)
+	var logs bytes.Buffer
+	tracer.log = slog.New(slog.NewJSONHandler(&logs, nil))
+
+	tracer.AllowPID(41000, 0, exec.New(exec.Init{Pid: 41000}))
+	require.NoError(t, tracer.Close())
+
+	tracer.pidsFilter = fakeServiceFilter{}
+	tracer.BlockPID(41000, 0)
+	tracer.pidsFilter = fakeServiceFilter{procPIDs: []app.PID{41007}}
+	tracer.AllowPID(41007, 0, exec.New(exec.Init{Pid: 41007}))
+
+	assert.NotContains(t, logs.String(), `"level":"ERROR"`)
+}
+
+// holds the valid_pids rebuild in flight until released
+type blockingPidsFilter struct {
+	fakeServiceFilter
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (f *blockingPidsFilter) ProcPIDs(ebpfcommon.PIDType) []app.PID {
+	close(f.entered)
+	<-f.release
+	return []app.PID{41000}
+}
+
+func TestCloseWaitsForAnInFlightValidPidsUpdate(t *testing.T) {
+	tracer := newTestValidPidsTracer(t)
+	filter := &blockingPidsFilter{entered: make(chan struct{}), release: make(chan struct{})}
+	tracer.pidsFilter = filter
+	var logs bytes.Buffer
+	tracer.log = slog.New(slog.NewJSONHandler(&logs, nil))
+	// a second handle reads the map after Close closes the tracer's one
+	readback, err := tracer.bpfObjects.ValidPids.Clone()
+	require.NoError(t, err)
+	t.Cleanup(func() { readback.Close() })
+
+	updated := make(chan struct{})
+	go func() {
+		defer close(updated)
+		tracer.BlockPID(41007, 0)
+	}()
+	<-filter.entered
+
+	closed := make(chan error, 1)
+	go func() { closed <- tracer.Close() }()
+	require.Never(t, func() bool { return len(closed) > 0 }, 100*time.Millisecond, 10*time.Millisecond,
+		"Close returned while a valid_pids update was in flight")
+
+	close(filter.release)
+	<-updated
+	require.NoError(t, <-closed)
+
+	assert.NotContains(t, logs.String(), `"level":"ERROR"`)
+	// the in-flight update was written before the map was closed
+	assert.Equal(t, uint64(1<<40), validPidsWord(t, readback, 640))
 }

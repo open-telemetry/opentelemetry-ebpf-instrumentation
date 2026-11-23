@@ -23,7 +23,7 @@ func TestEncodeEventPipeStart(t *testing.T) {
 			"020000000000000004000000" + // Keywords 0x2, Informational level
 			"0f000000530079007300740065006d002e00520075006e00740069006d0065000000" + // System.Runtime
 			"1a0000004500760065006e00740043006f0075006e0074006500720049006e00740065007200760061006c005300650063003d0031000000" + // EventCounterIntervalSec=1
-			"008000000000000002000000" + // ExceptionKeyword, Warning level
+			"018000000000000004000000" + // GC and Exception keywords, Informational level
 			"200000004d006900630072006f0073006f00660074002d00570069006e0064006f00770073002d0044006f0074004e0045005400520075006e00740069006d0065000000" + // Microsoft-Windows-DotNETRuntime
 			"010000000000", // Empty CLR provider arguments
 	)
@@ -39,6 +39,8 @@ func TestEncodeEventPipeStartWithoutExceptions(t *testing.T) {
 	want, err := encodeCollectTracing2(eventPipeProvider{
 		name: "System.Runtime", keywords: systemRuntimeKeywords,
 		level: eventLevelInformational, arguments: "EventCounterIntervalSec=1",
+	}, eventPipeProvider{
+		name: "Microsoft-Windows-DotNETRuntime", keywords: 0x1, level: 4,
 	})
 	require.NoError(t, err)
 	require.Equal(t, want, request)
@@ -51,6 +53,9 @@ func TestEncodeEventPipeStartWithExceptionMeter(t *testing.T) {
 		eventPipeProvider{
 			name: "System.Runtime", keywords: 0x2, level: 4,
 			arguments: "EventCounterIntervalSec=0.25",
+		},
+		eventPipeProvider{
+			name: "Microsoft-Windows-DotNETRuntime", keywords: 0x1, level: 4,
 		},
 		eventPipeProvider{
 			name: "System.Diagnostics.Metrics", keywords: 0x2, level: 4,

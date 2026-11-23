@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build obi_bpf_ignore
+
+#include <common/exception_emit.h>
+
 #include "iter_tcp.c"
 #include "java_tls.c"
 #include "jvm.c"
@@ -10,6 +13,7 @@
 #include "nginx.c"
 #include "nodejs.c"
 #include "python.c"
+#include "python_exception.c"
 #include "protocol_handler.c"
 #include "ruby.c"
 #include "python_runtime.c"

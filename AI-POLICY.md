@@ -57,6 +57,13 @@ These uses are acceptable provided you:
 6. Report the use of Generative AI tools for non-trivial preparation of
   submissions (that is, at level 2 or higher on the [AI Influence Level]).
 
+### Versioning and compatibility
+
+Contributors must verify the
+[compatibility assessment required by AGENTS.md](AGENTS.md#compatibility-check)
+against [VERSIONING.md](VERSIONING.md), even when an agent reports that a change
+is compatible. AI assistance does not transfer responsibility for compliance.
+
 ### GitHub Communication
 
 Issue and pull request descriptions, reviews, and comments must be written for

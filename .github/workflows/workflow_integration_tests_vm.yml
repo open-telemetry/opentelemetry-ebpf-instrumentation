@@ -83,7 +83,7 @@ permissions:
 jobs:
   vm-test-matrix:
     name: "Build matrix"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
@@ -122,7 +122,7 @@ jobs:
   prep:
     name: Prep test artifacts
     needs: vm-test-matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
       NEEDS_LEGACY_ROOTFS: ${{ contains(needs.vm-test-matrix.outputs.kernels, '"cgroup_mode":"legacy"') }}
@@ -153,7 +153,7 @@ jobs:
 
       - name: Log in to Docker Hub
         if: steps.check-docker-token.outputs.has_token == 'true'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ (github.event_name != 'workflow_dispatch' || !inputs.ref) && secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION || '' }}
@@ -308,7 +308,7 @@ jobs:
     permissions:
       checks: write
       pull-requests: write
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -431,4 +431,5 @@ jobs:
           name: vm-logs-${{ matrix.kernel.id }}-${{ matrix.test.id }}-${{ github.run_number }}
           path: |
             testoutput/*.log
+            testoutput/*-v2.yml
             testoutput/kind

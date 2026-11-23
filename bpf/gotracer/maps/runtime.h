@@ -134,7 +134,7 @@ typedef struct go_runtime_histogram_event {
     u8 type;
     go_runtime_histogram_kind_t kind;
     u8 _pad[2];
-    pid_info pid;
+    pid_info_t pid;
     u32 bucket_count;
     u32 _pad2;
     u64 underflow;
@@ -170,14 +170,14 @@ typedef struct go_runtime_metric_snapshot {
 typedef struct go_runtime_metric_event {
     u8 type;
     u8 _pad[3];
-    pid_info pid;
+    pid_info_t pid;
     u64 generation;
     go_runtime_metric_snapshot_t snapshot;
 } go_runtime_metric_event_t;
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, pid_info);
+    __type(key, pid_info_t);
     __type(value, go_runtime_metric_target_t);
     __uint(max_entries, MAX_GO_PROGRAMS);
     __uint(pinning, OBI_PIN_INTERNAL);

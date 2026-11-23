@@ -20,7 +20,7 @@ permissions:
 jobs:
   check:
     name: ARCHITECTURE.md matches manifests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       MISE_ENABLE_TOOLS: python
     steps:

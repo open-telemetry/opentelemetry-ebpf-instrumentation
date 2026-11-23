@@ -21,9 +21,7 @@ services:
         condition: service_started
   # eBPF auto instrumenter
   autoinstrumenter:
-    build:
-      context: ../../../..
-      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
     command:
       - --config=/configs/instrumenter-config-traces-genai.yml
     volumes:

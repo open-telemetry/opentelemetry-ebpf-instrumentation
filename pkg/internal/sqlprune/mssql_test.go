@@ -81,10 +81,32 @@ func TestParseMSSQLError(t *testing.T) {
 			expected: nil,
 		},
 		{
-			name: "message truncated",
+			name: "message cut by the capture keeps the error",
 			buf: func() []uint8 {
 				b := makeMSSQLErrorPacket(208, 1, "some long message")
-				return b[:len(b)-4] // cut before message ends
+				return b[:len(b)-3] // cut inside the second-to-last character
+			}(),
+			expected: &request.SQLError{
+				Code:     208,
+				SQLState: "1",
+				Message:  "some long messa",
+			},
+		},
+		{
+			name: "long message in the default 128-byte capture",
+			buf: makeMSSQLErrorPacket(2627, 1,
+				"Violation of PRIMARY KEY constraint 'PK_items'. Cannot insert duplicate key in object 'dbo.items'.")[:128],
+			expected: &request.SQLError{
+				Code:     2627,
+				SQLState: "1",
+				Message:  "Violation of PRIMARY KEY constraint 'PK_items'. Cannot",
+			},
+		},
+		{
+			name: "capture ends before the message",
+			buf: func() []uint8 {
+				b := makeMSSQLErrorPacket(547, 0, "conflict")
+				return b[:mssqlHdrSize+1+2+4+1+1]
 			}(),
 			expected: nil,
 		},

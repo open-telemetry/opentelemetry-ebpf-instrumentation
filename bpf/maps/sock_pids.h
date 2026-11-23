@@ -13,7 +13,7 @@
 #include <pid/types/pid_info.h>
 
 typedef struct conn_pid {
-    pid_info p_info;
+    pid_info_t p_info;
     pid_key_t p_key;
     u64 id;
     u64 ts;

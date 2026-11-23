@@ -9,6 +9,7 @@
 
 #include <common/preempt_guard.h>
 #include <common/protocol_http2_helpers.h>
+#include <common/sampling.h>
 #include <common/tc_common.h>
 
 #include <generictracer/protocol_aerospike.h>
@@ -22,12 +23,34 @@
 
 #include <logger/bpf_dbg.h>
 
-// k_tail_handle_buf_with_args
-SEC("kprobe")
-int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
+// The bpf_loop scan follows a request's headers across its buffers. Where it
+// runs, it replaces looking for a traceparent at the start of each buffer.
+static __always_inline bool http1_header_scan_enabled(const call_protocol_args_t *args,
+                                                      bool use_bpf_loop) {
+    return use_bpf_loop && g_bpf_loop_enabled && g_bpf_traceparent_enabled &&
+           capture_header_buffer && args->protocols.http;
+}
+
+static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
+    }
+
+    if (http1_header_scan_enabled(args, use_bpf_loop)) {
+        http1_header_scan_t *scan = bpf_map_lookup_elem(&http1_header_scans, &args->pid_conn);
+        http_info_t *info = scan ? bpf_map_lookup_elem(&ongoing_http, &args->pid_conn) : NULL;
+        if (info && !info->submitted && still_reading(info) &&
+            !http_response_direction(info, args->direction) && info->ssl == args->ssl) {
+            if (continue_http1_header_scan(args, scan)) {
+                // Adopting it runs in its own program, so the verifier explores it
+                // apart from the header scan.
+                preempt_guarded_tail_call_static(ctx, &jump_table, k_tail_protocol_http_inherit_tp);
+                bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
+                bpf_map_delete_elem(&http1_header_scans, &args->pid_conn);
+            }
+            return append_http1_request_buffer(ctx, args, info);
+        }
     }
 
     bpf_dbg_printk("=== kprobe buf=[%s], pid=%d, len=%d ===",
@@ -132,7 +155,8 @@ int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
                 // scan for the incoming 'Traceparent' header. If they are not reassembled
                 // we'll see something like this:
                 // [before the injected header],[70 bytes for 'Traceparent...'],[the rest].
-                if (reading && is_traceparent(args->small_buf)) {
+                if (reading && !http1_header_scan_enabled(args, use_bpf_loop) &&
+                    is_traceparent(args->small_buf)) {
                     unsigned char *buf = (unsigned char *)tp_char_buf_mem();
                     if (buf) {
                         bpf_probe_read(buf, TP_SIZE, (unsigned char *)args->u_buf);
@@ -144,6 +168,7 @@ int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
                         decode_hex(info->tp.trace_id, t_id, TRACE_ID_CHAR_LEN);
                         decode_hex((unsigned char *)&info->tp.flags, f_id, FLAGS_CHAR_LEN);
                         decode_hex(info->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
+                        sample_remote_child(&info->tp);
 
                         trace_key_t t_key = {0};
                         trace_key_from_pid_tid(&t_key);
@@ -173,6 +198,9 @@ int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
                 if (unparsed_response) {
                     note_unread_response(info, bpf_ktime_get_ns());
                     info->resp_len += args->bytes_len;
+                    if (info->type == k_event_type_http_request) {
+                        mark_http_server_thread_trace_response_sent(info);
+                    }
                 } else if (reading) {
                     info->len += args->bytes_len;
                 } else if (responding) {
@@ -198,4 +226,16 @@ int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
     }
 
     return 0;
+}
+
+// k_tail_handle_buf_with_args
+SEC("kprobe")
+int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
+    return handle_buf_with_args(ctx, true);
+}
+
+// k_tail_handle_buf_with_args but for kernels < 5.17
+SEC("kprobe")
+int GUARDED_PROG(obi_handle_buf_with_args_legacy, void *, ctx) {
+    return handle_buf_with_args(ctx, false);
 }

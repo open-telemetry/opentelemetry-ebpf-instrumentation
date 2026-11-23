@@ -55,6 +55,22 @@ static __always_inline bool parse_sock_info(struct sock *s, connection_info_t *i
     return false;
 }
 
+static __always_inline u16 resolve_local_port(const u16 skc_num, const u16 inet_sport) {
+    // socket may be already in TCP_CLOSE and the port released, resolve from inet_sport
+    return skc_num ? skc_num : bpf_ntohs(inet_sport);
+}
+
+static __always_inline bool parse_full_sock_info(struct sock *s, connection_info_t *info) {
+    if (!parse_sock_info(s, info)) {
+        return false;
+    }
+
+    const struct inet_sock *inet = (const struct inet_sock *)s;
+    info->s_port = resolve_local_port(info->s_port, BPF_CORE_READ(inet, inet_sport));
+
+    return true;
+}
+
 // We tag the server and client calls in flags to avoid mistaking a mutual connection between two
 // services as the same connection info. It would be almost impossible, but it might happen.
 static __always_inline bool parse_accept_socket_info(sock_args_t *args, connection_info_t *info) {

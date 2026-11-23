@@ -1,0 +1,44 @@
+name: "sql statement"
+fixture:
+  compose:
+    template: lgtm
+    files:
+      - "docker-compose-obi-gosqlclient-statement.yml"
+      - ../weaver/docker-compose-weaver.yml
+    env:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+- path: /sqltest?query=Update%20students%20SET%20name%20=%20%27Bob%27%20WHERE%20id%20=%20%271%27
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+interval: 500ms
+expected:
+  traces:
+  # Successful UPDATE
+  - traceql: '{ .db.operation.name = "UPDATE" && .db.system.name = "other_sql"}'
+    match_spans:
+      - match_type: strict
+        name: "UPDATE students"
+        attributes:
+          - key: db.operation.name
+            value: "UPDATE"
+          - key: db.collection.name
+            value: "students"
+          - key: db.query.text
+            value: "Update students SET name = 'Bob' WHERE id = '1'"
+  metrics:
+  - promql: db_client_operation_duration_seconds_sum{db_system_name="other_sql"}
+    value: '> 0'
+  - promql: db_client_operation_duration_seconds_bucket{le="0", db_system_name="other_sql"}
+    value: == 0
+  - promql: db_client_operation_duration_seconds_bucket{le="10", db_system_name="other_sql"}
+    value: '> 0'
+  - promql: db_client_operation_duration_seconds_count{db_system_name="other_sql"}
+    value: '> 0'

@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -20,20 +22,39 @@ import (
 )
 
 func TestAzureServiceResolution(t *testing.T) {
-	t.Run("explicit scope", func(t *testing.T) { testAzureServiceResolution(t, false) })
-	t.Run("detected scope", func(t *testing.T) { testAzureServiceResolution(t, true) })
+	for _, mode := range []string{"Uniform", "Flexible"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Run("explicit scope", func(t *testing.T) { testAzureServiceResolution(t, false, mode) })
+			t.Run("detected scope", func(t *testing.T) { testAzureServiceResolution(t, true, mode) })
+		})
+	}
 }
 
-func testAzureServiceResolution(t *testing.T, detected bool) {
+func testAzureServiceResolution(t *testing.T, detected bool, mode string) {
 	t.Helper()
+	const computeBase = "/subscriptions/test-subscription/resourceGroups/test-group/providers/Microsoft.Compute"
+	const prefix = computeBase + "/virtualMachineScaleSets"
+	const nicBase = "/subscriptions/test-subscription/resourceGroups/networking/providers/Microsoft.Network/networkInterfaces"
 	network := setupIMDSSubnet(t)
-	setupMockAzureIMDS(t, network)
+	if mode == "Flexible" {
+		data, err := os.ReadFile(pathRoot + "/internal/test/integration/components/azure-imds/azure-metadata-mock.json")
+		require.NoError(t, err)
+		var metadata map[string]any
+		require.NoError(t, json.Unmarshal(data, &metadata))
+		metadata["resourceId"] = computeBase + "/virtualMachines/storefront-0"
+		data, err = json.Marshal(metadata)
+		require.NoError(t, err)
+		metadataFile := filepath.Join(t.TempDir(), "azure-metadata-mock.json")
+		require.NoError(t, os.WriteFile(metadataFile, data, 0o644))
+		setupMockAzureIMDSWithFile(t, network, metadataFile)
+	} else {
+		setupMockAzureIMDS(t, network)
+	}
 	setupContainerPrometheus(t, network, "prometheus-config-perapp.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
 	_, backendIP := setupAWSResolverApplication(t, network, "ecs-backend", false)
 	_, frontendIP := setupAWSResolverApplication(t, network, "ecs-frontend", true)
-	const prefix = "/subscriptions/test-subscription/resourceGroups/test-group/providers/Microsoft.Compute/virtualMachineScaleSets"
 	var available atomic.Bool
 	var denied atomic.Int64
 	proxy, certificate := azureARMProxy(t, network, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -48,23 +69,40 @@ func testAzureServiceResolution(t *testing.T, detected bool) {
 		}
 		var response any
 		if strings.EqualFold(r.URL.Path, prefix) {
-			response = map[string]any{"value": []any{map[string]any{"id": prefix + "/storefront", "name": "storefront", "properties": map[string]any{"orchestrationMode": "Uniform"}}, map[string]any{"id": prefix + "/checkout", "name": "checkout", "properties": map[string]any{"orchestrationMode": "Uniform"}}}}
+			response = map[string]any{"value": []any{map[string]any{"id": prefix + "/storefront", "name": "storefront", "properties": map[string]any{"orchestrationMode": mode}}, map[string]any{"id": prefix + "/checkout", "name": "checkout", "properties": map[string]any{"orchestrationMode": mode}}}}
 		} else {
 			group := "checkout"
 			uuid := "backend-vm"
 			ip := backendIP
-			if strings.HasPrefix(strings.ToLower(r.URL.Path), strings.ToLower(prefix+"/storefront/")) {
+			if strings.HasPrefix(strings.ToLower(r.URL.Path), strings.ToLower(prefix+"/storefront/")) ||
+				(mode == "Flexible" && (strings.EqualFold(r.URL.Path, nicBase+"/storefront") || r.URL.Query().Get("$filter") == "'virtualMachineScaleSet/id' eq '"+prefix+"/storefront'")) {
 				group = "storefront"
 				uuid = "02aab8a4-74ef-476e-8182-f6d2ba4166a6"
 				ip = frontendIP
 			}
-			vmID := prefix + "/" + group + "/virtualMachines/0"
+			vmPath := prefix + "/" + group + "/virtualMachines"
+			nicPath := prefix + "/" + group + "/networkInterfaces"
+			vmID := vmPath + "/0"
+			if mode == "Flexible" {
+				vmPath = computeBase + "/virtualMachines"
+				vmID = vmPath + "/" + group + "-0"
+				nicPath = nicBase + "/" + group
+			}
 			switch {
-			case strings.EqualFold(r.URL.Path, prefix+"/"+group+"/virtualMachines"):
+			case strings.EqualFold(r.URL.Path, vmPath):
 				assert.Equal(t, "instanceView", r.URL.Query().Get("$expand"))
-				response = map[string]any{"value": []any{map[string]any{"id": vmID, "properties": map[string]any{"vmId": uuid, "instanceView": map[string]any{"statuses": []any{map[string]string{"code": "PowerState/running"}}}}}}}
-			case strings.EqualFold(r.URL.Path, prefix+"/"+group+"/networkInterfaces"):
-				response = map[string]any{"value": []any{map[string]any{"properties": map[string]any{"virtualMachine": map[string]string{"id": vmID}, "ipConfigurations": []any{map[string]any{"properties": map[string]string{"privateIPAddress": ip}}}}}}}
+				properties := map[string]any{"vmId": uuid, "instanceView": map[string]any{"statuses": []any{map[string]string{"code": "PowerState/running"}}}}
+				if mode == "Flexible" {
+					assert.Equal(t, "'virtualMachineScaleSet/id' eq '"+prefix+"/"+group+"'", r.URL.Query().Get("$filter"))
+					properties["virtualMachineScaleSet"] = map[string]string{"id": prefix + "/" + group}
+					properties["networkProfile"] = map[string]any{"networkInterfaces": []any{map[string]string{"id": nicPath}}}
+				}
+				response = map[string]any{"value": []any{map[string]any{"id": vmID, "properties": properties}}}
+			case strings.EqualFold(r.URL.Path, nicPath):
+				response = map[string]any{"properties": map[string]any{"virtualMachine": map[string]string{"id": vmID}, "ipConfigurations": []any{map[string]any{"properties": map[string]string{"privateIPAddress": ip}}}}}
+				if mode == "Uniform" {
+					response = map[string]any{"value": []any{response}}
+				}
 			default:
 				t.Errorf("unexpected ARM request %s", r.URL)
 				http.NotFound(w, r)
@@ -94,7 +132,7 @@ func testAzureServiceResolution(t *testing.T, detected bool) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			results, err := pq.Query(fmt.Sprintf(`target_info{exported=%q,service_name="storefront",host_id="custom-exported-host"}`, exporter))
 			require.NoError(ct, err)
-			assert.NotEmpty(ct, results)
+			assert.NotEmpty(ct, results, "renamed target_info from %s exporter", exporter)
 		}, testTimeout, 100*time.Millisecond)
 	}
 	httpClient := &http.Client{Timeout: time.Second}

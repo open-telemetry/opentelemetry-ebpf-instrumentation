@@ -2,8 +2,10 @@
 # list of findings (message, level, advice type, occurrence count, and the
 # distinct signals that triggered it) — the same detail the harness logs, but
 # collapsed. It also lists the samples no matcher gave a signal to, grouped by
-# their kind and attribute keys with a few of their names, and how many samples
-# each signal was checked against.
+# their kind and attribute keys with a few of their names, how many samples
+# each signal was checked against, and the attribute keys seen on those samples
+# (span attributes, metric data-point attributes) per signal, which
+# cmd/obi-weaver-coverage compares with each signal's declared attributes.
 #
 # `unexpected_attribute` on a metric for the keys in `ignored_unexpected` is
 # dropped here rather than in `.weaver.toml`: weaver attaches that finding to
@@ -80,6 +82,19 @@ templates:
           [ .samples[] | to_entries[] | .value.live_check_result.match_info.signal? | select(. != null) ]
           | group_by(.)
           | map({ key: .[0], value: length })
+          | from_entries
+        ),
+        signal_attributes: (
+          [ .samples[] | to_entries[]
+            | .value as $sample
+            | ($sample.live_check_result.match_info.signal? // null) as $signal
+            | select($signal != null)
+            | { signal: $signal,
+                keys: (if .key == "metric"
+                  then [ $sample.data_points[]?.attributes[]?.name ]
+                  else [ $sample.attributes[]?.name ] end) } ]
+          | group_by(.signal)
+          | map({ key: .[0].signal, value: ([ .[].keys[] ] | unique) })
           | from_entries
         ) }
     application_mode: single

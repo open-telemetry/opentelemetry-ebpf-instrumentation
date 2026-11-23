@@ -71,6 +71,7 @@ func TestPrometheusNames(t *testing.T) {
 		{DotnetProcessCPUCount, "dotnet_process_cpu_count"},
 		{DotnetProcessCPUTime, "dotnet_process_cpu_time_seconds_total"},
 		{DotnetGCHeapSize, "dotnet_gc_last_collection_heap_size_bytes"},
+		{DotnetGCHeapFragmentation, "dotnet_gc_last_collection_heap_fragmentation_size_bytes"},
 		{DotnetGCCommittedMemory, "dotnet_gc_last_collection_memory_committed_size_bytes"},
 		{DotnetThreadPoolThreadCount, "dotnet_thread_pool_thread_count"},
 		{DotnetThreadPoolQueueLength, "dotnet_thread_pool_queue_length"},
@@ -93,6 +94,7 @@ func TestPrometheusNames(t *testing.T) {
 		{StatTCPSuccessfulConnections, "obi_stat_tcp_successful_connections_total"},
 		{StatTCPRetransmits, "obi_stat_tcp_retransmits_total"},
 		{StatTCPIo, "obi_stat_tcp_io_bytes_total"},
+		{StatTCPResets, "obi_stat_tcp_resets_total"},
 		{V8JSGCDuration, "v8js_gc_duration_seconds"},
 		{V8JSMemoryHeapLimit, "v8js_memory_heap_limit_bytes"},
 		{V8JSMemoryHeapUsed, "v8js_memory_heap_used_bytes"},
@@ -122,6 +124,7 @@ func TestPrometheusNames(t *testing.T) {
 		{ServiceGraphServer, "traces_service_graph_request_server_seconds"},
 		{ServiceGraphFailed, "traces_service_graph_request_failed_total"},
 		{ServiceGraphTotal, "traces_service_graph_request_total"},
+		{ServiceGraphConnectionInfo, "traces_service_graph_connection_info"},
 		{TargetInfo, "target_info"},
 		{TracesTargetInfo, "traces_target_info"},
 	}...)

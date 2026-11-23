@@ -301,7 +301,17 @@ func azureInventoryHandler(t *testing.T, groups *[]azureTestGroup) http.HandlerF
 			return
 		}
 		for _, group := range *groups {
-			if !strings.Contains(r.URL.Path, "/virtualMachineScaleSets/"+group.name+"/") {
+			flexible := group.mode == "Flexible"
+			vmPath := base + "/" + group.name + "/virtualMachines"
+			nicPath := base + "/" + group.name + "/networkInterfaces"
+			if flexible {
+				vmPath = strings.TrimSuffix(base, "/virtualMachineScaleSets") + "/virtualMachines"
+				nicPath = "/subscriptions/" + azureTestSubscription + "/resourceGroups/networking/providers/Microsoft.Network/networkInterfaces/" + group.name
+				if r.URL.Path == vmPath && r.URL.Query().Get("$filter") != "'virtualMachineScaleSet/id' eq '"+base+"/"+group.name+"'" {
+					continue
+				}
+			}
+			if !strings.EqualFold(r.URL.Path, vmPath) && !strings.EqualFold(r.URL.Path, nicPath) {
 				continue
 			}
 			if group.status != 0 {
@@ -309,15 +319,18 @@ func azureInventoryHandler(t *testing.T, groups *[]azureTestGroup) http.HandlerF
 				_, _ = fmt.Fprint(w, `{"error":{"code":"TestError","message":"unavailable"}}`)
 				return
 			}
-			vmID := base + "/" + group.name + "/virtualMachines/0"
+			vmID := vmPath + "/" + group.name + "-0"
 			switch {
-			case strings.HasSuffix(r.URL.Path, "/virtualMachines"):
+			case strings.EqualFold(r.URL.Path, vmPath):
+				assert.Equal(t, "instanceView", r.URL.Query().Get("$expand"))
 				values = append(values, map[string]any{"id": vmID, "properties": map[string]any{
-					"vmId": group.uuid, "instanceView": map[string]any{
+					"virtualMachineScaleSet": map[string]string{"id": base + "/" + group.name},
+					"networkProfile":         map[string]any{"networkInterfaces": []any{map[string]string{"id": nicPath}}},
+					"vmId":                   group.uuid, "instanceView": map[string]any{
 						"statuses": []map[string]string{{"code": "PowerState/running"}},
 					},
 				}})
-			case strings.HasSuffix(r.URL.Path, "/networkInterfaces"):
+			case strings.EqualFold(r.URL.Path, nicPath):
 				var configurations []map[string]any
 				for _, ip := range group.ips {
 					configurations = append(configurations, map[string]any{"properties": map[string]string{"privateIPAddress": ip}})
@@ -330,7 +343,11 @@ func azureInventoryHandler(t *testing.T, groups *[]azureTestGroup) http.HandlerF
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			if err := json.NewEncoder(w).Encode(map[string]any{"value": values}); err != nil {
+			var response any = map[string]any{"value": values}
+			if flexible && r.URL.Path == nicPath {
+				response = values[0]
+			}
+			if err := json.NewEncoder(w).Encode(response); err != nil {
 				t.Errorf("encoding scale set resources: %v", err)
 			}
 			return
@@ -340,21 +357,24 @@ func azureInventoryHandler(t *testing.T, groups *[]azureTestGroup) http.HandlerF
 	}
 }
 
-func TestAzureInventorySkipsFlexibleScaleSets(t *testing.T) {
+func TestAzureInventoryMixedScaleSets(t *testing.T) {
 	groups := []azureTestGroup{
-		{name: "flexible", mode: "Flexible", status: http.StatusForbidden},
+		{name: "flexible", mode: "Flexible", uuid: "vm-b", ips: []string{"10.0.0.2"}},
 		{name: "checkout", uuid: "vm-a", ips: []string{"10.0.0.1"}},
 	}
 	refresher := newAzureTestRefresher(t, azureInventoryHandler(t, &groups))
 	snapshot := MetadataSnapshot{ServiceByIP: map[string]string{}, ServiceByInstanceID: map[string]string{}}
 	require.NoError(t, refresher.Refresh(t.Context(), &snapshot))
-	assert.Equal(t, map[string]string{"10.0.0.1": "checkout"}, snapshot.ServiceByIP)
-	assert.Equal(t, map[string]string{AzureInstanceID(azureTestSubscription, "vm-a"): "checkout"}, snapshot.ServiceByInstanceID)
+	assert.Equal(t, map[string]string{"10.0.0.1": "checkout", "10.0.0.2": "flexible"}, snapshot.ServiceByIP)
+	assert.Equal(t, map[string]string{
+		AzureInstanceID(azureTestSubscription, "vm-a"): "checkout",
+		AzureInstanceID(azureTestSubscription, "vm-b"): "flexible",
+	}, snapshot.ServiceByInstanceID)
 }
 
 func TestAzureInventoryRefreshLifecycle(t *testing.T) {
 	groups := []azureTestGroup{
-		{name: "checkout", uuid: "vm-a", ips: []string{"10.0.0.1"}},
+		{name: "checkout", mode: "Flexible", uuid: "vm-a", ips: []string{"10.0.0.1"}},
 		{name: "payments", uuid: "vm-b", ips: []string{"10.0.0.2"}},
 	}
 	refresher := newAzureTestRefresher(t, azureInventoryHandler(t, &groups))
@@ -409,7 +429,7 @@ func TestAzureInventoryRefreshLifecycle(t *testing.T) {
 func TestAzureInventoryOverlappingIPs(t *testing.T) {
 	groups := []azureTestGroup{
 		{name: "checkout", uuid: "vm-a", ips: []string{"10.0.0.1", "10.0.0.2", "10.0.0.2"}},
-		{name: "payments", uuid: "vm-b", ips: []string{"::ffff:10.0.0.1"}},
+		{name: "payments", mode: "Flexible", uuid: "vm-b", ips: []string{"::ffff:10.0.0.1"}},
 		{name: "shipping", uuid: "vm-c", ips: []string{"10.0.0.1"}},
 	}
 	refresher := newAzureTestRefresher(t, azureInventoryHandler(t, &groups))
@@ -433,6 +453,42 @@ func TestAzureInventoryConflictingIdentity(t *testing.T) {
 	require.ErrorContains(t, refresher.Refresh(t.Context(), &snapshot), "belongs to both")
 	assert.Empty(t, snapshot.ServiceByIP)
 	assert.Empty(t, snapshot.ServiceByInstanceID)
+}
+
+func TestAzureInventoryFlexibleNICFailure(t *testing.T) {
+	const base = "/subscriptions/" + azureTestSubscription + "/resourceGroups/services/providers/Microsoft.Compute"
+	const setID = base + "/virtualMachineScaleSets/checkout"
+	const nicID = "/subscriptions/" + azureTestSubscription + "/resourceGroups/networking/providers/Microsoft.Network/networkInterfaces/checkout-nic"
+	for _, status := range []int{http.StatusNotFound, http.StatusForbidden} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			refresher := newAzureTestRefresher(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case base + "/virtualMachineScaleSets":
+					_, _ = fmt.Fprintf(w, `{"value":[{"name":"checkout","id":%q,"properties":{"orchestrationMode":"Flexible"}}]}`, setID)
+				case base + "/virtualMachines":
+					_, _ = fmt.Fprintf(w, `{"value":[{"id":%q,"properties":{
+						"vmId":"vm-a","virtualMachineScaleSet":{"id":%q},
+						"instanceView":{"statuses":[{"code":"PowerState/running"}]},
+						"networkProfile":{"networkInterfaces":[{"id":%q}]}
+					}}]}`, base+"/virtualMachines/checkout-0", setID, nicID)
+				case nicID:
+					w.WriteHeader(status)
+					_, _ = fmt.Fprint(w, `{"error":{"code":"TestError","message":"NIC unavailable"}}`)
+				default:
+					t.Errorf("unexpected SDK request: %s", r.URL.Path)
+					w.WriteHeader(http.StatusBadRequest)
+				}
+			})
+			snapshot := MetadataSnapshot{
+				ServiceByIP:         map[string]string{"10.0.0.1": "checkout"},
+				ServiceByInstanceID: map[string]string{AzureInstanceID(azureTestSubscription, "vm-a"): "checkout"},
+			}
+			require.ErrorContains(t, refresher.Refresh(t.Context(), &snapshot), "reading Azure network interface")
+			assert.Equal(t, map[string]string{"10.0.0.1": "checkout"}, snapshot.ServiceByIP)
+			assert.Equal(t, map[string]string{AzureInstanceID(azureTestSubscription, "vm-a"): "checkout"}, snapshot.ServiceByInstanceID)
+		})
+	}
 }
 
 func TestAzureInventoryRefreshDeadline(t *testing.T) {

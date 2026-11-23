@@ -37,31 +37,41 @@ type probe struct {
 const (
 	progObiStatsKprobeTCPCloseSrtt                        = "obi_stats_kprobe_tcp_close_srtt"
 	progObiStatsKprobeTCPCloseIoFlush                     = "obi_stats_kprobe_tcp_close_io_flush"
+	progObiStatsTpTCPDestroySock                          = "obi_stats_tp_tcp_destroy_sock"
 	progObiStatsTpInetSockSetStateConnRole                = "obi_stats_tp_inet_sock_set_state_conn_role"
 	progObiStatsTpInetSockSetStateTCPFailedConnection     = "obi_stats_tp_inet_sock_set_state_tcp_failed_connection"
 	progObiStatsTpInetSockSetStateTCPSuccessfulConnection = "obi_stats_tp_inet_sock_set_state_tcp_successful_connection"
 	progObiStatsRawTpTCPRetransmitSkb                     = "obi_stats_raw_tp_tcp_retransmit_skb"
+	progObiStatsRawTpTCPSendReset                         = "obi_stats_raw_tp_tcp_send_reset"
+	progObiStatsRawTpTCPReceiveReset                      = "obi_stats_raw_tp_tcp_receive_reset"
+	progObiStatsRawTpTCPDestroySockSegRst                 = "obi_stats_raw_tp_tcp_destroy_sock_seg_rst"
 	progObiStatsKprobeTCPSendmsg                          = "obi_stats_kprobe_tcp_sendmsg"
 	progObiStatsKretprobeTCPSendmsg                       = "obi_stats_kretprobe_tcp_sendmsg"
 	progObiStatsKprobeTCPCleanupRbuf                      = "obi_stats_kprobe_tcp_cleanup_rbuf"
+	progObiStatsKprobeTCPRcvStateProcess                  = "obi_stats_kprobe_tcp_rcv_state_process"
 )
 
 // Hook point names, grouped by attach type.
 const (
 	// Kprobes: kernel function names.
-	KprobeTCPClose       = "tcp_close"
-	KprobeTCPSendMsg     = "tcp_sendmsg"
-	KprobeTCPCleanupRbuf = "tcp_cleanup_rbuf"
+	KprobeTCPClose           = "tcp_close"
+	KprobeTCPSendMsg         = "tcp_sendmsg"
+	KprobeTCPCleanupRbuf     = "tcp_cleanup_rbuf"
+	KprobeTCPRcvStateProcess = "tcp_rcv_state_process"
 
 	// Tracepoints: group/name, are validated by TestTracepointConstantFormat
 	TracepointInetSockSetState = "sock/inet_sock_set_state"
+	TracepointTCPDestroySock   = "tcp/tcp_destroy_sock"
 
 	// Raw tracepoints: name only (no group prefix).
 	RawTracepointTCPRetransmitSkb = "tcp_retransmit_skb"
+	RawTracepointTCPSendReset     = "tcp_send_reset"
+	RawTracepointTCPReceiveReset  = "tcp_receive_reset"
+	RawTracepointTCPDestroySock   = "tcp_destroy_sock"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Mise BPF generation task.
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type stat_type -type tcp_fail_reason -type tcp_handshake_role -type network_io_direction -type tcp_io_t -type tcp_rtt_t -type tcp_failed_connection_t -type tcp_retransmit_t -type tcp_successful_connection_t -target $BPF_TARGETS Stats ../../../../bpf/statsolly/stats.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type stat_type -type tcp_fail_reason -type tcp_handshake_role -type network_io_direction -type tcp_reset_cause -type tcp_io_t -type tcp_rtt_t -type tcp_failed_connection_t -type tcp_retransmit_t -type tcp_successful_connection_t -type tcp_reset_t -target $BPF_TARGETS Stats ../../../../bpf/statsolly/stats.c -- -I../../../../bpf
 
 type StatsFetcher struct {
 	log       *slog.Logger
@@ -108,13 +118,16 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		toDisable = append(toDisable, progObiStatsTpInetSockSetStateTCPSuccessfulConnection)
 	}
 	if !connRoleUsed {
-		toDisable = append(toDisable, progObiStatsTpInetSockSetStateConnRole)
+		toDisable = append(toDisable, progObiStatsTpInetSockSetStateConnRole, progObiStatsTpTCPDestroySock)
 	}
 	if !features.StatsTCPRtt() {
 		toDisable = append(toDisable, progObiStatsKprobeTCPCloseSrtt)
 	}
 	if !features.StatsTCPRetransmits() {
 		toDisable = append(toDisable, progObiStatsRawTpTCPRetransmitSkb)
+	}
+	if !features.StatsTCPResets() {
+		toDisable = append(toDisable, progObiStatsRawTpTCPSendReset, progObiStatsRawTpTCPReceiveReset, progObiStatsKprobeTCPRcvStateProcess, progObiStatsRawTpTCPDestroySockSegRst)
 	}
 	if !features.StatsTCPIo() {
 		toDisable = append(toDisable, progObiStatsKprobeTCPSendmsg, progObiStatsKretprobeTCPSendmsg, progObiStatsKprobeTCPCleanupRbuf, progObiStatsKprobeTCPCloseIoFlush)
@@ -159,6 +172,11 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 			program: objects.ObiStatsKprobeTcpCleanupRbuf,
 			enabled: features.StatsTCPIo(),
 		},
+		{
+			name:    KprobeTCPRcvStateProcess,
+			program: objects.ObiStatsKprobeTcpRcvStateProcess,
+			enabled: features.StatsTCPResets(),
+		},
 	} {
 		if !k.enabled {
 			continue
@@ -192,12 +210,6 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	}
 
 	// tracepoints
-	// ObiStatsTpInetSockSetStateTcpFailedConnection (or any other probes that use role)
-	// must be attached before ObiStatsTpInetSockSetStateConnRole.
-	// Both attach to the same tracepoint and BPF programs run FIFO:
-	// the probes read sock_role first, conn_role deletes it after.
-	// Swapping the order would cause tcp_failed_conn or any other probes
-	// to see NULL on the same TCP_CLOSE event that conn_role is cleaning up.
 	for _, t := range []probe{
 		{
 			name:    TracepointInetSockSetState,
@@ -208,6 +220,12 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 			name:    TracepointInetSockSetState,
 			program: objects.ObiStatsTpInetSockSetStateTcpFailedConnection,
 			enabled: features.StatsTCPFailedConnections(),
+		},
+		// attached before conn_role, so no sock_role entry is written without its delete
+		{
+			name:    TracepointTCPDestroySock,
+			program: objects.ObiStatsTpTcpDestroySock,
+			enabled: connRoleUsed,
 		},
 		{
 			name:    TracepointInetSockSetState,
@@ -234,6 +252,21 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 			name:    RawTracepointTCPRetransmitSkb,
 			program: objects.ObiStatsRawTpTcpRetransmitSkb,
 			enabled: features.StatsTCPRetransmits(),
+		},
+		{
+			name:    RawTracepointTCPSendReset,
+			program: objects.ObiStatsRawTpTcpSendReset,
+			enabled: features.StatsTCPResets(),
+		},
+		{
+			name:    RawTracepointTCPReceiveReset,
+			program: objects.ObiStatsRawTpTcpReceiveReset,
+			enabled: features.StatsTCPResets(),
+		},
+		{
+			name:    RawTracepointTCPDestroySock,
+			program: objects.ObiStatsRawTpTcpDestroySockSegRst,
+			enabled: features.StatsTCPResets(),
 		},
 	} {
 		if !t.enabled {
