@@ -2106,3 +2106,10 @@ func TestRuntimeMetricPIDInfoLeavesHostPIDZero(t *testing.T) {
 	assert.Equal(t, ns, pidInfo.Ns)
 	assert.NotZero(t, pidInfo.UserPid)
 }
+
+func TestUnusedGRPCHeaderWritesMapRemoved(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	assert.NotContains(t, spec.Maps, "ongoing_grpc_header_writes")
+}

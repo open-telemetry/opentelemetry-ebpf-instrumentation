@@ -11,6 +11,7 @@
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/large_buffers.h>
+#include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/sql.h>
 
@@ -63,6 +64,7 @@ struct {
     __type(key, connection_info_t);
     __type(value, struct mysql_state_data);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } mysql_state SEC(".maps");
 
 // This function is used to store the MySQL header if it comes in split packets
