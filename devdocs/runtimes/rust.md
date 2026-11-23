@@ -9,3 +9,12 @@ used for poll and task creation or deallocation. Debug information is optional.
 A worker can switch between unrelated tasks. OBI follows the task across polls
 and copies its parent when it spawns another task. It checks alternative hooks
 for optimized builds and keeps generic capture available when hooks are missing.
+
+## Log enrichment
+
+When log enrichment is enabled for a Rust service, OBI can add the current
+task’s trace and span IDs to logs written to stdout or stderr. A task can yield
+and resume on another worker and still log with the same context. OBI looks up
+the context when the write occurs, so a logger that queues records for a
+dedicated writer thread loses the originating task’s context.
+See [trace-log correlation](../trace-log-correlation.md#rust-tokio-task-polls).
