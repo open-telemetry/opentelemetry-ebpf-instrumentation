@@ -297,9 +297,14 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	}, nil
 }
 
+var (
+	kernelVersion = ebpfcommon.KernelVersion
+	attachKprobe  = kprobe.Attach
+)
+
 // sockmap sends go through do_tcp_sendpages before kernel 6.5, which removed it
 func attachDoTCPSendPages(log *slog.Logger, objects *StatsObjects) []io.Closer {
-	if major, minor := ebpfcommon.KernelVersion(); major > 6 || (major == 6 && minor >= 5) {
+	if major, minor := kernelVersion(); major > 6 || (major == 6 && minor >= 5) {
 		return nil
 	}
 
@@ -312,7 +317,7 @@ func attachDoTCPSendPages(log *slog.Logger, objects *StatsObjects) []io.Closer {
 		{program: objects.ObiStatsKretprobeDoTcpSendpages, ret: true},
 		{program: objects.ObiStatsKprobeTcpSend},
 	} {
-		l, err := kprobe.Attach(KprobeDoTCPSendPages, p.program, p.ret)
+		l, err := attachKprobe(KprobeDoTCPSendPages, p.program, p.ret)
 		if err != nil {
 			log.Warn("kprobe not attached, TCP IO metrics miss the bytes sent by sockets in a sockmap",
 				"symbol", KprobeDoTCPSendPages, "error", err)

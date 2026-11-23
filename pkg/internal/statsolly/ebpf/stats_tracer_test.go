@@ -6,6 +6,10 @@
 package ebpf
 
 import (
+	"errors"
+	"io"
+	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 
@@ -230,5 +234,77 @@ func TestTracepointConstantFormat(t *testing.T) {
 		if _, _, ok := strings.Cut(hook, "/"); !ok {
 			t.Errorf("tracepoint constant %q is not in group/name format", hook)
 		}
+	}
+}
+
+type closeCounter struct{ closes int }
+
+func (c *closeCounter) Close() error {
+	c.closes++
+	return nil
+}
+
+func TestAttachDoTCPSendPages(t *testing.T) {
+	origKernelVersion, origAttachKprobe := kernelVersion, attachKprobe
+	t.Cleanup(func() {
+		kernelVersion, attachKprobe = origKernelVersion, origAttachKprobe
+	})
+
+	type attachCall struct {
+		program *ebpf.Program
+		ret     bool
+	}
+
+	entry, ret := &ebpf.Program{}, &ebpf.Program{}
+	objects := &StatsObjects{StatsPrograms: StatsPrograms{
+		ObiStatsKprobeTcpSend:           entry,
+		ObiStatsKretprobeDoTcpSendpages: ret,
+	}}
+	bothCalls := []attachCall{{program: ret, ret: true}, {program: entry}}
+
+	tests := []struct {
+		name         string
+		major, minor int
+		failOn       *ebpf.Program
+		wantCalls    []attachCall
+		wantLinks    int
+		wantCloses   int
+	}{
+		{name: "skipped on 6.5", major: 6, minor: 5},
+		{name: "skipped on 7.0", major: 7},
+		{name: "both attached on 6.4", major: 6, minor: 4, wantCalls: bothCalls, wantLinks: 2},
+		{name: "both attached on 5.8", major: 5, minor: 8, wantCalls: bothCalls, wantLinks: 2},
+		{name: "return probe closed when the entry probe fails", major: 6, minor: 4, failOn: entry, wantCalls: bothCalls, wantCloses: 1},
+		{name: "entry probe not attached when the return probe fails", major: 6, minor: 4, failOn: ret, wantCalls: bothCalls[:1]},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			kernelVersion = func() (int, int) { return tc.major, tc.minor }
+
+			var calls []attachCall
+			link := &closeCounter{}
+			attachKprobe = func(symbol string, program *ebpf.Program, ret bool) (io.Closer, error) {
+				if symbol != KprobeDoTCPSendPages {
+					t.Errorf("attached to %q, want %q", symbol, KprobeDoTCPSendPages)
+				}
+				calls = append(calls, attachCall{program: program, ret: ret})
+				if program == tc.failOn {
+					return nil, errors.New("attach failed")
+				}
+				return link, nil
+			}
+
+			links := attachDoTCPSendPages(slog.New(slog.DiscardHandler), objects)
+
+			if !slices.Equal(calls, tc.wantCalls) {
+				t.Errorf("attach calls: got %v, want %v", calls, tc.wantCalls)
+			}
+			if len(links) != tc.wantLinks {
+				t.Errorf("links: got %d, want %d", len(links), tc.wantLinks)
+			}
+			if link.closes != tc.wantCloses {
+				t.Errorf("closes: got %d, want %d", link.closes, tc.wantCloses)
+			}
+		})
 	}
 }
