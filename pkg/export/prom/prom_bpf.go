@@ -138,10 +138,10 @@ var (
 	newInternalBPFCollectorFn = newInternalBPFCollector
 )
 
-// programWalkMu serializes the program walks of all collectors in the process. The node
-// walk briefly holds descriptors of programs OBI did not load, and the internal walk
-// must not read them from /proc/self/fdinfo as OBI's own.
-var programWalkMu sync.Mutex
+// bpfObjectWalkMu serializes the program and map walks of all collectors in the process.
+// The node walks briefly hold descriptors of programs and maps OBI did not load, and the
+// internal walks must not read them from /proc/self/fdinfo as OBI's own.
+var bpfObjectWalkMu sync.Mutex
 
 func internalMetricsEnabled(internalMetrics imetrics.Reporter) bool {
 	if internalMetrics == nil || imetrics.IsBuiltinNoopReporter(internalMetrics) {
@@ -163,7 +163,7 @@ func newBPFCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *
 	return newCollector(ctxInfo, cfg, mpCfg, true)
 }
 
-// newInternalBPFCollector reports how OBI is doing, so it covers only OBI's own programs.
+// newInternalBPFCollector reports how OBI is doing, so it covers only OBI's own programs and maps.
 func newInternalBPFCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig) *BPFCollector {
 	c := newCollector(ctxInfo, cfg, mpCfg, false)
 	c.obiOnly = true
@@ -388,8 +388,8 @@ func (bc *BPFCollector) collectMetrics() ([]ProbeMetrics, []BpfMapMetrics) {
 }
 
 func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
-	programWalkMu.Lock()
-	defer programWalkMu.Unlock()
+	bpfObjectWalkMu.Lock()
+	defer bpfObjectWalkMu.Unlock()
 
 	ids, completeWalk := bc.programIDs()
 	probeMetrics := make([]ProbeMetrics, 0, len(ids))
@@ -527,17 +527,14 @@ func getFuncName(info *ebpf.ProgramInfo, id ebpf.ProgramID, log *slog.Logger) st
 }
 
 func (bc *BPFCollector) getMapMetrics() []BpfMapMetrics {
-	mapMetrics := make([]BpfMapMetrics, 0, len(bc.mapCache))
-	seen := make(map[ebpf.MapID]struct{}, len(bc.mapCache))
-	completeWalk := false
+	bpfObjectWalkMu.Lock()
+	defer bpfObjectWalkMu.Unlock()
 
-	for id := ebpf.MapID(0); ; {
-		nextID, err := ebpf.MapGetNextID(id)
-		if err != nil {
-			completeWalk = errors.Is(err, os.ErrNotExist)
-			break
-		}
-		id = nextID
+	ids, completeWalk := bc.mapIDs()
+	mapMetrics := make([]BpfMapMetrics, 0, len(ids))
+	seen := make(map[ebpf.MapID]struct{}, len(ids))
+
+	for _, id := range ids {
 		seen[id] = struct{}{}
 
 		cached, ok := bc.mapCache[id]
@@ -579,6 +576,32 @@ func (bc *BPFCollector) getMapMetrics() []BpfMapMetrics {
 	}
 
 	return mapMetrics
+}
+
+// mapIDs returns the maps to report and whether the list is complete, so that maps
+// missing from it can be evicted from the cache.
+func (bc *BPFCollector) mapIDs() ([]ebpf.MapID, bool) {
+	if !bc.obiOnly {
+		return nodeMapIDs()
+	}
+
+	ids, err := ownedMapIDs(bc.fdinfoDir)
+	if err != nil {
+		bc.log.Debug("failed to list OBI maps", "error", err)
+	}
+	return ids, err == nil
+}
+
+func nodeMapIDs() ([]ebpf.MapID, bool) {
+	var ids []ebpf.MapID
+	for id := ebpf.MapID(0); ; {
+		nextID, err := ebpf.MapGetNextID(id)
+		if err != nil {
+			return ids, errors.Is(err, os.ErrNotExist)
+		}
+		id = nextID
+		ids = append(ids, id)
+	}
 }
 
 func (bc *BPFCollector) cacheMap(id ebpf.MapID) *cachedMap {

@@ -31,6 +31,24 @@ func TestOwnedProgramIDs(t *testing.T) {
 	require.Equal(t, []ebpf.ProgramID{41, 33653}, ids)
 }
 
+func TestOwnedMapIDs(t *testing.T) {
+	fdinfoDir := t.TempDir()
+	writeFDInfo(t, fdinfoDir, map[string]string{
+		"3": "pos:\t0\nflags:\t02000002\nprog_type:\t2\nprog_tag:\tf55f8bd0a1c6b62a\n" +
+			"memlock:\t4096\nprog_id:\t33653\nrun_time_ns:\t0\nrun_cnt:\t0\n",
+		"4": "pos:\t0\nflags:\t02000002\nmap_type:\t9\nkey_size:\t8\nvalue_size:\t16\n" +
+			"max_entries:\t1000\nmemlock:\t86016\nmap_id:\t512\n",
+		"5": "pos:\t0\nflags:\t02000002\nmap_type:\t2\nkey_size:\t4\nvalue_size:\t4\n" +
+			"max_entries:\t1\nmemlock:\t4096\nmap_id:\t40\n",
+		"6": "pos:\t0\nflags:\t02000000\nlink_type:\tperf\nlink_id:\t7\nprog_tag:\tf55f8bd0a1c6b62a\nprog_id:\t33653\n",
+	})
+
+	ids, err := ownedMapIDs(fdinfoDir)
+
+	require.NoError(t, err)
+	require.Equal(t, []ebpf.MapID{40, 512}, ids)
+}
+
 func TestOwnedProgramIDsWithoutPrograms(t *testing.T) {
 	fdinfoDir := t.TempDir()
 	writeFDInfo(t, fdinfoDir, map[string]string{

@@ -18,11 +18,16 @@ import (
 const (
 	procSelfFDInfo  = "/proc/self/fdinfo"
 	fdinfoProgramID = "prog_id:"
+	fdinfoMapID     = "map_id:"
 )
 
 func ownedProgramIDs(fdinfoDir string) ([]ebpf.ProgramID, error) {
 	// The fdinfo of a program, and of a link, carries the program ID.
 	return ownedIDs[ebpf.ProgramID](fdinfoDir, fdinfoProgramID)
+}
+
+func ownedMapIDs(fdinfoDir string) ([]ebpf.MapID, error) {
+	return ownedIDs[ebpf.MapID](fdinfoDir, fdinfoMapID)
 }
 
 func ownedIDs[T ~uint32](fdinfoDir, key string) ([]T, error) {

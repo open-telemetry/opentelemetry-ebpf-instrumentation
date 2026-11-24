@@ -140,6 +140,57 @@ func TestInternalCollectorIgnoresProgramsOpenedByNodeWalk(t *testing.T) {
 	}
 }
 
+func TestInternalCollectorReportsOnlyOwnedMaps(t *testing.T) {
+	collector := newPrivilegedInternalCollector(t)
+	maps := loadTestMaps(t, 2, ebpf.LRUHash, 1)
+	ownedID := mapID(t, maps[0])
+	otherID := mapID(t, maps[1])
+
+	fdinfoDir := t.TempDir()
+	writeFDInfo(t, fdinfoDir, map[string]string{
+		"3": fmt.Sprintf("pos:\t0\nflags:\t02000002\nmap_id:\t%d\n", ownedID),
+	})
+	collector.fdinfoDir = fdinfoDir
+
+	metrics := collector.getMapMetrics()
+
+	requireMapMetric(t, metrics, ownedID, "metric_0", ebpf.LRUHash, 2, 1)
+	requireNoMapMetric(t, metrics, otherID)
+}
+
+func TestInternalCollectorFindsOwnedMapsInProcFS(t *testing.T) {
+	collector := newPrivilegedInternalCollector(t)
+	id := mapID(t, loadTestMaps(t, 1, ebpf.LRUHash, 1)[0])
+
+	requireMapMetric(t, collector.getMapMetrics(), id, "metric_0", ebpf.LRUHash, 2, 1)
+}
+
+func TestInternalCollectorIgnoresMapsOpenedByNodeWalk(t *testing.T) {
+	node := newPrivilegedTestCollector(t)
+	internal := newPrivilegedInternalCollector(t)
+	unownedID := loadUnownedMap(t)
+	requireMapMetric(t, node.getMapMetrics(), unownedID, "metric_unowned", ebpf.LRUHash, 2, 1)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	walking := make(chan struct{})
+	go func() {
+		defer close(walking)
+		for ctx.Err() == nil {
+			node.getMapMetrics()
+		}
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-walking
+	})
+
+	// This process holds no map descriptor of its own, so any map reported here was
+	// opened by the node walk.
+	for range 500 {
+		require.Empty(t, internal.getMapMetrics())
+	}
+}
+
 func TestInternalCollectorReportsIterators(t *testing.T) {
 	collector := newPrivilegedInternalCollector(t)
 	id := programID(t, loadIterProgram(t))
@@ -324,6 +375,46 @@ func loadUnownedProgram(tb testing.TB) ebpf.ProgramID {
 	return id
 }
 
+// loadUnownedMap returns the ID of a map this process holds no descriptor for: a program
+// that references it, attached to a socket, keeps it alive after both descriptors are closed.
+func loadUnownedMap(tb testing.TB) ebpf.MapID {
+	tb.Helper()
+
+	bpfMap, err := ebpf.NewMap(&ebpf.MapSpec{
+		Name:       "metric_unowned",
+		Type:       ebpf.LRUHash,
+		KeySize:    4,
+		ValueSize:  4,
+		MaxEntries: 2,
+	})
+	require.NoError(tb, err)
+	require.NoError(tb, bpfMap.Put(uint32(0), uint32(0)))
+	id := mapID(tb, bpfMap)
+
+	program, err := ebpf.NewProgram(&ebpf.ProgramSpec{
+		Name:    "metric_map_ref",
+		Type:    ebpf.SocketFilter,
+		License: "Dual MIT/GPL",
+		Instructions: asm.Instructions{
+			asm.LoadMapPtr(asm.R1, bpfMap.FD()),
+			asm.Mov.Imm(asm.R0, 0),
+			asm.Return(),
+		},
+	})
+	require.NoError(tb, err)
+
+	socket, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	require.NoError(tb, err)
+	tb.Cleanup(func() {
+		_ = unix.Close(socket)
+	})
+	require.NoError(tb, unix.SetsockoptInt(socket, unix.SOL_SOCKET, unix.SO_ATTACH_BPF, program.FD()))
+	require.NoError(tb, program.Close())
+	require.NoError(tb, bpfMap.Close())
+
+	return id
+}
+
 func loadIterProgram(tb testing.TB) *ebpf.Program {
 	tb.Helper()
 
@@ -426,6 +517,17 @@ func requireNoProbeMetric(t *testing.T, metrics []ProbeMetrics, id ebpf.ProgramI
 	for _, metric := range metrics {
 		if metric.probeID == idString {
 			require.Failf(t, "unexpected probe metric", "program ID %d", id)
+		}
+	}
+}
+
+func requireNoMapMetric(t *testing.T, metrics []BpfMapMetrics, id ebpf.MapID) {
+	t.Helper()
+
+	idString := fmt.Sprintf("%d", id)
+	for _, metric := range metrics {
+		if metric.mapID == idString {
+			require.Failf(t, "unexpected map metric", "map ID %d", id)
 		}
 	}
 }

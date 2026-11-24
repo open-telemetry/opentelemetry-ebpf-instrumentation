@@ -648,3 +648,27 @@ func TestInternalProgramIDsComeFromFDInfo(t *testing.T) {
 	assert.Equal(t, []ebpf.ProgramID{12}, ids, "readable descriptors are still reported")
 	assert.False(t, complete, "an unreadable descriptor must not evict cached programs")
 }
+
+func TestInternalMapIDsComeFromFDInfo(t *testing.T) {
+	fdinfoDir := t.TempDir()
+	writeFDInfo(t, fdinfoDir, map[string]string{
+		"3": "pos:\t0\nflags:\t02000002\nprog_id:\t12\n",
+		"4": "pos:\t0\nflags:\t02000002\nmap_id:\t30\n",
+	})
+	collector := &BPFCollector{obiOnly: true, fdinfoDir: fdinfoDir, log: slog.Default()}
+
+	ids, complete := collector.mapIDs()
+	assert.Equal(t, []ebpf.MapID{30}, ids)
+	assert.True(t, complete)
+
+	collector.fdinfoDir = filepath.Join(fdinfoDir, "missing")
+	ids, complete = collector.mapIDs()
+	assert.Empty(t, ids)
+	assert.False(t, complete, "a failed listing must not evict cached maps")
+
+	collector.fdinfoDir = fdinfoDir
+	require.NoError(t, os.Mkdir(filepath.Join(fdinfoDir, "5"), 0o700))
+	ids, complete = collector.mapIDs()
+	assert.Equal(t, []ebpf.MapID{30}, ids, "readable descriptors are still reported")
+	assert.False(t, complete, "an unreadable descriptor must not evict cached maps")
+}
