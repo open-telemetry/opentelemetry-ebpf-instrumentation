@@ -41,10 +41,11 @@
 
 #define INITIATOR_UNKNOWN 0
 
-// Common Ringbuffer as a conduit for ingress/egress flows to userspace
+// Overflow fallback ringbuffer for flows that could not be inserted into aggregated_flows.
+// Sized to match the main events ringbuf (1 MiB) and scaled by ebpf.maps_config.global_scale_factor.
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 24);
+    __uint(max_entries, 1 << 20);
 } direct_flows SEC(".maps");
 
 // Key: the flow identifier. Value: the flow metrics for that identifier.
