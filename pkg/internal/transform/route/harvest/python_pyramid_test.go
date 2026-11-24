@@ -24,7 +24,9 @@ func TestScanPyramid(t *testing.T) {
 		{stmt: `config.add_route("home", "/")`, route: "/"},
 		{stmt: `self.config.add_route( "user", "/users/{user_id}", )`, route: "/users/{user_id}"},
 	} {
-		assert.Equal(t, []string{tc.route}, scanPyramid(tc.stmt), tc.stmt)
+		routes := map[string]struct{}{}
+		scanPyramid(tc.stmt, routes)
+		assert.Equal(t, map[string]struct{}{tc.route: {}}, routes, tc.stmt)
 	}
 }
 
@@ -38,8 +40,13 @@ func TestScanPyramidSkipsUnsupportedForms(t *testing.T) {
 		`config.add_view(user, route_name="user")`,
 		`@view_config(route_name="user", renderer="json")`,
 		`app.add_route("/users/{user_id}", UserResource())`,
+		`config.add_route("user", make_pattern(pattern="/users/"))`,
+		`config.add_route("health", "/health:ready")`,
+		`config.add_route("user", "/<user_id>")`,
 	} {
-		assert.Empty(t, scanPyramid(stmt), stmt)
+		routes := map[string]struct{}{}
+		scanPyramid(stmt, routes)
+		assert.Empty(t, routes, stmt)
 	}
 }
 
@@ -63,35 +70,16 @@ func TestPyramidRoute(t *testing.T) {
 		{pattern: "/static/*subpath/more", ok: false},
 		{pattern: "/static*subpath", ok: false},
 		{pattern: `/codes/{code:\d{{3}}}`, ok: false},
+		{pattern: `/users/{user_id:[a-z]+}`, route: "/users/{user_id}", ok: true},
+		{pattern: `/users/{user_id:\w+}`, route: "/users/{user_id}", ok: true},
+		{pattern: "/files/{path:.*}", ok: false},
+		{pattern: "/files/{path:.+}", ok: false},
+		{pattern: `/files/{path:\S+}`, ok: false},
+		{pattern: `/files/{path:[^?]+}`, ok: false},
+		{pattern: `/versions/{ver:\d+\.\d+}`, ok: false},
 	} {
 		route, ok := pyramidRoute(tc.pattern)
 		assert.Equal(t, tc.ok, ok, tc.pattern)
 		assert.Equal(t, tc.route, route, tc.pattern)
-	}
-}
-
-func TestUsesPyramid(t *testing.T) {
-	for _, stmt := range []string{
-		`import pyramid`,
-		`import pyramid.config`,
-		`import pyramid as pyr`,
-		`import os, pyramid`,
-		`import os as o, pyramid.config`,
-		`from pyramid.config import Configurator`,
-		`from pyramid import config`,
-		`from pyramid.view import (`,
-	} {
-		assert.True(t, usesPyramid(stmt), stmt)
-	}
-
-	for _, stmt := range []string{
-		`import pyramid_tm`,
-		`from pyramid_jinja2 import renderer_factory`,
-		`from mypyramid import config`,
-		`import os`,
-		`# from pyramid.config import Configurator`,
-		`x = "from pyramid.config import Configurator"`,
-	} {
-		assert.False(t, usesPyramid(stmt), stmt)
 	}
 }
