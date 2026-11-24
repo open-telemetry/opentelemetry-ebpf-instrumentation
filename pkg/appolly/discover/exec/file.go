@@ -17,8 +17,8 @@ import (
 	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
-	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/internal/otelenv"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route"
 )
 
@@ -338,12 +338,12 @@ func (fi *FileInfo) ApplyEnvVariables(envVars map[string]string) {
 	allVars := map[string]string{}
 
 	if resourceAttrs, ok := fi.service.EnvVars[envResourceAttrs]; ok {
-		attributes.ParseOTELResourceVariable(resourceAttrs, func(k, v string) { allVars[k] = v })
+		otelenv.ParseKeyValues(resourceAttrs, func(k, v string) { allVars[k] = v })
 		for k, v := range allVars {
 			if v != "" && !strings.HasPrefix(v, "$") {
 				key := attr.Name(k)
 				if _, exists := m[key]; !exists {
-					m[key] = v
+					m[key] = otelenv.DecodeValue(v)
 				}
 			}
 		}
@@ -353,11 +353,11 @@ func (fi *FileInfo) ApplyEnvVariables(envVars map[string]string) {
 	if svcName := fi.service.EnvVars[envServiceName]; svcName != "" && !strings.HasPrefix(svcName, "$") {
 		fi.service.UID.Name = svcName
 	} else if svcName := allVars[serviceNameKey]; svcName != "" && !strings.HasPrefix(svcName, "$") {
-		fi.service.UID.Name = svcName
+		fi.service.UID.Name = otelenv.DecodeValue(svcName)
 	}
 
 	if svcNamespace := allVars[serviceNamespaceKey]; svcNamespace != "" && !strings.HasPrefix(svcNamespace, "$") {
-		fi.service.UID.Namespace = svcNamespace
+		fi.service.UID.Namespace = otelenv.DecodeValue(svcNamespace)
 	}
 }
 

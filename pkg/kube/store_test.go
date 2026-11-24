@@ -1736,3 +1736,52 @@ func (f *fakeInformer) Notify(event *informer.Event) {
 		_ = observer.On(event)
 	}
 }
+
+func TestStore_PercentEncodedResourceAttrs(t *testing.T) {
+	newPod := func(name, ip, resourceAttrs string) *informer.ObjectMeta {
+		return &informer.ObjectMeta{
+			Name:      name,
+			Namespace: "namespaceC",
+			Labels: map[string]string{
+				"app.kubernetes.io/name":      "applicationC",
+				"app.kubernetes.io/component": "componentC",
+			},
+			Ips:  []string{ip},
+			Kind: "Pod",
+			Pod: &informer.PodInfo{
+				Containers: []*informer.ContainerInfo{{
+					Id:  name + "-container",
+					Env: map[string]string{"OTEL_RESOURCE_ATTRIBUTES": resourceAttrs},
+				}},
+			},
+		}
+	}
+
+	templ, _ := template.New("serviceNameTemplate").Parse(`{{ .Meta.Name }}`)
+	store := NewStore(&fakeInformer{}, ResourceLabels{}, templ, imetrics.NoopReporter{})
+
+	encoded := newPod("encoded", "4.4.4.4", "service.name=%24payments,service.namespace=%24ns,team=payments%20core,unresolved=$(x)")
+	encodedSubst := newPod("encoded-subst", "4.4.4.5", "service.name=%24%28payments%29,service.namespace=%24%28ns%29")
+	rawSubst := newPod("raw-subst", "4.4.4.6", "service.name=$(payments),service.namespace=$(ns)")
+	for _, pod := range []*informer.ObjectMeta{encoded, encodedSubst, rawSubst} {
+		_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: pod})
+	}
+
+	for ip, want := range map[string][2]string{
+		"4.4.4.4": {"$payments", "$ns"},
+		"4.4.4.5": {"$(payments)", "$(ns)"},
+		"4.4.4.6": {"raw-subst", "namespaceC"},
+	} {
+		name, namespace, _ := store.ServiceNameNamespaceForIP(ip)
+		assert.Equal(t, want[0], name, ip)
+		assert.Equal(t, want[1], namespace, ip)
+	}
+
+	oMeta, ok := store.objectMetaByQName[qualifiedName{name: "encoded", namespace: "namespaceC", kind: "Pod"}]
+	assert.True(t, ok)
+	assert.Equal(t, map[attr.Name]string{
+		"service.name":      "$payments",
+		"service.namespace": "$ns",
+		"team":              "payments core",
+	}, oMeta.OTELResourceMeta)
+}
