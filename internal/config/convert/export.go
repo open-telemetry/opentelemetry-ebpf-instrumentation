@@ -195,7 +195,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 	return schema.Instrumentation{
 		HTTP:      httpInstrumentation,
 		GRPC:      protocols[protocolGRPC],
-		DB:        schema.DBInstrumentation{SanitizeQueryText: cfg.Attributes.SanitizeDBQueryText},
+		DB:        schema.DBInstrumentation{SanitizeQueryText: cfg.EBPF.SanitizeDBQueryText},
 		SQL:       sqlInstrumentation,
 		Redis:     redisInstrumentation,
 		Kafka:     kafkaInstrumentation,

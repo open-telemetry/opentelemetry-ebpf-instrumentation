@@ -602,7 +602,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.BufferSizes.TCP = 105
 	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
-	cfg.Attributes.SanitizeDBQueryText = true
+	cfg.EBPF.SanitizeDBQueryText = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201
 	cfg.EBPF.MSSQLPreparedStatementsCacheSize = 202
@@ -738,7 +738,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.Equal(t, 2, got.EBPF.MapsConfig.GlobalScaleFactor)
 	require.Equal(t, uint32(100), got.EBPF.BufferSizes.HTTP)
 	require.Equal(t, uint32(103), got.EBPF.BufferSizes.MSSQL)
-	require.True(t, got.Attributes.SanitizeDBQueryText)
+	require.True(t, got.EBPF.SanitizeDBQueryText)
 	require.Equal(t, 202, got.EBPF.MSSQLPreparedStatementsCacheSize)
 	require.Equal(t, config.CudaModeOn, got.EBPF.InstrumentCuda)
 
@@ -1508,8 +1508,8 @@ func TestV2ToRuntimePartialDBSanitizeQueryText(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.True(t, got.Attributes.SanitizeDBQueryText)
-	require.False(t, obi.DefaultConfig.Attributes.SanitizeDBQueryText)
+	require.True(t, got.EBPF.SanitizeDBQueryText)
+	require.False(t, obi.DefaultConfig.EBPF.SanitizeDBQueryText)
 	require.Equal(t, obi.DefaultConfig.EBPF.MySQLPreparedStatementsCacheSize, got.EBPF.MySQLPreparedStatementsCacheSize)
 }
 

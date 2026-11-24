@@ -1643,7 +1643,7 @@
         "sanitize_query_text": {
           "type": "boolean",
           "default": false,
-          "description": "Replace literal values in `db.query.text` with `?`: string, numeric, hexadecimal and boolean literals of SQL and SQL++ spans, and Redis argument values (keys are kept). Elasticsearch query bodies and Couchbase key-value spans are not sanitized. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
+          "description": "Replace literal values in `db.query.text` with `?`: string, numeric, hexadecimal and boolean literals of SQL and SQL++ spans, Redis argument values and Couchbase key-value document values (keys are kept). Elasticsearch query bodies are not sanitized. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
         }
       }
     },
