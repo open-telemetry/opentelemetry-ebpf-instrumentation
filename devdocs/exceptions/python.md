@@ -67,19 +67,44 @@ Python frames. It retains up to 24 frames; traversal is bounded to 32 active
 frames or 128 traceback entries. User space reads code objects and line tables
 from the target process and formats a Python traceback.
 
-`exception.stacktrace` lists frames outermost first and ends with the exception
-type and message:
+`exception.stacktrace` lists frames outermost first, each followed by its source
+line, and ends with the exception type and message:
 
 ```text
 Traceback (most recent call last):
   File "/app/server.py", line 42, in handler
+    raise ValueError("bad input")
 ValueError: bad input
 ```
 
+### Source lines
+
+User space reads each frame's source line from the process's filesystem
+(`/proc/<pid>/root`) and prints it stripped and indented by four spaces, as
+`traceback` does. OBI reads only files the process's filesystem uid and gid
+could read by mode bits; supplementary groups, ACLs and security modules are not
+checked.
+
+A frame has no source line when:
+
+- its file name is not an absolute path, such as `<string>`;
+- the file is missing, unreadable by the process, not a regular file or larger
+  than 1 MiB, or its path goes through a symbolic link;
+- the module was loaded from a zip archive or by another import loader;
+- the line is past the end, blank, longer than 4096 bytes or not valid UTF-8;
+- reading takes longer than 100 ms, or an earlier read is still blocked.
+
+OBI caches up to 512 lines, keyed by the file's device, inode, size and
+modification time.
+
 ### Known limits
 
-- Cause chains and nested exception groups are not expanded into separate
-  tracebacks.
+- Records contain only the raised exception. Its `__cause__` and `__context__`
+  chain, its `__notes__` and the member exceptions of an `ExceptionGroup` are not
+  included.
+- Each frame has at most one source line. `traceback` also prints caret lines,
+  such as `^^^^`, on Python 3.11+, and the further lines of a multi-line
+  expression on 3.13+; OBI writes neither.
 - Decoding requires readable target memory. Process exit or object reclamation
   before decoding can lose type or frame information. PID reuse and decoding
   after exit require further lifecycle work.

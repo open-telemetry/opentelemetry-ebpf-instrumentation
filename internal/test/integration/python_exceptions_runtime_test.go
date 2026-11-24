@@ -33,7 +33,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/exceptions"
 )
 
-var pythonExceptionFrameLine = regexp.MustCompile(`^  (File "(.*)", line (\d+), in (.*)|\[Previous line repeated \d+ more times?\])$`)
+var pythonExceptionFrameEntry = regexp.MustCompile(`^  (File "(.*)", line (\d+), in (.*)(\n    \S.*)?|\[Previous line repeated \d+ more times?\])$`)
 
 // Exceptions that escape a Flask, FastAPI or http.server handler are compared
 // with what CPython recorded in the fixture, request by request.
@@ -143,6 +143,7 @@ type pythonExceptionTruth struct {
 		File     string `json:"file"`
 		Line     int    `json:"line"`
 		Function string `json:"function"`
+		Source   string `json:"source"`
 	} `json:"frames"`
 }
 
@@ -204,9 +205,14 @@ func assertPythonException(t *testing.T, event exceptions.Event, truth pythonExc
 	if captured[0] == "  ... frames omitted" {
 		captured = captured[1:]
 	}
+	captured = pythonFrameEntries(captured)
 	var expected []string
 	for _, frame := range truth.Frames {
-		expected = append(expected, fmt.Sprintf("  File \"%s\", line %d, in %s", frame.File, frame.Line, frame.Function))
+		entry := fmt.Sprintf("  File \"%s\", line %d, in %s", frame.File, frame.Line, frame.Function)
+		if frame.Source != "" {
+			entry += "\n    " + frame.Source
+		}
+		expected = append(expected, entry)
 	}
 	// `raise error` adds a frame for the re-raise; the capture keeps the first raise.
 	if scenario == "raise_error" {
@@ -215,13 +221,27 @@ func assertPythonException(t *testing.T, event exceptions.Event, truth pythonExc
 	expected = foldPythonFrames(expected)
 	if scenario == "deep" {
 		// The kept frames are all `recursive`, so their fold counts fewer repeats.
-		expected, captured = expected[len(expected)-1:], captured[len(captured)-1:]
+		expected = expected[len(expected)-1:]
 	}
 	require.GreaterOrEqual(t, len(captured), len(expected), event.Stacktrace)
 	assert.Equal(t, expected, captured[len(captured)-len(expected):], event.Stacktrace)
-	for _, line := range captured {
-		assert.Regexp(t, pythonExceptionFrameLine, line)
+	for _, entry := range captured {
+		assert.Regexp(t, pythonExceptionFrameEntry, entry)
 	}
+}
+
+// pythonFrameEntries joins each source line to the line before it, so that a
+// source line is only valid right after a File line.
+func pythonFrameEntries(lines []string) []string {
+	var entries []string
+	for _, line := range lines {
+		if strings.HasPrefix(line, "    ") && len(entries) > 0 {
+			entries[len(entries)-1] += "\n" + line
+			continue
+		}
+		entries = append(entries, line)
+	}
+	return entries
 }
 
 // foldPythonFrames folds frames repeated more than three times in a row, as

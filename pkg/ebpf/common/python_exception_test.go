@@ -6,7 +6,12 @@ package ebpfcommon
 import (
 	"bytes"
 	"encoding/binary"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/stretchr/testify/assert"
@@ -15,6 +20,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/ebpf-profiler/remotememory"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/exceptions"
 )
 
@@ -214,9 +220,13 @@ func TestDescribePythonException(t *testing.T) {
 	handler := process.code("/app/server.py", "get", 10, []byte{128, 0})
 	shim := process.code("<shim>", "__init__", 1, []byte{248})
 
+	root := pythonSourceDir(t, map[string]string{
+		"app/server.py": strings.Repeat("\n", 9) + "    return leaf()\n" + strings.Repeat("\n", 30) + "\traise ValueError('boom')  \n",
+	})
+
 	event := exceptions.Event{}
 	record := fakePythonRecord(valueError, "boom", leaf, shim, handler, 0x42)
-	require.NoError(t, describePythonException(process.remote(), record, &event))
+	require.NoError(t, describePythonException(process.remote(), root, record, &event))
 
 	assert.Equal(t, "ValueError", event.Type)
 	assert.Equal(t, "boom", event.Message)
@@ -224,7 +234,9 @@ func TestDescribePythonException(t *testing.T) {
 	assert.Equal(t, "Traceback (most recent call last):\n"+
 		"  File \"<unknown>\", line 0, in <unknown>\n"+
 		"  File \"/app/server.py\", line 10, in get\n"+
+		"    return leaf()\n"+
 		"  File \"/app/server.py\", line 41, in leaf\n"+
+		"    raise ValueError('boom')\n"+
 		"ValueError: boom\n", event.Stacktrace)
 }
 
@@ -237,17 +249,25 @@ func TestDescribePythonRecursion(t *testing.T) {
 	record := fakePythonRecord(process.exceptionType("RecursionError"), "deep",
 		raise, recurse, recurse, recurse, recurse, recurse, handler)
 	record.Flags = BpfPythonExceptionFlagsK_pythonExceptionTruncated
+	root := pythonSourceDir(t, map[string]string{
+		"app/server.py": strings.Repeat("\n", 9) + "return recurse()\n" + strings.Repeat("\n", 18) + "raise RecursionError('deep')\nrecurse()\n",
+	})
 
 	event := exceptions.Event{}
-	require.NoError(t, describePythonException(process.remote(), record, &event))
+	require.NoError(t, describePythonException(process.remote(), root, record, &event))
 	assert.Equal(t, "Traceback (most recent call last):\n"+
 		"  ... frames omitted\n"+
 		"  File \"/app/server.py\", line 10, in get\n"+
+		"    return recurse()\n"+
 		"  File \"/app/server.py\", line 30, in recurse\n"+
+		"    recurse()\n"+
 		"  File \"/app/server.py\", line 30, in recurse\n"+
+		"    recurse()\n"+
 		"  File \"/app/server.py\", line 30, in recurse\n"+
+		"    recurse()\n"+
 		"  [Previous line repeated 2 more times]\n"+
 		"  File \"/app/server.py\", line 29, in recurse\n"+
+		"    raise RecursionError('deep')\n"+
 		"RecursionError: deep\n", event.Stacktrace)
 }
 
@@ -275,7 +295,7 @@ func TestDescribePythonExceptionType(t *testing.T) {
 				record.Flags = BpfPythonExceptionFlagsK_pythonExceptionMessageTruncated
 			}
 			event := exceptions.Event{}
-			require.NoError(t, describePythonException(process.remote(), record, &event))
+			require.NoError(t, describePythonException(process.remote(), pythonSourceRoot{}, record, &event))
 			assert.Equal(t, tc.wantType, event.Type)
 			assert.Equal(t, tc.wantMessage, event.Message)
 			assert.Equal(t, "Traceback (most recent call last):\n"+tc.wantLast+"\n", event.Stacktrace)
@@ -306,7 +326,7 @@ func TestDescribePython310Frame(t *testing.T) {
 	record.Frames[0].Instr = 1
 
 	event := exceptions.Event{}
-	require.NoError(t, describePythonException(process.remote(), record, &event))
+	require.NoError(t, describePythonException(process.remote(), pythonSourceRoot{}, record, &event))
 	assert.Equal(t, "Traceback (most recent call last):\n  File \"/app/legacy.py\", line 23, in handler\nKeyError\n", event.Stacktrace)
 }
 
@@ -316,7 +336,7 @@ func TestDescribePythonTruncatedException(t *testing.T) {
 	record.Flags = BpfPythonExceptionFlagsK_pythonExceptionTruncated
 
 	event := exceptions.Event{}
-	require.NoError(t, describePythonException(process.remote(), record, &event))
+	require.NoError(t, describePythonException(process.remote(), pythonSourceRoot{}, record, &event))
 	assert.Equal(t, int32(plog.SeverityNumberError), event.SeverityNumber)
 	assert.Equal(t, "Traceback (most recent call last):\n  ... frames omitted\nRuntimeError: startup failed\n", event.Stacktrace)
 }
@@ -330,7 +350,7 @@ func TestDescribePythonExceptionWithSurrogateMessage(t *testing.T) {
 	record.Message[0], record.Message[1] = 0, 0xd8
 
 	event := exceptions.Event{}
-	require.NoError(t, describePythonException(process.remote(), record, &event))
+	require.NoError(t, describePythonException(process.remote(), pythonSourceRoot{}, record, &event))
 	assert.Equal(t, "ValueError", event.Type)
 	assert.Empty(t, event.Message)
 	assert.Equal(t, "Traceback (most recent call last):\n"+
@@ -338,15 +358,15 @@ func TestDescribePythonExceptionWithSurrogateMessage(t *testing.T) {
 
 	record.Type = 0x42
 	event = exceptions.Event{}
-	require.Error(t, describePythonException(process.remote(), record, &event))
+	require.Error(t, describePythonException(process.remote(), pythonSourceRoot{}, record, &event))
 }
 
 func TestDescribePythonExceptionNeedsTypeOrMessage(t *testing.T) {
 	process := newFakePythonProcess()
 	event := exceptions.Event{}
-	require.Error(t, describePythonException(process.remote(), fakePythonRecord(0x42, ""), &event))
+	require.Error(t, describePythonException(process.remote(), pythonSourceRoot{}, fakePythonRecord(0x42, ""), &event))
 
-	require.NoError(t, describePythonException(process.remote(), fakePythonRecord(0x42, "only a message"), &event))
+	require.NoError(t, describePythonException(process.remote(), pythonSourceRoot{}, fakePythonRecord(0x42, "only a message"), &event))
 	assert.Empty(t, event.Type)
 	assert.Equal(t, "only a message", event.Message)
 }
@@ -407,7 +427,7 @@ func TestDescribePythonLegacyHeapType(t *testing.T) {
 			record := fakePythonRecord(object, "declined")
 			record.Layout.Minor = minor
 			event := exceptions.Event{}
-			require.NoError(t, describePythonException(process.remote(), record, &event))
+			require.NoError(t, describePythonException(process.remote(), pythonSourceRoot{}, record, &event))
 			assert.Equal(t, "payments.Billing.Declined", event.Type)
 			assert.Contains(t, event.Stacktrace, "payments.Billing.Declined: declined")
 
@@ -416,4 +436,153 @@ func TestDescribePythonLegacyHeapType(t *testing.T) {
 			require.ErrorIs(t, err, errPythonObject)
 		}
 	}
+}
+
+// pythonSourceDir writes files below a temporary directory and uses it as the
+// root of the test process.
+func pythonSourceDir(t *testing.T, files map[string]string) pythonSourceRoot {
+	dir := t.TempDir()
+	for name, text := range files {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(text), 0o644))
+	}
+	return pythonSourceRoot{pid: app.PID(os.Getpid()), dir: dir}
+}
+
+func pythonSourceLine(root pythonSourceRoot, file string, line uint32) string {
+	ref := pythonSourceRef{file: file, line: line}
+	return pythonSourceLines(root, []pythonSourceRef{ref})[ref]
+}
+
+func TestPythonSourceText(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+		line uint32
+		want string
+	}{
+		{"first", "import os\nraise ValueError()\n", 1, "import os"},
+		{"stripped", "def f():\n\t  raise ValueError()  \r\n", 2, "raise ValueError()"},
+		{"CRLF", "a\r\nb\r\nc\r\n", 3, "c"},
+		{"lone CR", "a\rb\rc", 2, "b"},
+		{"byte order mark", utf8BOM + "raise ValueError()\n", 1, "raise ValueError()"},
+		{"no final newline", "a\nb", 2, "b"},
+		{"UTF-8", "a\nraise ValueError('café 🐍')\n", 2, "raise ValueError('café 🐍')"},
+		{"blank", "a\n   \nb\n", 2, ""},
+		{"past the end", "a\nb\n", 3, ""},
+		{"empty file", "", 1, ""},
+		{"no line zero", "a\n", 0, ""},
+		{"not UTF-8", "a\nraise ValueError('\xe9')\n", 2, ""},
+		{"too long", "a\n" + strings.Repeat("x", pythonMaxSourceLine+1) + "\n", 2, ""},
+		{"longest", strings.Repeat("x", pythonMaxSourceLine), 1, strings.Repeat("x", pythonMaxSourceLine)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, pythonSourceText([]byte(tc.data), tc.line))
+		})
+	}
+}
+
+func TestPythonSourceLine(t *testing.T) {
+	root := pythonSourceDir(t, map[string]string{
+		"app/views.py":     "def average(reviews):\n    return sum(reviews) / len(reviews)\n",
+	})
+	dir := root.dir
+	require.NoError(t, syscall.Mkfifo(filepath.Join(dir, "app", "fifo.py"), 0o600))
+	large, err := os.Create(filepath.Join(dir, "app", "large.py"))
+	require.NoError(t, err)
+	require.NoError(t, large.Truncate(pythonMaxSourceFile+1))
+	require.NoError(t, large.Close())
+
+	for _, tc := range []struct {
+		name string
+		file string
+		line uint32
+		want string
+	}{
+		{"file", "/app/views.py", 2, "return sum(reviews) / len(reviews)"},
+		{"repeated slashes", "//app/views.py", 1, "def average(reviews):"},
+		{"past the end", "/app/views.py", 3, ""},
+		{"parent of the root", "/../app/views.py", 1, "def average(reviews):"},
+		{"relative path", "app/views.py", 1, ""},
+		{"frozen module", "<frozen importlib._bootstrap>", 1, ""},
+		{"string", "<string>", 1, ""},
+		{"missing", "/app/missing.py", 1, ""},
+		{"directory", "/app", 1, ""},
+		{"FIFO", "/app/fifo.py", 1, ""},
+		{"too large", "/app/large.py", 1, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, pythonSourceLine(root, tc.file, tc.line))
+		})
+	}
+	assert.Empty(t, pythonSourceLine(pythonSourceRoot{}, "/app/views.py", 1))
+}
+
+// pythonStatInfo is a file with the given owner and permission bits.
+type pythonStatInfo struct {
+	os.FileInfo
+	stat syscall.Stat_t
+	mode os.FileMode
+}
+
+func (i pythonStatInfo) Mode() os.FileMode { return i.mode }
+func (i pythonStatInfo) Sys() any          { return &i.stat }
+
+func TestPythonCredentialsPermits(t *testing.T) {
+	process := pythonCredentials{uid: 1000, gid: 1000}
+	for _, tc := range []struct {
+		name        string
+		credentials pythonCredentials
+		uid, gid    uint32
+		mode        os.FileMode
+		want        bool
+	}{
+		{"others", process, 0, 0, 0o644, true},
+		{"root-only file", process, 0, 0, 0o600, false},
+		{"owner", process, 1000, 0, 0o600, true},
+		{"owner bits deny", process, 1000, 0, 0o064, false},
+		{"group", process, 0, 1000, 0o640, true},
+		{"group bits may deny", process, 0, 27, 0o604, false},
+		{"root", pythonCredentials{}, 1000, 1000, 0o000, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := pythonStatInfo{stat: syscall.Stat_t{Uid: tc.uid, Gid: tc.gid}, mode: tc.mode}
+			assert.Equal(t, tc.want, tc.credentials.permits(info, pythonReadPerm))
+		})
+	}
+}
+
+func TestPythonSourceLinesOneFile(t *testing.T) {
+	root := pythonSourceDir(t, map[string]string{"app/views.py": "a\nb\nc\n"})
+	refs := []pythonSourceRef{
+		{file: "/app/views.py", line: 3},
+		{file: "/app/views.py", line: 1},
+		{file: "<string>", line: 1},
+		{},
+	}
+	assert.Equal(t, map[pythonSourceRef]string{
+		{file: "/app/views.py", line: 3}: "c",
+		{file: "/app/views.py", line: 1}: "a",
+	}, pythonSourceLines(root, refs))
+}
+
+func TestPythonSourceLinesStalled(t *testing.T) {
+	root := pythonSourceDir(t, map[string]string{"app/views.py": "raise ValueError()\n"})
+	pythonSourceSlot <- struct{}{}
+	assert.Empty(t, pythonSourceLine(root, "/app/views.py", 1))
+	<-pythonSourceSlot
+	assert.Equal(t, "raise ValueError()", pythonSourceLine(root, "/app/views.py", 1))
+}
+
+func TestPythonSourceLineChangedFile(t *testing.T) {
+	root := pythonSourceDir(t, map[string]string{"app/views.py": "raise ValueError('old')\n"})
+	path := filepath.Join(root.dir, "app", "views.py")
+	assert.Equal(t, "raise ValueError('old')", pythonSourceLine(root, "/app/views.py", 1))
+
+	// the same inode and size, rewritten later
+	require.NoError(t, os.WriteFile(path, []byte("raise ValueError('new')\n"), 0o644))
+	later := time.Now().Add(time.Minute)
+	require.NoError(t, os.Chtimes(path, later, later))
+	assert.Equal(t, "raise ValueError('new')", pythonSourceLine(root, "/app/views.py", 1))
 }

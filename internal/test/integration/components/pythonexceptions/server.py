@@ -10,6 +10,7 @@ request, which the live test compares with the captured exception.
 import asyncio
 import contextvars
 import ctypes
+import linecache
 import sys
 import traceback
 
@@ -94,7 +95,8 @@ def invoke(case, token):
 
 def ground_truth(error):
     """What OBI reports: the SDK's exception.type, args[0] when it is a str
-    (quoted for KeyError, as str() does) and the traceback's frames."""
+    (quoted for KeyError, as str() does) and the traceback's frames with the
+    source lines traceback prints."""
     kind = type(error)
     name = kind.__qualname__ if kind.__module__ == "builtins" else f"{kind.__module__}.{kind.__qualname__}"
     message = error.args[0] if error.args and isinstance(error.args[0], str) else ""
@@ -105,7 +107,12 @@ def ground_truth(error):
         "line_type": kind.__qualname__ if kind.__module__ in ("builtins", "__main__") else name,
         "message": message,
         "frames": [
-            {"file": frame.f_code.co_filename, "line": line, "function": frame.f_code.co_name}
+            {
+                "file": frame.f_code.co_filename,
+                "line": line,
+                "function": frame.f_code.co_name,
+                "source": linecache.getline(frame.f_code.co_filename, line).strip(),
+            }
             for frame, line in traceback.walk_tb(error.__traceback__)
         ],
     }

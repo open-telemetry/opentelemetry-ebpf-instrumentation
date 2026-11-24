@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/ebpf-profiler/libpf"
 	"go.opentelemetry.io/ebpf-profiler/remotememory"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/exceptions"
 )
 
@@ -102,10 +103,12 @@ func decodePythonException(_ *BpfExceptionEventHeaderT, payload []byte, event *e
 	if err != nil {
 		return err
 	}
-	return describePythonException(remotememory.NewProcessVirtualMemory(libpf.PID(record.ObiPid)), record, event)
+	pid := app.PID(record.ObiPid)
+	root := pythonSourceRoot{pid: pid, dir: RootDirectoryForPID(pid)}
+	return describePythonException(remotememory.NewProcessVirtualMemory(libpf.PID(record.ObiPid)), root, record, event)
 }
 
-func describePythonException(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, event *exceptions.Event) error {
+func describePythonException(memory remotememory.RemoteMemory, root pythonSourceRoot, record *BpfPythonExceptionPayloadT, event *exceptions.Event) error {
 	module, qualname := pythonTypeName(memory, record)
 	event.Type = pythonQualifiedName(module, qualname, "builtins")
 	if record.MessageKind != 0 {
@@ -126,7 +129,7 @@ func describePythonException(memory remotememory.RemoteMemory, record *BpfPython
 		}
 		last += event.Message
 	}
-	event.Stacktrace = pythonTraceback(memory, record) + last + "\n"
+	event.Stacktrace = pythonTraceback(memory, root, record) + last + "\n"
 	event.SeverityNumber = int32(plog.SeverityNumberError)
 	return nil
 }
@@ -312,15 +315,17 @@ func parsePythonExceptionPayload(payload []byte) (*BpfPythonExceptionPayloadT, e
 	return record, nil
 }
 
-// pythonTraceback writes the frames outermost first, as traceback.format_exception
-// does, without source lines.
-func pythonTraceback(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT) string {
-	var traceback strings.Builder
-	traceback.WriteString("Traceback (most recent call last):\n")
-	if record.Flags&BpfPythonExceptionFlagsK_pythonExceptionTruncated != 0 {
-		traceback.WriteString("  ... frames omitted\n")
-	}
+// pythonTracebackEntry is a line of the traceback and, for a decoded frame,
+// the source line printed below it.
+type pythonTracebackEntry struct {
+	text   string
+	source pythonSourceRef
+}
 
+// pythonTraceback writes the frames outermost first, as traceback.format_exception
+// does, without caret lines.
+func pythonTraceback(memory remotememory.RemoteMemory, root pythonSourceRoot, record *BpfPythonExceptionPayloadT) string {
+	var entries []pythonTracebackEntry
 	var last string
 	repeated := 0
 	for i := int(record.FrameCount) - 1; i >= 0; i-- {
@@ -329,35 +334,58 @@ func pythonTraceback(memory remotememory.RemoteMemory, record *BpfPythonExceptio
 		if errors.Is(err, errPythonNoLocation) {
 			continue
 		}
-		entry := "  File \"<unknown>\", line 0, in <unknown>\n"
+		entry := pythonTracebackEntry{text: "  File \"<unknown>\", line 0, in <unknown>\n"}
 		if err == nil {
-			entry = fmt.Sprintf("  File \"%s\", line %d, in %s\n", file, line, function)
+			entry = pythonTracebackEntry{
+				text:   fmt.Sprintf("  File \"%s\", line %d, in %s\n", file, line, function),
+				source: pythonSourceRef{file: file, line: line},
+			}
 		}
-		if entry != last {
-			pythonRepeated(&traceback, repeated)
-			last, repeated = entry, 0
+		if entry.text != last {
+			entries = pythonRepeated(entries, repeated)
+			last, repeated = entry.text, 0
 		}
 		repeated++
 		if repeated <= pythonRecursiveCutoff {
-			traceback.WriteString(entry)
+			entries = append(entries, entry)
 		}
 	}
-	pythonRepeated(&traceback, repeated)
+	entries = pythonRepeated(entries, repeated)
+
+	refs := make([]pythonSourceRef, len(entries))
+	for i, entry := range entries {
+		refs[i] = entry.source
+	}
+	sources := pythonSourceLines(root, refs)
+
+	var traceback strings.Builder
+	traceback.WriteString("Traceback (most recent call last):\n")
+	if record.Flags&BpfPythonExceptionFlagsK_pythonExceptionTruncated != 0 {
+		traceback.WriteString("  ... frames omitted\n")
+	}
+	for _, entry := range entries {
+		traceback.WriteString(entry.text)
+		if source := sources[entry.source]; source != "" {
+			traceback.WriteString("    " + source + "\n")
+		}
+	}
 	return traceback.String()
 }
 
 // pythonRepeated folds the repeats of a frame beyond the first three, as
 // traceback does for recursion.
-func pythonRepeated(traceback *strings.Builder, repeated int) {
+func pythonRepeated(entries []pythonTracebackEntry, repeated int) []pythonTracebackEntry {
 	if repeated <= pythonRecursiveCutoff {
-		return
+		return entries
 	}
 	more := repeated - pythonRecursiveCutoff
 	plural := "s"
 	if more == 1 {
 		plural = ""
 	}
-	fmt.Fprintf(traceback, "  [Previous line repeated %d more time%s]\n", more, plural)
+	return append(entries, pythonTracebackEntry{
+		text: fmt.Sprintf("  [Previous line repeated %d more time%s]\n", more, plural),
+	})
 }
 
 func pythonFrame(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, code uint64, instr uint32) (string, uint32, string, error) {

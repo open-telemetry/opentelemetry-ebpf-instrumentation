@@ -40,6 +40,9 @@ OpenTelemetry SDK writes it, so parsers built for that format read it unchanged.
 - The stacktrace starts with the runtime's header line, for example `Type: message`.
 - Causes and inner exceptions keep the runtime's notation, down to the root cause.
   When space runs out, frames are dropped before causes.
+- Python stacktraces list each frame's source line and contain only the raised
+  exception, without its cause, context, notes or exception group members. See
+  [python.md](python.md#stack-traces).
 - A shortened stacktrace ends frames on line boundaries and UTF-8 characters on
   character boundaries. Dropped frames become one line, `... N frames omitted`, or
   `... frames omitted` when the count is unknown, indented like the frames around
