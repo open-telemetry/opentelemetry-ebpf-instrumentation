@@ -130,6 +130,7 @@ struct {
     __type(key, u32); // OBI-visible PID
     __type(value, python_exception_proc_t);
     __uint(max_entries, k_max_concurrent_pids);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
     __uint(pinning, OBI_PIN_INTERNAL);
 } python_exception_procs SEC(".maps");
 

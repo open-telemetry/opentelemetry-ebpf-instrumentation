@@ -16,6 +16,7 @@ struct {
     __uint(max_entries, k_max_concurrent_pids);
     __type(key, pid_info_t);
     __type(value, struct python_runtime_metric_target);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
     __uint(pinning, OBI_PIN_INTERNAL);
 } python_runtime_metric_targets SEC(".maps");
 
