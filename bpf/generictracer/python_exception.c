@@ -62,6 +62,13 @@ int GUARDED_PROG(obi_uprobe_python_err_set_object, struct pt_regs *, ctx) {
         pending->latest.payload.obi_pid = process_pid;
         pending->latest.owner = owner;
         bpf_dbg_printk("python exception: captured pid=%d owner=%d", host_pid, owner);
+    } else {
+        const u64 traceback = python_read_ptr(value + proc->exception_traceback);
+        python_exception_capture_frames(proc, tstate, traceback, &pending->latest.payload);
+        pending->latest.pid_tgid = id;
+        pending->latest.tstate = tstate;
+        pending->latest.propagated |=
+            python_exception_propagated(proc, value, pending->latest.payload.type);
     }
 
     return 0;

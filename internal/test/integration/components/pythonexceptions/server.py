@@ -208,6 +208,19 @@ reuse_waiting, reuse_freed, reuse_held, reuse_sent = (threading.Event() for _ in
 reuse_ids = {}
 
 
+def local_errors(token, reraise):
+    try:
+        outer("ascii", token)
+    except ValueError:
+        close()
+    try:
+        raise LookupError(token)
+    except LookupError:
+        close()
+        if reraise:
+            raise
+
+
 def reuse_freed_first(token, respond):
     """Answers 500 after the caught exception is freed."""
     reuse_waiting.wait(5)
@@ -297,6 +310,24 @@ def fastapi_app(port):
     async def raise_task(case: str, token: str):
         await asyncio.create_task(nested(case, token))
 
+    async def handoff(scope, receive, send):
+        token = scope["path"].rsplit("/", 1)[-1]
+
+        def worker():
+            try:
+                outer("ascii", token)
+            except ValueError as error:
+                return error
+
+        error = await asyncio.to_thread(worker)
+        try:
+            raise error
+        except ValueError:
+            response = PlainTextResponse("error", status_code=500)
+            await response(scope, receive, send)
+
+    app.mount("/handoff", handoff)
+
     @app.get("/raise/thread/{case}/{token}")
     async def raise_thread(case: str, token: str):
         await asyncio.to_thread(escape, case, token)
@@ -362,6 +393,14 @@ def http_app(port):
                 handled(parts[3], parts[4])
                 self.respond(int(parts[5]), "handled")
                 return
+            if parts[1] == "saved-error":
+                try:
+                    local_errors(parts[3], reraise=parts[2] == "reraise")
+                except LookupError:
+                    self.respond(500, "error")
+                    return
+                self.respond(500, "error")
+                return
             if parts[1] == "reuse":
                 reuse = reuse_freed_first if parts[2] == "freed" else reuse_held_second
                 reuse(parts[3], self.respond)
@@ -382,7 +421,7 @@ def http_app(port):
             self.respond(200, "ok")
 
         def log_message(self, format, *args):
-            if not self.path.startswith(("/raise/direct/", "/raise/native-helper/")):
+            if not self.path.startswith(("/raise/direct/", "/raise/native-helper/", "/saved-error/")):
                 logger.info(format, *args)
 
     http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

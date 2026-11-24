@@ -82,7 +82,26 @@ func TestPythonExceptions(t *testing.T) {
 				}
 			}
 
+			if framework == "fastapi" {
+				t.Run("handoff", func(t *testing.T) {
+					const token = "fastapi-handoff"
+					traceID := fixture.get("/handoff/"+token, http.StatusInternalServerError)
+					event := harness.wait(t, traceID)
+					assert.Equal(t, "ValueError", event.Type)
+					assert.Equal(t, token, event.Message)
+				})
+			}
+
 			if framework == "http" {
+				for mode, wantType := range map[string]string{"caught": "ValueError", "reraise": "LookupError"} {
+					t.Run("saved-error/"+mode, func(t *testing.T) {
+						token := "http-saved-" + mode
+						traceID := fixture.get("/saved-error/"+mode+"/"+token, http.StatusInternalServerError)
+						event := harness.wait(t, traceID)
+						assert.Equal(t, wantType, event.Type)
+						assert.Equal(t, token, event.Message)
+					})
+				}
 				t.Run("context/ascii", func(t *testing.T) {
 					const token = "http-context"
 					traceID := fixture.get("/raise/context/ascii/"+token, http.StatusInternalServerError)
@@ -224,11 +243,6 @@ func assertPythonException(t *testing.T, event exceptions.Event, truth pythonExc
 	var expected []string
 	for _, frame := range truth.Frames {
 		expected = append(expected, fmt.Sprintf("  File \"%s\", line %d, in %s", frame.File, frame.Line, frame.Function))
-	}
-	// `raise error` and `raise ….with_traceback(tb)` add frames after the raise;
-	// the capture keeps the frames of the first raise.
-	if scenario == "raise_error" || scenario == "with_traceback" {
-		expected = expected[len(expected)-4:]
 	}
 	expected = foldPythonFrames(expected)
 	if scenario == "deep" {
