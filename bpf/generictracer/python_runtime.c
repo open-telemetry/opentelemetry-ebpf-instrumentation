@@ -55,12 +55,12 @@ int GUARDED_PROG(obi_uprobe_python_gc_done, struct pt_regs *, ctx) {
     pid_info_t key = {};
     task_pid(&key);
 
-    bpf_dbg_printk("python GC probe pid=%d ns=%d", key.user_pid, key.ns);
+    bpf_dbg_printk("python GC probe pid=%d, ns=%d", key.user_pid, key.ns);
 
     const struct python_runtime_metric_target *target =
         bpf_map_lookup_elem(&python_runtime_metric_targets, &key);
     if (!target || !target->runtime_addr) {
-        bpf_dbg_printk("python GC target missing pid=%d ns=%d", key.user_pid, key.ns);
+        bpf_dbg_printk("python GC target missing pid=%d, ns=%d", key.user_pid, key.ns);
         return 0;
     }
 
@@ -68,11 +68,11 @@ int GUARDED_PROG(obi_uprobe_python_gc_done, struct pt_regs *, ctx) {
     u64 finalizing = 0;
     if (!python_runtime_read(
             &finalizing, sizeof(finalizing), target->runtime_addr + target->runtime_finalizing)) {
-        bpf_dbg_printk("python GC finalizing read failed pid=%d ns=%d", key.user_pid, key.ns);
+        bpf_dbg_printk("python GC finalizing read failed pid=%d, ns=%d", key.user_pid, key.ns);
         return 0;
     }
     if (finalizing) {
-        bpf_dbg_printk("python GC finalizing pid=%d ns=%d", key.user_pid, key.ns);
+        bpf_dbg_printk("python GC finalizing pid=%d, ns=%d", key.user_pid, key.ns);
         return 0;
     }
 
@@ -81,29 +81,29 @@ int GUARDED_PROG(obi_uprobe_python_gc_done, struct pt_regs *, ctx) {
     if (!python_runtime_read(&interpreter,
                              sizeof(interpreter),
                              target->runtime_addr + target->runtime_interpreters_main)) {
-        bpf_dbg_printk("python GC interpreter read failed pid=%d ns=%d", key.user_pid, key.ns);
+        bpf_dbg_printk("python GC interpreter read failed pid=%d, ns=%d", key.user_pid, key.ns);
         return 0;
     }
     if (!interpreter) {
-        bpf_dbg_printk("python GC interpreter missing pid=%d ns=%d", key.user_pid, key.ns);
+        bpf_dbg_printk("python GC interpreter missing pid=%d, ns=%d", key.user_pid, key.ns);
         return 0;
     }
 
     struct python_runtime_metric_snapshot snapshot = {.generation = target->generation};
     const u64 gc_address = interpreter + target->interpreter_gc;
     if (!python_runtime_read_inline(gc_address, target, &snapshot)) {
-        bpf_dbg_printk("python GC counters read failed pid=%d ns=%d", key.user_pid, key.ns);
+        bpf_dbg_printk("python GC counters read failed pid=%d, ns=%d", key.user_pid, key.ns);
         return 0;
     }
 
     // Keep the latest snapshot for process exit, even if ring-buffer reservation fails.
     if (bpf_map_update_elem(&python_runtime_metric_snapshots, &key, &snapshot, BPF_ANY) != 0) {
-        bpf_dbg_printk("python GC snapshot update failed pid=%d ns=%d", key.user_pid, key.ns);
+        bpf_dbg_printk("python GC snapshot update failed pid=%d, ns=%d", key.user_pid, key.ns);
     }
 
     struct python_runtime_metric_event *event = events_ringbuf_reserve(sizeof(*event), 0);
     if (!event) {
-        bpf_dbg_printk("python GC event reserve failed pid=%d ns=%d", key.user_pid, key.ns);
+        bpf_dbg_printk("python GC event reserve failed pid=%d, ns=%d", key.user_pid, key.ns);
         return 0;
     }
     event->type = k_event_type_python_runtime_metrics;
@@ -111,7 +111,7 @@ int GUARDED_PROG(obi_uprobe_python_gc_done, struct pt_regs *, ctx) {
     event->snapshot = snapshot;
     bpf_ringbuf_submit(event, get_flags());
 
-    bpf_dbg_printk("python GC snapshot pid=%d collections=%llu",
+    bpf_dbg_printk("python GC snapshot pid=%d, collections=%llu",
                    key.user_pid,
                    snapshot.generations[0].collections);
 

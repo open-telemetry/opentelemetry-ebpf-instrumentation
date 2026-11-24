@@ -229,7 +229,7 @@ static __always_inline u8 mysql_classify(connection_info_t *conn_info,
         return 0;
     }
 
-    bpf_dbg_printk("is_mysql: payload_length=%d sequence_id=%d command_id=%d",
+    bpf_dbg_printk("is_mysql: payload_length=%d, sequence_id=%d, command_id=%d",
                    payload_len,
                    hdr.sequence_id,
                    hdr.command_id);

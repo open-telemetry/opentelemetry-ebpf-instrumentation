@@ -255,7 +255,7 @@ static __always_inline void http2_grpc_start(void *ctx,
         return;
     }
     http2_grpc_request_t *h2g_info = empty_http2_info();
-    bpf_dbg_printk("http2/grpc start direction=%d stream=%d", direction, s_key->stream_id);
+    bpf_dbg_printk("http2/grpc start direction=%d, stream=%d", direction, s_key->stream_id);
     //dbg_print_http_connection_info(&s_key->pid_conn.conn); // commented out since GitHub CI doesn't like this call
     if (!h2g_info) {
         return;
@@ -426,8 +426,8 @@ static __always_inline frame_header_t next_frame(const grpc_frames_ctx_t *g_ctx)
     header.length = bpf_ntohl(header.length << 8);
     header.stream_id = bpf_ntohl(header.stream_id << 1);
 
-    //bpf_dbg_printk("http2 frame type = %u, len = %u", header.type, header.length);
-    //bpf_dbg_printk("http2 frame stream_id = %u, flags = %u", header.stream_id, header.flags);
+    //bpf_dbg_printk("http2 frame type=%u, len=%u", header.type, header.length);
+    //bpf_dbg_printk("http2 frame stream_id=%u, flags=%u", header.stream_id, header.flags);
 
     return header;
 }
@@ -985,7 +985,7 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_end_frame, void *, ctx) {
         // carries END_STREAM=1). Keep ongoing_http2_grpc so the correct
         // -direction end can fire later (response trailers for CLIENT,
         // request send for SERVER).
-        bpf_dbg_printk("grpc request/response mismatch, req_type %d, prev_info->type %d",
+        bpf_dbg_printk("grpc request/response mismatch, req_type=%d, prev_type=%d",
                        req_type,
                        g_ctx->prev_info.type);
     }

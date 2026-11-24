@@ -180,7 +180,7 @@ static __always_inline void ship_large_request(void *buf,
         }
     }
 
-    bpf_d_printk("event type = %d, is_http = %d", event_type, is_http);
+    bpf_d_printk("event_type=%d, is_http=%d", event_type, is_http);
 
     if ((event_type == k_lb_event_type_server && direction == TCP_SEND) ||
         (event_type == k_lb_event_type_client && direction == TCP_RECV)) {
@@ -196,7 +196,7 @@ static __always_inline void ship_large_request(void *buf,
         }
     }
 
-    bpf_d_printk("event_type %d, packet_type %d, is_http %d", event_type, packet_type, is_http);
+    bpf_d_printk("event_type=%d, packet_type=%d, is_http=%d", event_type, packet_type, is_http);
 
     large_buf->type = k_event_type_tcp_large_buffer;
     large_buf->packet_type = packet_type;

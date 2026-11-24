@@ -1351,8 +1351,8 @@ int obi_packet_extender(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    bpf_dbg_printk("MSG=%llx:%d ->", conn.s_ip[3], conn.s_port);
-    bpf_dbg_printk("MSG TO=%llx:%d", conn.d_ip[3], conn.d_port);
+    bpf_dbg_printk("MSG s_ip=%llx, s_port=%d", conn.s_ip[3], conn.s_port);
+    bpf_dbg_printk("MSG d_ip=%llx, d_port=%d", conn.d_ip[3], conn.d_port);
     bpf_dbg_printk("MSG SIZE=%u", msg->size);
 
     const bool is_http = protocol_detector(msg, id, &conn);

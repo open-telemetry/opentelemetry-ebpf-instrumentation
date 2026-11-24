@@ -1195,7 +1195,7 @@ int GUARDED_PROG(obi_uprobe_grpc_http2Client_createHeaderFields_returns, struct 
     cleanup_grpc_pending_ref(&g_key);
     bpf_map_update_elem(&pending_h2_invocations, &fields_key, &pending, BPF_ANY);
     bpf_map_update_elem(&grpc_pending_header_by_request, &g_key, &fields_key.addr, BPF_ANY);
-    bpf_dbg_printk("createHeaderFields: stashed fields=%llx conn=%llx", fields, pending.conn_ptr);
+    bpf_dbg_printk("createHeaderFields: stashed fields=%llx, conn=%llx", fields, pending.conn_ptr);
     return 0;
 }
 

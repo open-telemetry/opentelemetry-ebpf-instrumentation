@@ -269,7 +269,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
         pid_key_t carrier = {0};
         task_tid(&carrier);
 
-        bpf_dbg_printk("Java VT mount carrier=%d vt=%lld", carrier.tid, vt_id);
+        bpf_dbg_printk("Java VT mount carrier=%d, vt=%lld", carrier.tid, vt_id);
         bpf_map_update_elem(&java_vt_threads, &carrier, &vt_id, BPF_ANY);
 
         return 0;
@@ -304,7 +304,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
             return 0;
         }
 
-        bpf_dbg_printk("Java thread mapping [%d] -> [%d]", parent.tid, child.tid);
+        bpf_dbg_printk("Java thread mapping parent=%d, child=%d", parent.tid, child.tid);
         bpf_map_update_elem(&java_tasks, &child, &parent, BPF_ANY);
 
         // Walk the java_tasks chain to find the parent's server trace and
