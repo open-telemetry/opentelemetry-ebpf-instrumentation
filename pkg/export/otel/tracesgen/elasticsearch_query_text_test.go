@@ -109,6 +109,11 @@ var sanitizeElasticsearchBodyTests = []struct {
 		want: "",
 	},
 	{
+		name: "duplicate keys",
+		body: `{"user": "jane", "user": "john"}`,
+		want: `{"user":"?","user":"?"}`,
+	},
+	{
 		name: "numbers",
 		body: `[0, -0, 12, -1.5, 2e10, 3E-2, 4.25e+1]`,
 		want: `["?","?","?","?","?","?","?"]`,
@@ -208,7 +213,6 @@ func TestSanitizeElasticsearchBody(t *testing.T) {
 	}
 }
 
-// FuzzSanitizeElasticsearchBody checks the sanitizer against encoding/json.
 func FuzzSanitizeElasticsearchBody(f *testing.F) {
 	for _, tt := range sanitizeElasticsearchBodyTests {
 		f.Add(tt.body)
@@ -217,43 +221,89 @@ func FuzzSanitizeElasticsearchBody(f *testing.F) {
 	f.Fuzz(func(t *testing.T, body string) {
 		got := sanitizeElasticsearchBody(body)
 
-		if utf8.ValidString(body) && json.Valid([]byte(body)) {
-			require.NotEmpty(t, got)
-			var sanitized any
-			require.NoError(t, json.Unmarshal([]byte(got), &sanitized), "sanitized %q to invalid JSON %q", body, got)
-			requireOnlySanitizedValues(t, sanitized)
+		values, ok := ndjsonValues(body)
+		if !ok {
+			require.Empty(t, got, "accepted invalid body %q", body)
+			return
 		}
-		if got != "" {
-			require.True(t, decodesAsJSONValues(body), "accepted invalid JSON %q", body)
+
+		sanitizedValues := make([]string, 0, len(values))
+		for _, value := range values {
+			sanitized := sanitizeElasticsearchBody(value)
+			requireSanitized(t, value, sanitized)
+			sanitizedValues = append(sanitizedValues, sanitized)
 		}
+		require.Equal(t, strings.Join(sanitizedValues, elasticsearchBodySeparator), got)
 	})
 }
 
-func requireOnlySanitizedValues(t *testing.T, value any) {
-	switch value := value.(type) {
-	case map[string]any:
-		for _, v := range value {
-			requireOnlySanitizedValues(t, v)
-		}
-	case []any:
-		for _, v := range value {
-			requireOnlySanitizedValues(t, v)
-		}
-	default:
-		require.Equal(t, "?", value)
-	}
+// requireSanitized walks value and its sanitized form token by token, so that
+// a repeated key cannot hide a value.
+func requireSanitized(t *testing.T, value, sanitized string) {
+	input := json.NewDecoder(strings.NewReader(value))
+	input.UseNumber()
+	output := json.NewDecoder(strings.NewReader(sanitized))
+	requireSanitizedTokens(t, input, output)
+
+	_, err := output.Token()
+	require.ErrorIs(t, err, io.EOF, "sanitized %q to %q", value, sanitized)
 }
 
-func decodesAsJSONValues(body string) bool {
+func requireSanitizedTokens(t *testing.T, input, output *json.Decoder) {
+	inToken, err := input.Token()
+	require.NoError(t, err)
+	outToken, err := output.Token()
+	require.NoError(t, err)
+
+	if inToken != json.Delim('{') && inToken != json.Delim('[') {
+		require.Equal(t, "?", outToken)
+		return
+	}
+
+	require.Equal(t, inToken, outToken)
+	for input.More() {
+		if inToken == json.Delim('{') {
+			requireSameToken(t, input, output)
+		}
+		requireSanitizedTokens(t, input, output)
+	}
+	requireSameToken(t, input, output)
+}
+
+func requireSameToken(t *testing.T, input, output *json.Decoder) {
+	inToken, err := input.Token()
+	require.NoError(t, err)
+	outToken, err := output.Token()
+	require.NoError(t, err)
+	require.Equal(t, inToken, outToken)
+}
+
+func ndjsonValues(body string) ([]string, bool) {
+	if !utf8.ValidString(body) {
+		return nil, false
+	}
+
 	dec := json.NewDecoder(strings.NewReader(body))
+	var values []string
+	var valueEnd int64
 	for dec.More() {
+		// More skips whitespace, so InputOffset is the start of the next value.
+		if len(values) > 0 && !strings.Contains(body[valueEnd:dec.InputOffset()], "\n") {
+			return nil, false
+		}
+
 		var value json.RawMessage
 		if err := dec.Decode(&value); err != nil {
-			return false
+			return nil, false
 		}
+		values = append(values, string(value))
+		valueEnd = dec.InputOffset()
 	}
-	_, err := dec.Token()
-	return errors.Is(err, io.EOF)
+
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, false
+	}
+	return values, len(values) > 0
 }
 
 func BenchmarkSanitizeElasticsearchBody(b *testing.B) {

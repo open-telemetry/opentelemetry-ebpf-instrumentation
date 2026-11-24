@@ -10,11 +10,8 @@ import (
 
 const (
 	elasticsearchSanitizedValue = `"?"`
-	// elasticsearchBodySeparator joins the values of NDJSON bodies, such as
-	// those of _msearch and _bulk.
-	elasticsearchBodySeparator = ";"
-	// elasticsearchMaxDepth is the nesting limit of encoding/json.
-	elasticsearchMaxDepth = 10000
+	elasticsearchBodySeparator  = ";"
+	elasticsearchMaxDepth       = 10000
 )
 
 // sanitizeElasticsearchBody replaces every string, number, boolean and null in
@@ -40,9 +37,7 @@ func sanitizeElasticsearchBody(body string) string {
 	return out.String()
 }
 
-// esBodyScanner validates JSON while copying its structure and field names to
-// out. It reads the body in place. With a nil out, it only measures the size
-// of the result.
+// esBodyScanner only measures the size of the result when out is nil.
 type esBodyScanner struct {
 	body string
 	pos  int
@@ -240,7 +235,6 @@ func (s *esBodyScanner) skipNumber() bool {
 	return true
 }
 
-// skipDigits reports whether it skipped at least one digit.
 func (s *esBodyScanner) skipDigits() bool {
 	start := s.pos
 	for s.pos < len(s.body) && isDigit(s.body[s.pos]) {
