@@ -40,6 +40,7 @@ type flowFetcher struct {
 	fetcher interface {
 		LookupAndDeleteMap() map[NetFlowId]*NetFlowMetrics
 		ReadRingBuf() (ringbuf.Record, error)
+		LookupPacketStats() (NetPacketCount, error)
 	}
 	readerDone chan struct{}
 
@@ -53,6 +54,7 @@ type flowFetcher struct {
 func newFlowFetcher(t *testing.T, fetcher interface {
 	LookupAndDeleteMap() map[NetFlowId]*NetFlowMetrics
 	ReadRingBuf() (ringbuf.Record, error)
+	LookupPacketStats() (NetPacketCount, error)
 	Close() error
 },
 ) *flowFetcher {
