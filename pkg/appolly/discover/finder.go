@@ -160,8 +160,10 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 	swi.Add(dynamicMatcherProvider(langEnrichedEvents, criteriaFilteredEvents, appDynamicSelector),
 		swarm.WithID("DynamicMatcher"))
 
+	externalSpanExport := pf.ctxInfo != nil && pf.ctxInfo.OverrideAppExportQueue != nil
+
 	executableTypes := msgh.QueueFromConfig[[]Event[ebpf.Instrumentable]](pf.cfg, pf.ctxInfo.Metrics, "executableTypes")
-	swi.Add(ExecTyperProvider(pf.cfg, pf.ctxInfo.Metrics, pf.ctxInfo.K8sInformer, criteriaFilteredEvents, executableTypes),
+	swi.Add(execTyperProvider(pf.cfg, pf.ctxInfo.Metrics, pf.ctxInfo.K8sInformer, externalSpanExport, criteriaFilteredEvents, executableTypes),
 		swarm.WithID("ExecTyper"))
 
 	processContextEnrichedTypes := msgh.QueueFromConfig[[]Event[ebpf.Instrumentable]](pf.cfg, pf.ctxInfo.Metrics, "processContextEnrichedTypes")
@@ -176,6 +178,7 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 		swarm.WithID("ContainerStoreUpdater"))
 	swi.Add(traceAttacherProvider(&traceAttacher{
 		Cfg:                 pf.cfg,
+		ExternalSpanExport:  externalSpanExport,
 		OutputTracerEvents:  tracerEvents,
 		Metrics:             pf.ctxInfo.Metrics,
 		SpanSignalsShortcut: pf.tracesInput,
@@ -204,14 +207,16 @@ func (pf *ProcessFinder) Done() <-chan error {
 // discovery pipeline
 
 // the common tracer group should get loaded for any tracer group, only once
-func newCommonTracersGroup(cfg *obi.Config, metrics imetrics.Reporter, pidFilter ebpfcommon.ServiceFilter) []ebpf.Tracer {
+func newCommonTracersGroup(cfg *obi.Config, metrics imetrics.Reporter, pidFilter ebpfcommon.ServiceFilter, externalSpanExport bool) []ebpf.Tracer {
 	var tracers []ebpf.Tracer
 
 	// Add tracers based on configuration
 
 	// Enables tpinjector which handles context propagation via both HTTP headers (sk_msg) and TCP options (BPF_SOCK_OPS)
 	if cfg.EBPF.ContextPropagation.HasHeaders() || cfg.EBPF.ContextPropagation.HasTCP() {
-		tracers = append(tracers, tpinjector.New(cfg, pidFilter))
+		tp := tpinjector.New(cfg, pidFilter)
+		tp.SetMapPruneOptions(cfg.MapPruneOptionsForContext(externalSpanExport))
+		tracers = append(tracers, tp)
 	}
 
 	// Enables log enricher which handles trace-log correlation
@@ -234,10 +239,15 @@ func newGoTracersGroup(
 	pidFilter ebpfcommon.ServiceFilter,
 	cfg *obi.Config,
 	metrics imetrics.Reporter,
+	externalSpanExport bool,
 ) []ebpf.Tracer {
-	return []ebpf.Tracer{gotracer.New(pidFilter, cfg, metrics)}
+	gt := gotracer.New(pidFilter, cfg, metrics)
+	gt.SetMapPruneOptions(cfg.MapPruneOptionsForContext(externalSpanExport))
+	return []ebpf.Tracer{gt}
 }
 
-func newGenericTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) []ebpf.Tracer {
-	return []ebpf.Tracer{generictracer.New(pidFilter, cfg, metrics)}
+func newGenericTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter, externalSpanExport bool) []ebpf.Tracer {
+	gt := generictracer.New(pidFilter, cfg, metrics)
+	gt.SetMapPruneOptions(cfg.MapPruneOptionsForContext(externalSpanExport))
+	return []ebpf.Tracer{gt}
 }

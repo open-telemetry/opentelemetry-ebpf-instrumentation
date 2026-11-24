@@ -42,9 +42,10 @@ var removeMemlock = rlimit.RemoveMemlock
 // for each received Instrumentable process and forwards an ebpf.ProcessTracer instance ready to run and start
 // instrumenting the executable
 type traceAttacher struct {
-	log     *slog.Logger
-	Cfg     *obi.Config
-	Metrics imetrics.Reporter
+	log                *slog.Logger
+	Cfg                *obi.Config
+	ExternalSpanExport bool
+	Metrics            imetrics.Reporter
 
 	// processInstances keeps track of the instances of each process. This will help making sure
 	// that we don't remove the BPF resources of an executable until all their instances are removed
@@ -346,7 +347,7 @@ func (ta *traceAttacher) getTracer(ctx context.Context, ie *ebpf.Instrumentable)
 				// instance of the executable has different DLLs loaded, e.g. libssl.so.
 				return ta.reuseTracer(ctx, ta.reusableTracer, ie)
 			} else {
-				programs = ta.withCommonTracersGroup(newGenericTracersGroup(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
+				programs = ta.withCommonTracersGroup(newGenericTracersGroup(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics, ta.ExternalSpanExport))
 			}
 		} else {
 			if ta.reusableGoTracer != nil {
@@ -357,13 +358,14 @@ func (ta *traceAttacher) getTracer(ctx context.Context, ie *ebpf.Instrumentable)
 				ta.EbpfEventContext.CommonPIDsFilter,
 				ta.Cfg,
 				ta.Metrics,
+				ta.ExternalSpanExport,
 			))
 		}
 	case svc.InstrumentableNodejs, svc.InstrumentableDeno, svc.InstrumentableJava, svc.InstrumentableJavaNative, svc.InstrumentableRuby, svc.InstrumentablePython, svc.InstrumentableDotnet, svc.InstrumentableGeneric, svc.InstrumentableRust, svc.InstrumentablePHP, svc.InstrumentableCPP:
 		if ta.reusableTracer != nil {
 			return ta.reuseTracer(ctx, ta.reusableTracer, ie)
 		}
-		programs = ta.withCommonTracersGroup(newGenericTracersGroup(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
+		programs = ta.withCommonTracersGroup(newGenericTracersGroup(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics, ta.ExternalSpanExport))
 	default:
 		ta.log.Warn("unexpected instrumentable type. This is basically a bug", "type", ie.Type)
 	}
@@ -448,7 +450,7 @@ func (ta *traceAttacher) withCommonTracersGroup(tracers []ebpf.Tracer) []ebpf.Tr
 		return tracers
 	}
 
-	ta.commonTracers = newCommonTracersGroup(ta.Cfg, ta.Metrics, ta.EbpfEventContext.CommonPIDsFilter)
+	ta.commonTracers = newCommonTracersGroup(ta.Cfg, ta.Metrics, ta.EbpfEventContext.CommonPIDsFilter, ta.ExternalSpanExport)
 
 	return append(tracers, ta.commonTracers...)
 }

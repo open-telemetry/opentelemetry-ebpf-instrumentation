@@ -44,6 +44,7 @@ import (
 
 type Tracer struct {
 	cfg                     *obi.Config
+	pruneOpts               *ebpfcommon.MapPruneOptions
 	bpfObjects              BpfObjects
 	bpfIterObjects          BpfIterObjects
 	bpfFionreadFixupObjects BpfFionreadFixupObjects
@@ -90,15 +91,29 @@ func New(cfg *obi.Config, pidsFilter ebpfcommon.ServiceFilter) *Tracer {
 	log := slog.With("component", "tpinjector")
 	// unusable without /proc, which makes the backfill fall back
 	procFS, _ := procfs.NewDefaultFS()
+	pruneOpts := cfg.MapPruneOptions()
 	return &Tracer{
 		log:           log,
 		cfg:           cfg,
+		pruneOpts:     &pruneOpts,
 		fionreadProbe: sockhashFIONREADProbe,
 		seenNetns:     expirable.NewLRU[uint64, struct{}](seenNetnsCacheLen, nil, seenNetnsTTL),
 		netnsAttempts: expirable.NewLRU[uint64, int](seenNetnsCacheLen, nil, seenNetnsTTL),
 		pidsFilter:    pidsFilter,
 		procFS:        procFS,
 	}
+}
+
+// SetMapPruneOptions overrides the map-pruning options used by LoadSpecs.
+func (p *Tracer) SetMapPruneOptions(opts ebpfcommon.MapPruneOptions) {
+	p.pruneOpts = &opts
+}
+
+func (p *Tracer) mapPruneOptions() ebpfcommon.MapPruneOptions {
+	if p.pruneOpts != nil {
+		return *p.pruneOpts
+	}
+	return p.cfg.MapPruneOptions()
 }
 
 // AllowPID enrolls the process's client connections: new ones at connect, earlier ones by backfill
@@ -214,6 +229,7 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 			"error", err)
 		disableH2SocketMutation(spec)
 	}
+	ebpfcommon.ShrinkDisabledFeatureMaps(spec, p.mapPruneOptions())
 
 	p.enrollInstrumentedOnly = p.canBackfillSockets()
 

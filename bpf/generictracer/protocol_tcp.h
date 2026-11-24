@@ -149,6 +149,10 @@ static __always_inline void unknown_send_large_buffer(tcp_req_t *req,
                                                       u8 packet_type,
                                                       u8 direction,
                                                       enum large_buf_action action) {
+    if (tcp_max_captured_bytes == 0 || bytes_len == 0) {
+        return;
+    }
+
     tcp_large_buffer_t *lb = (tcp_large_buffer_t *)tcp_large_buffers_mem();
 
     if (!lb) {

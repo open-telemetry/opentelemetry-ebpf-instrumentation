@@ -866,6 +866,69 @@ func TestConditionalParentsSettledBeforeFiltering(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
+func TestMetricsOnlySkipsSettleConditionalParents(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	tc, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := otelcfg.MetricsConfig{
+		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
+		ReportersCacheLen: 16,
+		TTL:               5 * time.Minute,
+		Instrumentations: []instrumentations.Instrumentation{
+			instrumentations.InstrumentationALL,
+		},
+	}
+	cfg := obi.DefaultConfig
+	cfg.EBPF.MaxTransactionTime = 5 * time.Minute
+	cfg.Metrics = mpConfig
+	cfg.OTELMetrics = mcfg
+	cfg.Attributes = obi.Attributes{Select: allMetrics, InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}}
+
+	gb := newGraphBuilder(&cfg, gctx(0, &mcfg), tracesInput, processEvents, nil)
+	pipe, err := gb.buildGraph(ctx)
+	require.NoError(t, err)
+	done := pipe.Start(ctx)
+
+	// Send a conditional child without its parent; if SettleConditionalParents
+	// were active it would hold the span for MaxTransactionTime (5m).
+	child := conditionalChild(100)
+	child.RequestStart = 100
+	child.End = 200
+	child.Method = http.MethodGet
+	child.Path = "/metrics-only"
+	child.Status = 200
+	child.Peer = "1.1.1.1"
+	child.Host = "127.0.0.1"
+	child.HostPort = 8080
+	child.Service = svc.Attrs{
+		Features:    export.FeatureApplicationRED,
+		HostName:    "the-host",
+		UID:         svc.UID{Name: "foo-svc", Namespace: "ns"},
+		SDKLanguage: svc.InstrumentableGolang,
+	}
+	tracesInput.Send([]request.Span{child})
+
+	const settleBypassTimeout = 5 * time.Second
+	start := time.Now()
+	for {
+		event := testutil.ReadChannel(t, tc.Records(), settleBypassTimeout)
+		if event.Name == "http.client.request.duration" {
+			break
+		}
+		if time.Since(start) > settleBypassTimeout {
+			t.Fatalf("timed out waiting for http.client.request.duration")
+		}
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
 func newRequest(serviceName string, path string, status int) []request.Span {
 	return []request.Span{{
 		Path:         path,

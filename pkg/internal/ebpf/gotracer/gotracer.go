@@ -314,6 +314,7 @@ type Tracer struct {
 	log                               *slog.Logger
 	pidsFilter                        ebpfcommon.ServiceFilter
 	cfg                               *config.EBPFTracer
+	pruneOpts                         *ebpfcommon.MapPruneOptions
 	shutdownTimeout                   time.Duration
 	tracesSampler                     *services.SamplerConfig
 	metrics                           imetrics.Reporter
@@ -359,11 +360,13 @@ func New(
 	log := slog.With("component", "go.Tracer")
 
 	disabledRouteHarvesting := slices.Contains(cfg.Discovery.DisabledRouteHarvesters, services.RouteHarvesterLanguageGo)
+	pruneOpts := cfg.MapPruneOptions()
 
 	return &Tracer{
 		log:                               log,
 		pidsFilter:                        pidFilter,
 		cfg:                               &cfg.EBPF,
+		pruneOpts:                         &pruneOpts,
 		shutdownTimeout:                   cfg.ShutdownTimeout,
 		tracesSampler:                     &cfg.Traces.SamplerConfig,
 		metrics:                           metrics,
@@ -391,7 +394,7 @@ func New(
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.goAutoSDKTargetsMu.Lock()
 	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeGo)
-	if p.pidsFilter.ValidPID(pid, ns, ebpfcommon.PIDTypeGo) {
+	if p.pidsFilter.ValidPID(pid, ns, ebpfcommon.PIDTypeGo) && p.goManualSDKEnabled() {
 		ino := uint64(0)
 		dev := uint64(0)
 		if fi != nil {
@@ -503,6 +506,7 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 		ebpfcommon.DisableJavaHTTP1Atomics(spec)
 	}
 	p.privateExceptionEvents(spec)
+	ebpfcommon.ShrinkDisabledFeatureMaps(spec, p.mapPruneOptions())
 	if !p.exceptionsEnabled {
 		ebpfcommon.ShrinkPythonExceptionMaps(spec)
 	}
@@ -2169,45 +2173,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"github.com/Shopify/sarama.(*Broker).sendInternal": {{
 			Start: p.bpfObjects.ObiUprobeSaramaSendInternal,
 		}},
-		// Go OTel SDK
-		"go.opentelemetry.io/otel/internal/global.(*tracer).Start": {{
-			Start: p.bpfObjects.ObiUprobeTracerStartGlobal,
-			End:   p.bpfObjects.ObiUprobeTracerStartReturns,
-		}},
-		"go.opentelemetry.io/auto/sdk.(*tracer).Start": {{
-			Start: p.bpfObjects.ObiUprobeTracerStart,
-			End:   p.bpfObjects.ObiUprobeTracerStartReturns,
-		}},
-		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).End": {{
-			Start: p.bpfObjects.ObiUprobeNonRecordingSpanEnd,
-		}},
-		"go.opentelemetry.io/auto/sdk.(*span).End": {{
-			Start: p.bpfObjects.ObiUprobeNonRecordingSpanEnd,
-		}},
-		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).SetStatus": {{
-			Start: p.bpfObjects.ObiUprobeSetStatus,
-		}},
-		"go.opentelemetry.io/auto/sdk.(*span).SetStatus": {{
-			Start: p.bpfObjects.ObiUprobeSetStatus,
-		}},
-		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).SetAttributes": {{
-			Start: p.bpfObjects.ObiUprobeSetAttributes,
-		}},
-		"go.opentelemetry.io/auto/sdk.(*span).SetAttributes": {{
-			Start: p.bpfObjects.ObiUprobeSetAttributes,
-		}},
-		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).SetName": {{
-			Start: p.bpfObjects.ObiUprobeSetName,
-		}},
-		"go.opentelemetry.io/auto/sdk.(*span).SetName": {{
-			Start: p.bpfObjects.ObiUprobeSetName,
-		}},
-		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).RecordError": {{
-			Start: p.bpfObjects.ObiUprobeRecordError,
-		}},
-		"go.opentelemetry.io/auto/sdk.(*span).RecordError": {{
-			Start: p.bpfObjects.ObiUprobeRecordError,
-		}},
 		// Go MongoDB
 		"go.mongodb.org/mongo-driver/x/mongo/driver.Operation.Execute": {{
 			Start: p.bpfObjects.ObiUprobeMongoOpExecute,
@@ -2333,6 +2298,49 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 	if p.traceCtxMapEnabled {
 		m["runtime.casgstatus"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus,
+		}}
+	}
+
+	// Only attach Go OTel manual/auto SDK probes when traces or span/service-graph
+	// metrics are enabled so shrinking active_spans/span_names/span_mem is race-free.
+	if p.goManualSDKEnabled() {
+		m["go.opentelemetry.io/otel/internal/global.(*tracer).Start"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeTracerStartGlobal,
+			End:   p.bpfObjects.ObiUprobeTracerStartReturns,
+		}}
+		m["go.opentelemetry.io/auto/sdk.(*tracer).Start"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeTracerStart,
+			End:   p.bpfObjects.ObiUprobeTracerStartReturns,
+		}}
+		m["go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).End"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeNonRecordingSpanEnd,
+		}}
+		m["go.opentelemetry.io/auto/sdk.(*span).End"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeNonRecordingSpanEnd,
+		}}
+		m["go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).SetStatus"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeSetStatus,
+		}}
+		m["go.opentelemetry.io/auto/sdk.(*span).SetStatus"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeSetStatus,
+		}}
+		m["go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).SetAttributes"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeSetAttributes,
+		}}
+		m["go.opentelemetry.io/auto/sdk.(*span).SetAttributes"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeSetAttributes,
+		}}
+		m["go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).SetName"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeSetName,
+		}}
+		m["go.opentelemetry.io/auto/sdk.(*span).SetName"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeSetName,
+		}}
+		m["go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).RecordError"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRecordError,
+		}}
+		m["go.opentelemetry.io/auto/sdk.(*span).RecordError"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRecordError,
 		}}
 	}
 
@@ -2549,8 +2557,7 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 		})
 	}
 
-	if p.currentBinary.Ino != 0 && p.embeddedSDKActivationByExecutable[p.currentBinary] &&
-		p.supportsContextPropagation() {
+	if p.goEmbeddedSDKActivationProbesEnabled() {
 		groups = append(groups, ebpfcommon.GoProbeGroup{
 			Name: "go_embedded_sdk_activation",
 			Probes: []ebpfcommon.GoProbe{
@@ -2723,12 +2730,42 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 	}
 }
 
+// SetMapPruneOptions overrides the map-pruning and probe-gating options.
+func (p *Tracer) SetMapPruneOptions(opts ebpfcommon.MapPruneOptions) {
+	p.pruneOpts = &opts
+}
+
+func (p *Tracer) mapPruneOptions() ebpfcommon.MapPruneOptions {
+	if p.pruneOpts != nil {
+		return *p.pruneOpts
+	}
+	return (*obi.Config)(nil).MapPruneOptions()
+}
+
+func (p *Tracer) goManualSDKEnabled() bool {
+	return p.pruneOpts == nil || p.pruneOpts.GoManualSDKEnabled
+}
+
 func (p *Tracer) goAutoSDKActivationProbesEnabled() bool {
 	if p == nil || p.currentBinary.Ino == 0 {
 		return false
 	}
+	if !p.goManualSDKEnabled() {
+		return false
+	}
 
 	return p.goAutoSDKActivationByExecutable[p.currentBinary] && p.supportsContextPropagation()
+}
+
+func (p *Tracer) goEmbeddedSDKActivationProbesEnabled() bool {
+	if p == nil || p.currentBinary.Ino == 0 {
+		return false
+	}
+	if !p.goManualSDKEnabled() {
+		return false
+	}
+
+	return p.embeddedSDKActivationByExecutable[p.currentBinary] && p.supportsContextPropagation()
 }
 
 func (p *Tracer) goChannelLinkProbesEnabled() bool {
@@ -2736,6 +2773,9 @@ func (p *Tracer) goChannelLinkProbesEnabled() bool {
 		return false
 	}
 	if p.cfg != nil && p.cfg.DisableGoChannelLinks {
+		return false
+	}
+	if p.pruneOpts != nil && !p.pruneOpts.GoChannelLinksEnabled {
 		return false
 	}
 
@@ -2810,7 +2850,11 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 	p.readExceptionEvents(ctx, ebpfEventContext)
 
 	if !p.traceCtxMapEnabled {
-		ebpfconvenience.DrainTraceContextMap[BpfObiCtxInfoT](p.log, p.bpfObjects.TracesCtxV1)
+		if p.bpfObjects.TracesCtxV1 != nil && p.bpfObjects.TracesCtxV1.MaxEntries() <= 1 && p.cfg != nil && p.cfg.BPFFSPath != "" {
+			ebpfconvenience.DrainPinnedTraceContextMap[BpfObiCtxInfoT](p.log, p.cfg.BPFFSPath)
+		} else {
+			ebpfconvenience.DrainTraceContextMap[BpfObiCtxInfoT](p.log, p.bpfObjects.TracesCtxV1)
+		}
 	}
 
 	ebpfcommon.SharedRingbufWithDrainContext(

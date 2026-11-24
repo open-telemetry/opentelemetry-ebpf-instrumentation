@@ -159,10 +159,13 @@ func newGraphBuilderWithProtocolMetricSelection(
 	if exportableSpans == nil {
 		exportableSpans = msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "exportableSpans")
 	}
-	nameResolverToAttrFilter := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "nameResolverToAttrFilter")
-	swi.Add(SettleConditionalParents(config.EBPF.MaxTransactionTime,
-		nameResolverToParentSettler, nameResolverToAttrFilter),
-		swarm.WithID("SettleConditionalParents"))
+	nameResolverToAttrFilter := nameResolverToParentSettler
+	if config.Traces.Enabled() || config.TracePrinter.Enabled() || ctxInfo.OverrideAppExportQueue != nil {
+		nameResolverToAttrFilter = msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "nameResolverToAttrFilter")
+		swi.Add(SettleConditionalParents(config.EBPF.MaxTransactionTime,
+			nameResolverToParentSettler, nameResolverToAttrFilter),
+			swarm.WithID("SettleConditionalParents"))
+	}
 	attrFilteredSpans := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "attrFilteredSpans")
 	swi.Add(filter.ByAttribute(config.Filters.Application,
 		nil,
