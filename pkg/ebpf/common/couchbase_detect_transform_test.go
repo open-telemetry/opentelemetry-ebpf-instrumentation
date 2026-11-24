@@ -1092,8 +1092,78 @@ func TestBuildCouchbaseStatement(t *testing.T) {
 			raw := makeCouchbaseRequestPacketWithDataType(tt.opcode, tt.key, tt.value, tt.extras, tt.dataType)
 			pkt, err := couchbasekv.ParsePacket(raw)
 			require.NoError(t, err)
-			got := buildCouchbaseStatement(pkt, tt.collectionsEnabled)
+			got := buildCouchbaseStatement(pkt, tt.collectionsEnabled, false)
 			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestBuildCouchbaseStatementSanitized(t *testing.T) {
+	setExtras := make([]byte, 8)
+	binary.BigEndian.PutUint32(setExtras[4:8], 3600)
+	incrExtras := make([]byte, 20)
+	binary.BigEndian.PutUint64(incrExtras[0:8], 5)
+
+	tests := []struct {
+		name     string
+		opcode   couchbasekv.Opcode
+		value    []byte
+		extras   []byte
+		dataType couchbasekv.DataType
+		expected string
+	}{
+		{
+			name:     "SET value replaced, TTL kept",
+			opcode:   couchbasekv.OpcodeSet,
+			value:    []byte(`{"card":"4111111111111111"}`),
+			extras:   setExtras,
+			dataType: couchbasekv.DataTypeJSON,
+			expected: "SET user::42 TTL=3600 ?",
+		},
+		{
+			name:     "SETQ value replaced",
+			opcode:   couchbasekv.OpcodeSetQ,
+			value:    []byte("secret"),
+			extras:   make([]byte, 8),
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "SETQ user::42 ?",
+		},
+		{
+			name:     "APPEND value replaced",
+			opcode:   couchbasekv.OpcodeAppend,
+			value:    []byte(`,"note":"secret"`),
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "APPEND user::42 ?",
+		},
+		{
+			name:     "snappy value stays omitted",
+			opcode:   couchbasekv.OpcodeSet,
+			value:    []byte{0xff, 0x01, 0x02},
+			extras:   setExtras,
+			dataType: couchbasekv.DataTypeJSON | couchbasekv.DataTypeSnappy,
+			expected: "SET user::42 TTL=3600",
+		},
+		{
+			name:     "GET unchanged",
+			opcode:   couchbasekv.OpcodeGet,
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "GET user::42",
+		},
+		{
+			name:     "INCREMENT unchanged",
+			opcode:   couchbasekv.OpcodeIncrement,
+			extras:   incrExtras,
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "INCREMENT user::42 DELTA=5",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := makeCouchbaseRequestPacketWithDataType(tt.opcode, "user::42", tt.value, tt.extras, tt.dataType)
+			pkt, err := couchbasekv.ParsePacket(raw)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, buildCouchbaseStatement(pkt, false, true))
 		})
 	}
 }
@@ -1111,4 +1181,21 @@ func TestProcessCouchbaseEvent_StatementPopulated(t *testing.T) {
 	assert.False(t, ignore)
 	require.NotNil(t, info)
 	assert.Equal(t, "GET user::42", info.Statement)
+}
+
+func TestCouchbaseSpanSanitizedStatement(t *testing.T) {
+	cache, err := simplelru.NewLRU[BpfConnectionInfoT, CouchbaseBucketInfo](100, nil)
+	require.NoError(t, err)
+	connInfo := newTestConnInfo()
+
+	req := makeCouchbaseRequestPacket(couchbasekv.OpcodeSet, "user::42", "secret", make([]byte, 8))
+	resp := makeCouchbaseResponsePacket(couchbasekv.OpcodeSet, couchbasekv.StatusSuccess, "")
+
+	info, _, err := processCouchbaseEvent(connInfo, req, resp, cache)
+	require.NoError(t, err)
+	require.NotNil(t, info)
+
+	span := TCPToCouchbaseToSpan(&TCPRequestInfo{ConnInfo: connInfo}, info)
+	assert.Equal(t, "SET user::42 secret", span.Statement)
+	assert.Equal(t, "SET user::42 ?", span.DBQueryTextSanitized)
 }

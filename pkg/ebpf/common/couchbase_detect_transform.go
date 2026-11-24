@@ -22,15 +22,18 @@ import (
 
 // CouchbaseInfo holds parsed Couchbase memcached binary protocol information.
 type CouchbaseInfo struct {
-	Operation  string
-	Key        string
-	Bucket     string
-	Scope      string
-	Collection string
-	Statement  string
-	Status     couchbasekv.Status
-	IsError    bool
+	Operation          string
+	Key                string
+	Bucket             string
+	Scope              string
+	Collection         string
+	Statement          string
+	SanitizedStatement string
+	Status             couchbasekv.Status
+	IsError            bool
 }
+
+const couchbaseSanitizedValue = "?"
 
 var errInvalidCouchbase = errors.New("no valid Couchbase request packets found")
 
@@ -41,7 +44,9 @@ var errInvalidCouchbase = errors.New("no valid Couchbase request packets found")
 // from the key. A leading null byte (default collection, ID 0) is also stripped
 // best-effort even when collectionsEnabled is false, to handle connections
 // established before OBI started monitoring.
-func buildCouchbaseStatement(pkt couchbasekv.Packet, collectionsEnabled bool) string {
+//
+// When sanitize is true, the document value is replaced by "?".
+func buildCouchbaseStatement(pkt couchbasekv.Packet, collectionsEnabled, sanitize bool) string {
 	op := pkt.Header().Opcode()
 	keyBytes := pkt.Key()
 	if collectionsEnabled {
@@ -61,10 +66,10 @@ func buildCouchbaseStatement(pkt couchbasekv.Packet, collectionsEnabled bool) st
 	switch op {
 	case couchbasekv.OpcodeSet, couchbasekv.OpcodeAdd, couchbasekv.OpcodeReplace,
 		couchbasekv.OpcodeSetQ, couchbasekv.OpcodeAddQ, couchbasekv.OpcodeReplaceQ:
-		appendMutationExtras(&b, pkt)
+		appendMutationExtras(&b, pkt, sanitize)
 	case couchbasekv.OpcodeAppend, couchbasekv.OpcodePrepend,
 		couchbasekv.OpcodeAppendQ, couchbasekv.OpcodePrependQ:
-		appendValue(&b, pkt)
+		appendValue(&b, pkt, sanitize)
 	case couchbasekv.OpcodeIncrement, couchbasekv.OpcodeDecrement,
 		couchbasekv.OpcodeIncrementQ, couchbasekv.OpcodeDecrementQ:
 		appendCounterExtras(&b, pkt)
@@ -75,13 +80,13 @@ func buildCouchbaseStatement(pkt couchbasekv.Packet, collectionsEnabled bool) st
 	return b.String()
 }
 
-func appendMutationExtras(b *strings.Builder, pkt couchbasekv.Packet) {
+func appendMutationExtras(b *strings.Builder, pkt couchbasekv.Packet, sanitize bool) {
 	if extras := pkt.Extras(); len(extras) >= 8 {
 		if ttl := binary.BigEndian.Uint32(extras[4:8]); ttl != 0 {
 			appendUint32Tag(b, "TTL", ttl)
 		}
 	}
-	appendValue(b, pkt)
+	appendValue(b, pkt, sanitize)
 }
 
 func appendCounterExtras(b *strings.Builder, pkt couchbasekv.Packet) {
@@ -112,9 +117,16 @@ func appendUint32Tag(b *strings.Builder, name string, val uint32) {
 	b.WriteString(strconv.FormatUint(uint64(val), 10))
 }
 
-func appendValue(b *strings.Builder, pkt couchbasekv.Packet) {
-	if val := couchbaseValueForStatement(pkt); val != "" {
-		b.WriteByte(' ')
+func appendValue(b *strings.Builder, pkt couchbasekv.Packet, sanitize bool) {
+	val := couchbaseValueForStatement(pkt)
+	if val == "" {
+		return
+	}
+
+	b.WriteByte(' ')
+	if sanitize {
+		b.WriteString(couchbaseSanitizedValue)
+	} else {
 		b.WriteString(val)
 	}
 }
@@ -290,7 +302,8 @@ func processCouchbaseEvent(connInfo BpfConnectionInfoT, requestBuf []byte, respo
 			}
 		}
 
-		info.Statement = buildCouchbaseStatement(reqPacket, collectionsEnabled)
+		info.Statement = buildCouchbaseStatement(reqPacket, collectionsEnabled, false)
+		info.SanitizedStatement = buildCouchbaseStatement(reqPacket, collectionsEnabled, true)
 
 		if hasResp && respPacket.IsResponse() {
 			info.Status = respPacket.Header().Status()
@@ -360,8 +373,9 @@ func TCPToCouchbaseToSpan(trace *TCPRequestInfo, data *CouchbaseInfo) request.Sp
 			UserPID:   app.PID(trace.Pid.UserPid),
 			Namespace: trace.Pid.Ns,
 		},
-		DBError:     dbError,
-		DBNamespace: dbNamespace,
-		Statement:   data.Statement,
+		DBError:              dbError,
+		DBNamespace:          dbNamespace,
+		Statement:            data.Statement,
+		DBQueryTextSanitized: data.SanitizedStatement,
 	}
 }

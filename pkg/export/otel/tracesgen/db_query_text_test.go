@@ -23,6 +23,7 @@ func queryTextSpans() []request.Span {
 		{Type: request.EventTypeSQLClient, SubType: int(request.DBMSSQL), Method: "SELECT", Statement: "SELECT [a] FROM t WHERE id = @p1"},
 		{Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeSQLPP, Method: "SELECT", Statement: `SELECT * FROM b WHERE type = "airline"`},
 		{Type: request.EventTypeRedisClient, Method: "SET", Path: "SET key 1", DBQueryTextSanitized: "SET key ?"},
+		{Type: request.EventTypeCouchbaseClient, Method: "SET", Statement: "SET user::42 TTL=3600 secret", DBQueryTextSanitized: "SET user::42 TTL=3600 ?"},
 	}
 }
 
@@ -72,6 +73,7 @@ func TestDBQueryTextSanitized(t *testing.T) {
 		"SELECT [a] FROM t WHERE id = @p1",
 		"SELECT * FROM b WHERE type = ?",
 		"SET key ?",
+		"SET user::42 TTL=3600 ?",
 	}
 
 	assert.ElementsMatch(t, want, groupedQueryTexts(t, true))
@@ -87,6 +89,14 @@ func TestDBQueryTextOmittedWhenSanitizingIsUnsafe(t *testing.T) {
 
 func TestRedisQueryTextOmittedWithoutSanitizedText(t *testing.T) {
 	span := request.Span{Type: request.EventTypeRedisClient, Method: "SET", Path: "SET key 1"}
+	selected := map[attr.Name]struct{}{attr.DBQueryText: {}}
+
+	_, ok := attrValue(traceAttributesSelectorInternal(&span, selected, nil, true, defaultQueryParamReplacement), string(attr.DBQueryText))
+	assert.False(t, ok)
+}
+
+func TestCouchbaseQueryTextOmittedWithoutSanitizedText(t *testing.T) {
+	span := request.Span{Type: request.EventTypeCouchbaseClient, Method: "SET", Statement: "SET user::42 secret"}
 	selected := map[attr.Name]struct{}{attr.DBQueryText: {}}
 
 	_, ok := attrValue(traceAttributesSelectorInternal(&span, selected, nil, true, defaultQueryParamReplacement), string(attr.DBQueryText))

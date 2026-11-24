@@ -781,6 +781,13 @@ func redisQueryText(span *request.Span, sanitize bool) string {
 	return span.DBQueryTextSanitized
 }
 
+func couchbaseQueryText(span *request.Span, sanitize bool) string {
+	if !sanitize {
+		return span.Statement
+	}
+	return span.DBQueryTextSanitized
+}
+
 func sqlppQueryText(statement string, sanitize bool) string {
 	if !sanitize {
 		return statement
@@ -1842,7 +1849,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if operation != "" {
 			attrs = append(attrs, request.DBOperationName(operation))
 			if _, ok := optionalAttrs[attr.DBQueryText]; ok {
-				attrs = appendIfSet(attrs, request.DBQueryText, span.Statement)
+				attrs = appendIfSet(attrs, request.DBQueryText, couchbaseQueryText(span, sanitizeDBQueryText))
 			}
 		}
 		attrs = appendIfSet(attrs, request.DBCollectionName, span.Path)
