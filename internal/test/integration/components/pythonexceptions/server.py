@@ -11,6 +11,7 @@ import asyncio
 import contextvars
 import ctypes
 import sys
+import threading
 import traceback
 
 truths = {}
@@ -203,6 +204,37 @@ def handled(case, token):
         truths[token] = ground_truth(error)
 
 
+reuse_waiting, reuse_freed, reuse_held, reuse_sent = (threading.Event() for _ in range(4))
+reuse_ids = {}
+
+
+def reuse_freed_first(token, respond):
+    """Answers 500 after the caught exception is freed."""
+    reuse_waiting.wait(5)
+    try:
+        outer("ascii", token)
+    except ValueError as error:
+        reuse_ids["freed"] = id(error)
+    reuse_freed.set()
+    reuse_held.wait(5)
+    respond(500, "error")
+    reuse_sent.set()
+
+
+def reuse_held_second(token, respond):
+    """Raises at the same line through another caller, likely at the freed
+    exception's address, and holds it until both requests answer."""
+    reuse_waiting.set()
+    reuse_freed.wait(5)
+    try:
+        leaf("ascii", token)
+    except ValueError as error:
+        truths[token] = dict(ground_truth(error), reused=id(error) == reuse_ids.get("freed"))
+        reuse_held.set()
+        reuse_sent.wait(5)
+        respond(500, "error")
+
+
 async def nested(case, token):
     await asyncio.sleep(0.001)
     escape(case, token)
@@ -329,6 +361,10 @@ def http_app(port):
             if parts[1] == "handled":
                 handled(parts[3], parts[4])
                 self.respond(int(parts[5]), "handled")
+                return
+            if parts[1] == "reuse":
+                reuse = reuse_freed_first if parts[2] == "freed" else reuse_held_second
+                reuse(parts[3], self.respond)
                 return
             try:
                 if parts[1] == "raise":

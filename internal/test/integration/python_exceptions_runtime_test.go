@@ -98,6 +98,21 @@ func TestPythonExceptions(t *testing.T) {
 					traceID := fixture.get("/raise/native-helper/native/"+token, http.StatusInternalServerError)
 					assertPythonException(t, harness.wait(t, traceID), fixture.truth(token), "native")
 				})
+				// A request that handled its exception reports nothing, even when
+				// another request's exception reuses the address.
+				t.Run("reused-address", func(t *testing.T) {
+					var freedTrace, heldTrace string
+					var wg sync.WaitGroup
+					wg.Go(func() { freedTrace = fixture.get("/reuse/freed/http-reuse-freed", http.StatusInternalServerError) })
+					wg.Go(func() { heldTrace = fixture.get("/reuse/held/http-reuse-held", http.StatusInternalServerError) })
+					wg.Wait()
+					held := fixture.truth("http-reuse-held")
+					assertPythonException(t, harness.wait(t, heldTrace), held, "ascii")
+					if !held.Reused {
+						t.Skip("CPython did not reuse the freed exception's address")
+					}
+					harness.requireNone(t, freedTrace)
+				})
 			}
 
 			// A handler that catches the exception and answers 500 itself reports
@@ -145,6 +160,7 @@ type pythonExceptionTruth struct {
 		Line     int    `json:"line"`
 		Function string `json:"function"`
 	} `json:"frames"`
+	Reused bool `json:"reused"`
 }
 
 type pythonExceptionClient struct {
@@ -208,6 +224,11 @@ func assertPythonException(t *testing.T, event exceptions.Event, truth pythonExc
 	var expected []string
 	for _, frame := range truth.Frames {
 		expected = append(expected, fmt.Sprintf("  File \"%s\", line %d, in %s", frame.File, frame.Line, frame.Function))
+	}
+	// `raise error` and `raise ….with_traceback(tb)` add frames after the raise;
+	// the capture keeps the frames of the first raise.
+	if scenario == "raise_error" || scenario == "with_traceback" {
+		expected = expected[len(expected)-4:]
 	}
 	expected = foldPythonFrames(expected)
 	if scenario == "deep" {
