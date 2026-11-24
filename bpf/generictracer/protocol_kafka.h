@@ -12,6 +12,7 @@
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/large_buffers.h>
+#include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/maps/protocol_cache.h>
@@ -50,6 +51,7 @@ struct {
     __type(key, kafka_state_key_t);
     __type(value, kafka_state_data_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } kafka_state SEC(".maps");
 
 typedef struct kafka_correlation_data {
@@ -66,6 +68,7 @@ struct {
     __type(key, connection_info_t);
     __type(value, kafka_correlation_data_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } kafka_ongoing_requests SEC(".maps");
 
 enum {
