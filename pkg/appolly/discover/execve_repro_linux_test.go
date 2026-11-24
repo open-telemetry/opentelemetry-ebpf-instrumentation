@@ -28,7 +28,15 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
+// This test reads both sides of a real execve. Other matcher tests install
+// synthetic process lookups for their fixtures.
+var execveProcessInfo = processInfo
+
 func TestExecveDiscovery(t *testing.T) {
+	previous := processInfo
+	processInfo = execveProcessInfo
+	t.Cleanup(func() { processInfo = previous })
+
 	launcher, target := buildExecveRepro(t)
 	child := startExecveRepro(t, launcher, target)
 	child.expect(t, 'L')
@@ -59,11 +67,11 @@ func TestExecveDiscovery(t *testing.T) {
 	}
 	original, err := findExecElf(matcher.ProcessHistory[pid].Process, &svc.Attrs{})
 	require.NoError(t, err)
-	cache, err := lru.New[cacheKey, instrumentedExecutable](10)
+	cache, err := lru.New[cacheKey, goInspectionResult](10)
 	require.NoError(t, err)
 	cfg := &obi.Config{}
 	cfg.Discovery.SkipGoSpecificTracers = true
-	typer := typer{cfg: cfg, log: slog.Default(), currentPids: map[app.PID]*discexec.FileInfo{pid: original}, instrumentableCache: cache}
+	typer := typer{cfg: cfg, log: slog.Default(), currentPids: map[app.PID]*discexec.FileInfo{pid: original}, goOffsetsCache: cache}
 	instrumentables, tracerEvents := startReusingGenericAttacher(t)
 	t.Cleanup(func() {
 		instrumentables.Close()

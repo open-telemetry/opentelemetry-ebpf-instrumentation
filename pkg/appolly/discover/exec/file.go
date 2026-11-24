@@ -39,6 +39,7 @@ type Init struct {
 	StartTime      uint64
 	Dev            uint64
 	Ino            uint64
+	ChangeTime     int64
 	Ns             uint32
 }
 
@@ -58,6 +59,7 @@ type FileInfo struct {
 	startTime      uint64
 	dev            uint64
 	ino            uint64
+	changeTime     int64
 	ns             uint32
 }
 
@@ -74,6 +76,7 @@ func New(init Init) *FileInfo {
 		startTime:      init.StartTime,
 		dev:            init.Dev,
 		ino:            init.Ino,
+		changeTime:     init.ChangeTime,
 		ns:             init.Ns,
 	}
 }
@@ -137,6 +140,7 @@ func (fi *FileInfo) Ppid() app.PID          { return fi.ppid }
 func (fi *FileInfo) StartTime() uint64      { return fi.startTime }
 func (fi *FileInfo) Dev() uint64            { return fi.dev }
 func (fi *FileInfo) Ino() uint64            { return fi.ino }
+func (fi *FileInfo) ChangeTime() int64      { return fi.changeTime }
 func (fi *FileInfo) Ns() uint32             { return fi.ns }
 func (fi *FileInfo) CmdExePath() string     { return fi.cmdExePath }
 func (fi *FileInfo) ProExeLinkPath() string { return fi.proExeLinkPath }
