@@ -84,23 +84,6 @@
         fail(err);
         throw err;
       }
-      try {
-        if (result && typeof result.then === 'function') {
-          return result.then(
-            (value) => {
-              endSafely();
-              return value;
-            },
-            (err) => {
-              fail(err);
-              throw err;
-            },
-          );
-        }
-      } catch (err) {
-        fail(err);
-        throw err;
-      }
       endSafely();
       return result;
     });
@@ -122,10 +105,14 @@
 
   const fs = require('fs');
   const crypto = require('crypto');
+  const { Buffer: BufferModule } = require('buffer');
   // Dynamic instrumentation may wrap these exports later. Keep the original
   // functions so bridge-internal calls do not re-enter application wrappers.
   const bridgeRandomBytes = crypto.randomBytes;
   const bridgeExistsSync = fs.existsSync;
+  const bridgeHrtimeBigint = process.hrtime.bigint.bind(process.hrtime);
+  const bridgeBufferByteLength = BufferModule.byteLength;
+  const bridgeBufferFrom = BufferModule.from;
   const { AsyncLocalStorage, createHook } = require('async_hooks');
 
   // Diagnostics are OFF by default: this code runs inside the customer's
@@ -143,7 +130,7 @@
     }
   };
 
-  const fitsUtf8 = (s, maxBytes) => s.length * 3 <= maxBytes || Buffer.byteLength(s, 'utf8') <= maxBytes;
+  const fitsUtf8 = (s, maxBytes) => s.length * 3 <= maxBytes || bridgeBufferByteLength(s, 'utf8') <= maxBytes;
 
   // Truncate a string to a UTF-8 BYTE budget, never splitting a multi-byte
   // sequence. The BPF/Go side copies keys/values into fixed byte arrays, so a
@@ -152,7 +139,7 @@
   // inside a sequence would export invalid UTF-8.
   const truncateUtf8 = (s, maxBytes) => {
     if (fitsUtf8(s, maxBytes)) return s;
-    const buf = Buffer.from(s, 'utf8');
+    const buf = bridgeBufferFrom(s, 'utf8');
     let end = maxBytes;
     // Find the start of the sequence containing the cut point; drop the
     // sequence if the cut left it incomplete.
@@ -191,15 +178,22 @@
   // can still use the app's tracer through the shared execution helper.
   if (existing && (existing.trace || existing.context)) {
     debug('staying inert: a tracer provider/context manager is already registered');
-    const provider = existing.trace;
-    if (provider && typeof provider.getTracer === 'function') {
-      g.__obiSpanBridge = {
-        version: 2,
-        withSpan(name, fn, thisArg, args) {
-          return executeWithSpan(provider.getTracer('obi.dynamic', '1.0.0'), name, fn, thisArg, args);
-        },
-      };
-    }
+    g.__obiSpanBridge = {
+      version: 2,
+      withSpan(name, fn, thisArg, args) {
+        let tracer;
+        try {
+          const registry = g[API_KEY];
+          const provider = registry && registry.trace;
+          tracer = provider && typeof provider.getTracer === 'function'
+            ? provider.getTracer('obi.dynamic', '1.0.0')
+            : null;
+        } catch (_) {
+          return Reflect.apply(fn, thisArg, args || []);
+        }
+        return executeWithSpan(tracer, name, fn, thisArg, args);
+      },
+    };
     return;
   }
   // We deliberately DO NOT write to the global registry (globalThis[API_KEY]).
@@ -381,7 +375,7 @@
     // Wall-clock start anchor + monotonic offset for sub-ms durations.
     return BigInt(Date.now()) * 1000000n;
   };
-  const hrNs = () => process.hrtime.bigint();
+  const hrNs = () => bridgeHrtimeBigint();
 
   // OTel TimeInput -> epoch ns, or null when unusable. Takes app-controlled
   // input on the span.end() hot path, so it must never throw. Values the
@@ -814,7 +808,12 @@
   g.__obiSpanBridge = {
     version: 2,
     withSpan(name, fn, thisArg, args) {
-      const appTracer = activeAppTracer('obi.dynamic', '1.0.0');
+      let appTracer;
+      try {
+        appTracer = activeAppTracer('obi.dynamic', '1.0.0');
+      } catch (_) {
+        return Reflect.apply(fn, thisArg, args || []);
+      }
       if (yielded && !appTracer) return Reflect.apply(fn, thisArg, args || []);
       const tracer = appTracer || tracerProvider.getTracer('obi.dynamic', '1.0.0');
       return executeWithSpan(tracer, name, fn, thisArg, args);

@@ -39,15 +39,18 @@ restricted glob syntax; character classes and brace alternatives are not
 supported.
 
 At injection, the agent discovers matching functions in already-loaded
-file-backed CommonJS modules. It also examines modules loaded later. Discovery walks enumerable own data properties of exported objects and nested
-functions to a bounded depth and count; getters are not invoked, and properties
-that cannot be replaced are skipped. The final
-property must hold a function. Matching references are wrapped so calls
-through the exported property produce a span with the configured name.
-Synchronous results, promise fulfillment, and thrown/rejected errors are
-observed; errors are recorded and re-thrown. Constructor calls are also
-wrapped. A reference copied from an export before injection cannot be
-replaced, so calls through that earlier copy are not observed.
+file-backed CommonJS modules. It also examines modules loaded later. Discovery
+walks enumerable own data properties of exported objects and nested functions
+to a bounded depth and number of inspected properties; getters and Proxy traps
+are not invoked, and properties that cannot be replaced are skipped. The
+inspection limit bounds descriptor work, but JavaScript's own-key enumeration
+may allocate a key list before the limit is applied. The final property must hold a
+function. Matching references are wrapped so calls through the exported
+property produce a span with the configured name. The span ends when the
+function returns or throws. For promise-returning functions, the original
+promise is returned unchanged and its settlement is not observed. Constructor
+calls are also wrapped. A reference copied from an export before injection
+cannot be replaced, so calls through that earlier copy are not observed.
 
 Built-in modules are not in `require.cache`; they can be targeted explicitly,
 for example `node:fs:exports.existsSync`. Broad filename globs do not load
