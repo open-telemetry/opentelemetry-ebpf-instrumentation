@@ -129,6 +129,10 @@ To add a new metric, follow these guidelines:
 
 12. Register the metric in the schema registry: add the metric to the `metrics:` list in [schemas/obi/groups/stats/metrics.yaml](../schemas/obi/groups/stats/metrics.yaml).
 
+### `obi_stat_tcp_io_bytes_total` transmit scope
+
+Transmit counts the bytes handed to TCP for sending, at `tcp_sendmsg_locked` and, before kernel 6.5, `do_tcp_sendpages`. These cover sockets in a sockmap with an `sk_msg` program, such as those context propagation tracks, which send through `tcp_bpf_sendmsg` and never reach `tcp_sendmsg`. Kernel TLS records are counted after encryption. Before 6.5 every sendpage path is counted too: `sendfile()`, splice, and in-kernel senders such as NFS, NVMe/TCP, iSCSI, Ceph and ESP-in-TCP, which often send from a kernel worker thread.
+
 ### Known limitations
 
 #### `src.port` of sockets that are already closed
@@ -167,9 +171,9 @@ The `tcp_rcv_state_process()` kprobe fixes every supported kernel without state 
 
 ### Performance considerations
 
-Some stat metrics attach to kernel functions that are called very frequently (e.g. `tcp_sendmsg`, `tcp_cleanup_rbuf` for TCP IO). These probes add a small overhead on every call, so the aggregate cost is proportional to the rate of TCP sends/receives on the node. Consider:
+Some stat metrics attach to kernel functions that are called very frequently (e.g. `tcp_sendmsg_locked`, `tcp_cleanup_rbuf` for TCP IO). These probes add a small overhead on every call, so the aggregate cost is proportional to the rate of TCP sends/receives on the node. Consider:
 
-- If you need RTT, failed connections, or retransmits **without** TCP IO overhead, enable those individually (`stats_tcp_rtt`, `stats_tcp_failed_connections`, `stats_tcp_successful_connections`, `stats_tcp_retransmits`) instead of using the `stats` aggregate feature — `stats` includes `stats_tcp_io`, which fires on every `tcp_sendmsg` and `tcp_cleanup_rbuf` call.
+- If you need RTT, failed connections, or retransmits **without** TCP IO overhead, enable those individually (`stats_tcp_rtt`, `stats_tcp_failed_connections`, `stats_tcp_successful_connections`, `stats_tcp_retransmits`) instead of using the `stats` aggregate feature — `stats` includes `stats_tcp_io`, which fires on every `tcp_sendmsg_locked` (and `do_tcp_sendpages` before kernel 6.5) and `tcp_cleanup_rbuf` call.
 - `tcp_resets` attaches a `kprobe` to `tcp_rcv_state_process()`, which runs for every segment of a socket that is not `ESTABLISHED`: about three per connection on each side, during the handshake and the close. It writes its map only for segments that carry an RST, a FIN or data on a closing socket, and a `tcp_destroy_sock` raw tracepoint deletes the entry once per socket.
 - The `stats_events` ring buffer and the per-metric eBPF maps (e.g. `tcp_io_accum`) have default size limits; on nodes with a very large number of concurrent connections these can be resized via the `ebpf.*` configuration knobs if events start being dropped.
 

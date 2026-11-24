@@ -13,6 +13,11 @@ import (
 )
 
 func main() {
+	// lets OBI instrument the client before its first connect
+	if delay, err := time.ParseDuration(os.Getenv("START_DELAY")); err == nil {
+		time.Sleep(delay)
+	}
+
 	counter := 1
 	address := os.Getenv("TARGET_ADDRESS")
 
@@ -119,6 +124,22 @@ func main() {
 				conn.Close()
 				time.Sleep(1 * time.Second)
 			}
+		}()
+	}
+
+	// Keep one connection open, so a test can find the client's socket in the context propagation sockmap
+	holdAddress := os.Getenv("HOLD_TARGET_ADDRESS")
+	if holdAddress != "" {
+		go func() {
+			conn, err := net.DialTimeout("tcp", holdAddress, 2*time.Second)
+			for err != nil {
+				time.Sleep(1 * time.Second)
+				conn, err = net.DialTimeout("tcp", holdAddress, 2*time.Second)
+			}
+			// keeps conn reachable, so the GC finalizer never closes it
+			defer conn.Close()
+			fmt.Fprintf(conn, "hold probe\n")
+			select {}
 		}()
 	}
 
