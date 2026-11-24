@@ -12,8 +12,8 @@
 
 #include <pid/maps/map_sizing.h>
 
-// Host PID -> enum go_exception_pid_flags, for processes whose service
-// captures exceptions
+// OBI-visible PID -> enum go_exception_pid_flags, for processes whose
+// service captures exceptions
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, u32);
