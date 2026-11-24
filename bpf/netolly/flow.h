@@ -23,6 +23,8 @@
 
 #include <bpfcore/vmlinux.h>
 
+#include <netolly/flow_lock.h>
+
 #define IP_MAX_LEN 16
 
 #define ETH_ALEN 6 /* Octets in one ethernet addr   */
@@ -58,7 +60,8 @@ typedef struct flow_metrics_t {
     // https://chromium.googlesource.com/chromiumos/docs/+/master/constants/errnos.md
     u8 errno;
 
-    u8 _pad[7];
+    u8 _pad[3];
+    FLOW_LOCK lock;
 } flow_metrics;
 
 // Attributes that uniquely identify a flow
