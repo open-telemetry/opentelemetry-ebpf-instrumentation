@@ -76,11 +76,15 @@ def error_page():
         return "Server Error (500)"
 
 
-def evict(key):
+def evict(key, nested=False):
     try:
         lookup(key)
     except LookupError:
-        pass
+        if nested:
+            try:
+                raise OSError(key)
+            except OSError:
+                pass
 
 
 def close():
@@ -125,14 +129,14 @@ def invoke(case, token):
             outer("ascii", token)
         except ValueError:
             lookup(token)
-    elif case == "nested_cleanup":
+    elif case in ("nested_cleanup", "double_nested_cleanup"):
         try:
             outer("ascii", token)
         except ValueError:
             try:
                 fail_replacement(token)
             finally:
-                evict(token)
+                evict(token, nested=case == "double_nested_cleanup")
     elif case == "with_traceback":
         try:
             outer("ascii", token)

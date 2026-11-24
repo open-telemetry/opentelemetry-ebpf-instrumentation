@@ -406,8 +406,11 @@ static __always_inline void python_exception_keep(const python_exception_proc_t 
         return;
     }
     if (python_exception_swallowed(proc, latest->exception, kept)) {
-        if (handled) {
-            python_exception_copy(&pending->replacement, latest);
+        python_exception_candidate_t *replacement = &pending->replacement;
+        // Cleanup can catch another error while the saved replacement is still unwinding.
+        if (handled && (!replacement->capture_ns ||
+                        !python_exception_in_context_of(proc, handled, replacement->exception))) {
+            python_exception_copy(replacement, latest);
         }
         return;
     }
