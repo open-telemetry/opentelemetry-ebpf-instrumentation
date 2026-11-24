@@ -135,7 +135,11 @@ collector shuts down.
 ## Map discovery and entry counting
 
 Each collection lists the map IDs of its path and caches metadata for newly
-observed maps. For each hash map, it opens a temporary handle, iterates the
-entries to count them, and closes the handle. If the count fails, that
-collection reports the map's maximum entries without an entry count. Missing
+observed maps. For each hash map, it opens a temporary handle, walks the keys to
+count them without reading their values, and closes the handle. Reading values
+would copy one value per possible CPU for every key of a per-CPU map.
+
+If the count fails, that collection reports the map's maximum entries without
+an entry count. The Prometheus collector then exposes no entry count for the
+map; the internal reporters keep exporting the last count they received. Missing
 metadata entries are removed only after a complete list.

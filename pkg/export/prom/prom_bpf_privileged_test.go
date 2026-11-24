@@ -317,6 +317,18 @@ func BenchmarkGetMapMetrics(b *testing.B) {
 	}
 }
 
+func BenchmarkCountPerCPUMapEntries(b *testing.B) {
+	bpfMap := loadPerCPUMap(b, ebpf.LRUCPUHash, 2500)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		count, err := countMapEntries(bpfMap)
+		require.NoError(b, err)
+		require.Equal(b, uint64(2500), count)
+	}
+}
+
 func newPrivilegedTestCollector(tb testing.TB) *BPFCollector {
 	tb.Helper()
 

@@ -5,7 +5,6 @@ package prom // import "go.opentelemetry.io/obi/pkg/export/prom"
 
 import (
 	"context"
-	"encoding"
 	"errors"
 	"log/slog"
 	"os"
@@ -674,15 +673,28 @@ func (bc *BPFCollector) mapEntries(id ebpf.MapID) (uint64, bool) {
 	return count, true
 }
 
+// countMapEntries walks the map's keys without reading their values: a per-CPU value
+// lookup copies one value per possible CPU for every key.
 func countMapEntries(m *ebpf.Map) (uint64, error) {
+	// Converted to an interface once: each conversion of a slice allocates.
+	var key any = make([]byte, m.KeySize())
+
+	err := m.NextKey(nil, key)
 	var count uint64
-	throwawayKey := discardEncoding{}
-	throwawayValues := make(sliceDiscardEncoding, 0)
-	iter := m.Iterate()
-	for iter.Next(&throwawayKey, &throwawayValues) {
+	for count <= uint64(m.MaxEntries()) {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return count, nil
+		}
+		if err != nil {
+			return 0, err
+		}
 		count++
+		err = m.NextKey(key, key)
 	}
-	return count, iter.Err()
+
+	// The kernel restarts the walk when the current key is deleted, so a map that changes
+	// during the walk can yield more keys than it holds.
+	return 0, ebpf.ErrIterationAborted
 }
 
 func (bp *BPFProgram) calculateStats() (float64, uint64) {
@@ -722,24 +734,4 @@ func (bp *BPFProgram) cumulativeBuckets() map[float64]uint64 {
 	}
 
 	return buckets
-}
-
-// Assert that discardEncoding implements the correct interfaces for map iterators.
-var (
-	_ encoding.BinaryUnmarshaler = (*discardEncoding)(nil)
-	_ encoding.BinaryUnmarshaler = (*sliceDiscardEncoding)(nil)
-)
-
-// discardEncoding implements encoding.BinaryMarshaler for eBPF map values such that everything is discarded.
-type discardEncoding struct{}
-
-func (de *discardEncoding) UnmarshalBinary(_ []byte) error {
-	return nil
-}
-
-// sliceDiscardEncoding implements encoding.BinaryMarshaler for eBPF per-cpu map values such that everything is discarded.
-type sliceDiscardEncoding []discardEncoding
-
-func (sde *sliceDiscardEncoding) UnmarshalBinary(_ []byte) error {
-	return nil
 }
