@@ -130,7 +130,7 @@ static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
 
-        bpf_d_printk("http info %llx, submitted %d, still reading %d",
+        bpf_d_printk("http_info=%llx, submitted=%d, still_reading=%d",
                      info,
                      (info) ? info->submitted : 0,
                      (info) ? still_reading(info) : 0);
@@ -205,7 +205,7 @@ static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
                     info->len += args->bytes_len;
                 } else if (responding) {
                     info->end_monotime_ns = bpf_ktime_get_ns();
-                    bpf_d_printk("bytes len %d, new bytes %d", info->resp_len, args->bytes_len);
+                    bpf_d_printk("bytes_len=%d, new_bytes=%d", info->resp_len, args->bytes_len);
                     info->resp_len += args->bytes_len;
                 }
 

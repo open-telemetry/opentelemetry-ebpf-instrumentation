@@ -68,7 +68,7 @@ static __always_inline u8 copy_python_task_state(u64 pid_tgid,
         (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task_key);
     if (!task_state || task_state->generation != task_ref->generation) {
         bpf_dbg_printk(
-            "python task stale task=%llx gen=%llu", task_ref->addr, task_ref->generation);
+            "python task stale task=%llx, gen=%llu", task_ref->addr, task_ref->generation);
         return 0;
     }
 

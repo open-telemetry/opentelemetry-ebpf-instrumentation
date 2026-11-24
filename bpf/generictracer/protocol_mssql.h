@@ -213,7 +213,7 @@ static __always_inline int mssql_response_eom(tcp_req_t *req, const void *u_buf,
         if (prev_resp_len < first_hdr.length &&
             (req->resp_len < first_hdr.length || !(first_hdr.status & k_mssql_status_eom))) {
             bpf_dbg_printk(
-                "mssql response: partial, acc=%d exp=%d", req->resp_len, first_hdr.length);
+                "mssql response: partial, acc=%d, exp=%d", req->resp_len, first_hdr.length);
             return -1;
         }
     }

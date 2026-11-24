@@ -201,7 +201,7 @@ static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
         return 0;
     }
 
-    bpf_dbg_printk("nodejs_async_switch: %s, pid_tgid = %llx, fd = %u", buf, pid_tgid, fd);
+    bpf_dbg_printk("nodejs_async_switch: buf=[%s], pid_tgid=%llx, fd=%u", buf, pid_tgid, fd);
 
     const tp_info_pid_t *tp = nodejs_server_trace_for_fd(pid_tgid, fd);
     if (tp) {
@@ -486,7 +486,7 @@ static __always_inline int handle_runtime_metrics(const char *path, const u64 pi
     e->delay_p99_ns = vals[8];
     e->delay_count = vals[9];
 
-    bpf_dbg_printk("nodejs_runtime_metrics: pid_tgid=%llx idle=%llu active=%llu",
+    bpf_dbg_printk("nodejs_runtime_metrics: pid_tgid=%llx, idle=%llu, active=%llu",
                    pid_tgid,
                    e->elu_idle_ns,
                    e->elu_active_ns);
@@ -559,8 +559,10 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
         e->kind = kind;
         e->duration_ns = duration_ns;
 
-        bpf_dbg_printk(
-            "nodejs_v8_gc: pid_tgid=%llx kind=%u duration=%llu", pid_tgid, e->kind, e->duration_ns);
+        bpf_dbg_printk("nodejs_v8_gc: pid_tgid=%llx, kind=%u, duration=%llu",
+                       pid_tgid,
+                       e->kind,
+                       e->duration_ns);
         bpf_ringbuf_submit(e, get_flags());
         return 0;
     }
@@ -594,7 +596,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
             e->space_name[i] = payload[k_v8_heap_numbers_len + i];
         }
 
-        bpf_dbg_printk("nodejs_v8_heap: pid_tgid=%llx used=%llu name_len=%u",
+        bpf_dbg_printk("nodejs_v8_heap: pid_tgid=%llx, used=%llu, name_len=%u",
                        pid_tgid,
                        e->space_used_size,
                        e->name_len);
@@ -628,7 +630,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
             e->resource_type[i] = payload[k_v8_resource_numbers_len + i];
         }
 
-        bpf_dbg_printk("nodejs_v8_resource: pid_tgid=%llx count=%llu name_len=%u",
+        bpf_dbg_printk("nodejs_v8_resource: pid_tgid=%llx, count=%llu, name_len=%u",
                        pid_tgid,
                        e->count,
                        e->name_len);
@@ -650,7 +652,7 @@ static __always_inline int handle_fd_correlation(char *buf, const u64 pid_tgid) 
         fd2 += buf[k_fd2_offset + i] - '0';
     }
 
-    bpf_dbg_printk("nodejs_fd_correlation: %s, fd1 = %u, fd2 = %u", buf, fd1, fd2);
+    bpf_dbg_printk("nodejs_fd_correlation: buf=[%s], fd1=%u, fd2=%u", buf, fd1, fd2);
 
     const u64 key = (pid_tgid << 32) | fd2;
 

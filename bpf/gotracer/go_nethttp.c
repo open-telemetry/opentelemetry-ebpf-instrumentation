@@ -1345,7 +1345,7 @@ static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
             //dbg_print_http_connection_info(info);
             bpf_map_delete_elem(&outgoing_trace_map, &e_key);
             bpf_dbg_printk(
-                "wrote traceparent using bpf_probe_write_user, removing outgoing trace map,"
+                "wrote traceparent using bpf_probe_write_user, removing outgoing trace map, "
                 "s_port=%d, d_port=%d",
                 e_key.s_port,
                 e_key.d_port);

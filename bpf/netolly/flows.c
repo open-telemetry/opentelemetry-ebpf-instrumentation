@@ -211,7 +211,7 @@ static inline int flow_monitor(struct __sk_buff *skb) {
             // a duplicated UNION of flows (two different flows with partial aggregation of the same packets),
             // which can't be deduplicated.
             // other possible values https://chromium.googlesource.com/chromiumos/docs/+/master/constants/errnos.md
-            bpf_dbg_printk("error updating flow, ret=%d. Bytes=%d\n", ret, skb->len);
+            bpf_dbg_printk("error updating flow, ret=%d, bytes=%d\n", ret, skb->len);
 
             if (packet_stats) {
                 packet_stats->ignored++;
@@ -269,7 +269,7 @@ static inline int flow_monitor(struct __sk_buff *skb) {
             // which can be re-aggregated at userspace.
             // other possible values https://chromium.googlesource.com/chromiumos/docs/+/master/constants/errnos.md
             if (trace_messages) {
-                bpf_dbg_printk("error adding flow, ret=%d. Bytes=%d\n", ret, skb->len);
+                bpf_dbg_printk("error adding flow, ret=%d, bytes=%d\n", ret, skb->len);
             }
 
             new_flow.errno = -ret;
