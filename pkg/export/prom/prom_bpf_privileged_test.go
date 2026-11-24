@@ -236,37 +236,52 @@ func TestCollectorShutdownClearsState(t *testing.T) {
 
 func TestGetMapMetricsCachesMetadataAndEvictsMissingMaps(t *testing.T) {
 	collector := newPrivilegedTestCollector(t)
-	supportedMap := loadTestMaps(t, 1, ebpf.LRUHash, 3)[0]
-	unsupportedMap := loadTestMaps(t, 1, ebpf.Hash, 1)[0]
-	supportedID := mapID(t, supportedMap)
-	unsupportedID := mapID(t, unsupportedMap)
+	hashMap := loadTestMaps(t, 1, ebpf.LRUHash, 3)[0]
+	arrayMap := loadTestMaps(t, 1, ebpf.Array, 1)[0]
+	hashID := mapID(t, hashMap)
+	arrayID := mapID(t, arrayMap)
 
 	metrics := collector.getMapMetrics()
 
-	supportedCached, ok := collector.mapCache[supportedID]
+	hashCached, ok := collector.mapCache[hashID]
 	require.True(t, ok)
-	require.True(t, supportedCached.supported)
-	unsupportedCached, ok := collector.mapCache[unsupportedID]
+	require.True(t, hashCached.countsEntries)
+	arrayCached, ok := collector.mapCache[arrayID]
 	require.True(t, ok)
-	require.False(t, unsupportedCached.supported)
-	require.Equal(t, ebpf.Hash.String(), unsupportedCached.mapType)
-	require.Equal(t, "metric_0", unsupportedCached.mapName)
-	require.Equal(t, fmt.Sprintf("%d", unsupportedID), unsupportedCached.mapID)
-	require.Equal(t, 2, unsupportedCached.maxEntries)
-	requireMapMetric(t, metrics, supportedID, "metric_0", ebpf.LRUHash, 6, 3)
+	require.False(t, arrayCached.countsEntries)
+	requireMapMetric(t, metrics, hashID, "metric_0", ebpf.LRUHash, 6, 3)
 
 	collector.getMapMetrics()
-	require.Same(t, supportedCached, collector.mapCache[supportedID])
-	require.Same(t, unsupportedCached, collector.mapCache[unsupportedID])
+	require.Same(t, hashCached, collector.mapCache[hashID])
+	require.Same(t, arrayCached, collector.mapCache[arrayID])
 
-	require.NoError(t, supportedMap.Close())
-	require.NoError(t, unsupportedMap.Close())
+	require.NoError(t, hashMap.Close())
+	require.NoError(t, arrayMap.Close())
 	collector.getMapMetrics()
 
-	_, ok = collector.mapCache[supportedID]
+	_, ok = collector.mapCache[hashID]
 	require.False(t, ok)
-	_, ok = collector.mapCache[unsupportedID]
+	_, ok = collector.mapCache[arrayID]
 	require.False(t, ok)
+}
+
+func TestGetMapMetricsReportsEveryMapType(t *testing.T) {
+	collector := newPrivilegedTestCollector(t)
+	hashID := mapID(t, loadTestMaps(t, 1, ebpf.Hash, 1)[0])
+	arrayID := mapID(t, loadTestMaps(t, 1, ebpf.Array, 1)[0])
+	perCPUHashID := mapID(t, loadPerCPUMap(t, ebpf.PerCPUHash, 2))
+	lruPerCPUHashID := mapID(t, loadPerCPUMap(t, ebpf.LRUCPUHash, 2))
+	ringbufID := mapID(t, loadRingbuf(t))
+	dataID := mapID(t, loadGlobalDataMap(t))
+
+	metrics := collector.getMapMetrics()
+
+	requireMapMetric(t, metrics, hashID, "metric_0", ebpf.Hash, 2, 1)
+	requireMapMetric(t, metrics, perCPUHashID, "metric_percpu", ebpf.PerCPUHash, 4, 2)
+	requireMapMetric(t, metrics, lruPerCPUHashID, "metric_percpu", ebpf.LRUCPUHash, 4, 2)
+	requireMapMetricWithoutEntries(t, metrics, arrayID, "metric_0", ebpf.Array, 2)
+	requireMapMetricWithoutEntries(t, metrics, ringbufID, "metric_ringbuf", ebpf.RingBuf, os.Getpagesize())
+	requireNoMapMetric(t, metrics, dataID)
 }
 
 func BenchmarkGetProbeMetrics(b *testing.B) {
@@ -415,6 +430,65 @@ func loadUnownedMap(tb testing.TB) ebpf.MapID {
 	return id
 }
 
+// loadPerCPUMap returns a per-CPU hash map holding entries keys, each with one value per CPU.
+func loadPerCPUMap(tb testing.TB, mapType ebpf.MapType, entries int) *ebpf.Map {
+	tb.Helper()
+
+	bpfMap, err := ebpf.NewMap(&ebpf.MapSpec{
+		Name:       "metric_percpu",
+		Type:       mapType,
+		KeySize:    4,
+		ValueSize:  4,
+		MaxEntries: uint32(entries * 2),
+	})
+	require.NoError(tb, err)
+	tb.Cleanup(func() {
+		_ = bpfMap.Close()
+	})
+
+	values := make([]uint32, ebpf.MustPossibleCPU())
+	for entry := range entries {
+		require.NoError(tb, bpfMap.Put(uint32(entry), values))
+	}
+
+	return bpfMap
+}
+
+func loadRingbuf(tb testing.TB) *ebpf.Map {
+	tb.Helper()
+
+	bpfMap, err := ebpf.NewMap(&ebpf.MapSpec{
+		Name:       "metric_ringbuf",
+		Type:       ebpf.RingBuf,
+		MaxEntries: uint32(os.Getpagesize()),
+	})
+	require.NoError(tb, err)
+	tb.Cleanup(func() {
+		_ = bpfMap.Close()
+	})
+
+	return bpfMap
+}
+
+// loadGlobalDataMap returns a map shaped like the one a loader creates for a .rodata section.
+func loadGlobalDataMap(tb testing.TB) *ebpf.Map {
+	tb.Helper()
+
+	bpfMap, err := ebpf.NewMap(&ebpf.MapSpec{
+		Name:       ".rodata",
+		Type:       ebpf.Array,
+		KeySize:    4,
+		ValueSize:  8,
+		MaxEntries: 1,
+	})
+	require.NoError(tb, err)
+	tb.Cleanup(func() {
+		_ = bpfMap.Close()
+	})
+
+	return bpfMap
+}
+
 func loadIterProgram(tb testing.TB) *ebpf.Program {
 	tb.Helper()
 
@@ -521,6 +595,29 @@ func requireNoProbeMetric(t *testing.T, metrics []ProbeMetrics, id ebpf.ProgramI
 	}
 }
 
+func requireMapMetricWithoutEntries(
+	t *testing.T,
+	metrics []BpfMapMetrics,
+	id ebpf.MapID,
+	name string,
+	mapType ebpf.MapType,
+	maxEntries int,
+) {
+	t.Helper()
+
+	idString := fmt.Sprintf("%d", id)
+	for _, metric := range metrics {
+		if metric.mapID == idString {
+			require.Equal(t, name, metric.mapName)
+			require.Equal(t, mapType.String(), metric.mapType)
+			require.Equal(t, maxEntries, metric.maxEntries)
+			require.False(t, metric.hasEntries)
+			return
+		}
+	}
+	require.Failf(t, "map metric not found", "map ID %d", id)
+}
+
 func requireNoMapMetric(t *testing.T, metrics []BpfMapMetrics, id ebpf.MapID) {
 	t.Helper()
 
@@ -549,6 +646,7 @@ func requireMapMetric(
 			require.Equal(t, name, metric.mapName)
 			require.Equal(t, mapType.String(), metric.mapType)
 			require.Equal(t, maxEntries, metric.maxEntries)
+			require.True(t, metric.hasEntries)
 			require.Equal(t, entries, metric.entries)
 			return
 		}

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -57,11 +58,12 @@ type cachedProgram struct {
 }
 
 type cachedMap struct {
-	supported  bool
-	mapType    string
-	mapName    string
-	mapID      string
-	maxEntries int
+	reported      bool
+	countsEntries bool
+	mapType       string
+	mapName       string
+	mapID         string
+	maxEntries    int
 }
 
 type BPFProgram struct {
@@ -87,6 +89,7 @@ type BpfMapMetrics struct {
 	mapID      string
 	maxEntries int
 	entries    uint64
+	hasEntries bool
 }
 
 const ringbufWriteStatsMapName = "ringbuf_write_stats_storage"
@@ -285,7 +288,9 @@ func (bc *BPFCollector) collectInternalMetrics(ctx context.Context) {
 			}
 
 			for _, metric := range mapMetrics {
-				bc.ctxInfo.Metrics.BpfMapEntries(metric.mapID, metric.mapName, metric.mapType, int(metric.entries))
+				if metric.hasEntries {
+					bc.ctxInfo.Metrics.BpfMapEntries(metric.mapID, metric.mapName, metric.mapType, int(metric.entries))
+				}
 				bc.ctxInfo.Metrics.BpfMapMaxEntries(metric.mapID, metric.mapName, metric.mapType, metric.maxEntries)
 			}
 
@@ -357,14 +362,16 @@ func (bc *BPFCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	mapMetrics := bc.mapMetrics()
 	for _, metric := range mapMetrics {
-		ch <- prometheus.MustNewConstMetric(
-			bc.mapSizeDesc,
-			prometheus.GaugeValue,
-			float64(metric.entries),
-			metric.mapID,
-			metric.mapName,
-			metric.mapType,
-		)
+		if metric.hasEntries {
+			ch <- prometheus.MustNewConstMetric(
+				bc.mapSizeDesc,
+				prometheus.GaugeValue,
+				float64(metric.entries),
+				metric.mapID,
+				metric.mapName,
+				metric.mapType,
+			)
+		}
 		ch <- prometheus.MustNewConstMetric(
 			bc.mapMaxSizeDesc,
 			prometheus.GaugeValue,
@@ -541,30 +548,20 @@ func (bc *BPFCollector) getMapMetrics() []BpfMapMetrics {
 		if !ok {
 			cached = bc.cacheMap(id)
 		}
-		if cached == nil || !cached.supported {
+		if cached == nil || !cached.reported {
 			continue
 		}
 
-		m, err := ebpf.NewMapFromID(id)
-		if err != nil {
-			bc.log.Debug("failed to load map for entry iteration", "ID", id, "error", err)
-			continue
-		}
-		count, err := countMapEntries(m)
-		if closeErr := m.Close(); closeErr != nil {
-			bc.log.Debug("failed to close map", "ID", id, "error", closeErr)
-		}
-		if err != nil {
-			continue
-		}
-
-		mapMetrics = append(mapMetrics, BpfMapMetrics{
+		metric := BpfMapMetrics{
 			mapType:    cached.mapType,
 			mapName:    cached.mapName,
 			mapID:      cached.mapID,
 			maxEntries: cached.maxEntries,
-			entries:    count,
-		})
+		}
+		if cached.countsEntries {
+			metric.entries, metric.hasEntries = bc.mapEntries(id)
+		}
+		mapMetrics = append(mapMetrics, metric)
 	}
 
 	if completeWalk {
@@ -621,14 +618,60 @@ func (bc *BPFCollector) cacheMap(id ebpf.MapID) *cachedMap {
 	}
 
 	cached := &cachedMap{
-		supported:  info.Type == ebpf.LRUHash,
-		mapType:    info.Type.String(),
-		mapName:    info.Name,
-		mapID:      strconv.FormatUint(uint64(id), 10),
-		maxEntries: int(info.MaxEntries),
+		reported:      !isGlobalDataMap(info.Type, info.Name),
+		countsEntries: countsEntries(info.Type),
+		mapType:       info.Type.String(),
+		mapName:       info.Name,
+		mapID:         strconv.FormatUint(uint64(id), 10),
+		maxEntries:    int(info.MaxEntries),
 	}
 	bc.mapCache[id] = cached
 	return cached
+}
+
+// isGlobalDataMap reports the maps that hold a program's global variables. Loaders name
+// them after their ELF section: cilium/ebpf as ".rodata", libbpf as "<object>.rodata".
+// They are one-slot arrays whose size never changes.
+func isGlobalDataMap(mapType ebpf.MapType, name string) bool {
+	if mapType != ebpf.Array {
+		return false
+	}
+
+	for _, section := range []string{".rodata", ".data", ".bss", ".kconfig"} {
+		if strings.Contains(name, section) {
+			return true
+		}
+	}
+	return false
+}
+
+// countsEntries reports the map types whose key walk returns only the keys in use. The
+// walk of an array returns every index, and ring buffers and storage maps have none.
+func countsEntries(mapType ebpf.MapType) bool {
+	switch mapType {
+	case ebpf.Hash, ebpf.LRUHash, ebpf.PerCPUHash, ebpf.LRUCPUHash:
+		return true
+	default:
+		return false
+	}
+}
+
+func (bc *BPFCollector) mapEntries(id ebpf.MapID) (uint64, bool) {
+	m, err := ebpf.NewMapFromID(id)
+	if err != nil {
+		bc.log.Debug("failed to load map for entry iteration", "ID", id, "error", err)
+		return 0, false
+	}
+
+	count, err := countMapEntries(m)
+	if closeErr := m.Close(); closeErr != nil {
+		bc.log.Debug("failed to close map", "ID", id, "error", closeErr)
+	}
+	if err != nil {
+		bc.log.Debug("failed to count map entries", "ID", id, "error", err)
+		return 0, false
+	}
+	return count, true
 }
 
 func countMapEntries(m *ebpf.Map) (uint64, error) {
