@@ -644,8 +644,8 @@ func isGlobalDataMap(mapType ebpf.MapType, name string) bool {
 	return false
 }
 
-// countsEntries reports the map types whose key walk returns only the keys in use. The
-// walk of an array returns every index, and ring buffers and storage maps have none.
+// countsEntries reports the map types whose entries are counted: the hash maps, whose key
+// walk returns only the keys in use. The walk of an array returns every index.
 func countsEntries(mapType ebpf.MapType) bool {
 	switch mapType {
 	case ebpf.Hash, ebpf.LRUHash, ebpf.PerCPUHash, ebpf.LRUCPUHash:

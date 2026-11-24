@@ -33,12 +33,13 @@ they never count executions, so the internal metrics lose no data.
 
 Both collectors report the maximum entries of every map type, except
 global-data maps. They report entry counts for `Hash`, `LRUHash`, `PerCPUHash`
-and `LRUCPUHash` maps only. The count comes from walking the map's keys, and for
-other types that walk does not count the entries in use: the walk of an array
-returns every index, and ring buffers and storage maps have no keys. LPM tries
-are not counted because walking a large trie on every collection is expensive,
-and hash-of-maps hold inner maps rather than entries. The entries of a program
-array are its filled tail-call slots; they are not counted yet.
+and `LRUCPUHash` maps only. The count comes from walking the map's keys. The
+walk of an array returns every index, and ring buffers and socket, task and
+inode storage have no key walk. Other keyed types are left out on purpose: LPM
+tries because walking a large trie on every collection is expensive,
+hash-of-maps because they hold inner maps rather than entries, and stack trace,
+device, socket hash and cgroup storage maps until there is a need. The entries
+of a program array are its filled tail-call slots; they are not counted yet.
 
 The maximum entries are not always an entry count: for a ring buffer they are
 the buffer size in bytes, for a program array the number of slots, and for a
@@ -49,8 +50,8 @@ Global-data maps hold a program's global variables: one-slot arrays whose size
 never changes. Loaders name them after their ELF section, `.rodata` with
 cilium/ebpf and `<object>.rodata` with libbpf, and the collector recognises
 them as arrays whose name contains `.rodata`, `.data`, `.bss` or `.kconfig`. A
-loader that names them otherwise shows them as maps with one entry. On kernels
-before 5.2 object names cannot contain a dot, cilium/ebpf drops it, and these
+loader that names them otherwise shows them as maps with one maximum entry. On
+a kernel that rejects dots in object names, cilium/ebpf drops the dot, and these
 maps are reported as well.
 
 The internal collector does not list maps that only OBI's programs keep alive.
