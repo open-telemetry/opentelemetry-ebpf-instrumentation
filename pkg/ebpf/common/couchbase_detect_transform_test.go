@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/couchbasekv"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
@@ -384,7 +385,7 @@ func TestProcessCouchbaseEvent(t *testing.T) {
 			requestBuf := makeCouchbaseRequestPacket(tt.opcode, tt.key, tt.value, extras)
 			responseBuf := makeCouchbaseResponsePacket(tt.opcode, tt.responseStatus, "")
 
-			info, ignore, err := processCouchbaseEvent(connInfo, requestBuf, responseBuf, cache)
+			info, ignore, err := processCouchbaseEvent(connInfo, requestBuf, responseBuf, cache, false)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -417,14 +418,14 @@ func TestProcessCouchbaseEventInvalidPacket(t *testing.T) {
 	connInfo := newTestConnInfo()
 
 	// Test with invalid/too short buffer - ParsePackets returns empty slice
-	info, ignore, err := processCouchbaseEvent(connInfo, []byte{0x80}, nil, cache)
+	info, ignore, err := processCouchbaseEvent(connInfo, []byte{0x80}, nil, cache, false)
 	require.Error(t, err) // No error, just ignored (empty packets)
 	assert.True(t, ignore)
 	assert.Nil(t, info)
 
 	// Test with response packet as request (should be ignored)
 	responseBuf := makeCouchbaseResponsePacket(couchbasekv.OpcodeGet, couchbasekv.StatusSuccess, "")
-	info, ignore, err = processCouchbaseEvent(connInfo, responseBuf, nil, cache)
+	info, ignore, err = processCouchbaseEvent(connInfo, responseBuf, nil, cache, false)
 	require.NoError(t, err)
 	assert.True(t, ignore)
 	assert.Nil(t, info)
@@ -723,7 +724,7 @@ func TestProcessCouchbaseEventPipelinedPackets(t *testing.T) {
 		responseBuf = append(responseBuf, getResp...)
 
 		// Process the pipelined packets
-		info, ignore, err := processCouchbaseEvent(connInfo, requestBuf, responseBuf, cache)
+		info, ignore, err := processCouchbaseEvent(connInfo, requestBuf, responseBuf, cache, false)
 		require.NoError(t, err)
 		assert.False(t, ignore)
 		require.NotNil(t, info, "Should return CouchbaseInfo for the GET request")
@@ -764,7 +765,7 @@ func TestProcessCouchbaseEventPipelinedPackets(t *testing.T) {
 		responseBuf = append(responseBuf, getCollIDResp...)
 
 		// Process the pipelined packets - both should be ignored (cached for future use)
-		info, ignore, err := processCouchbaseEvent(connInfo, requestBuf, responseBuf, cache)
+		info, ignore, err := processCouchbaseEvent(connInfo, requestBuf, responseBuf, cache, false)
 		require.NoError(t, err)
 		assert.True(t, ignore, "Both packets are setup commands, should be ignored")
 		assert.Nil(t, info, "No span should be produced")
@@ -805,7 +806,7 @@ func TestProcessCouchbaseEventPipelinedPackets(t *testing.T) {
 		responseBuf = append(responseBuf, getResp2...)
 
 		// Process the pipelined packets - should return the first KV operation
-		info, ignore, err := processCouchbaseEvent(connInfo, requestBuf, responseBuf, cache)
+		info, ignore, err := processCouchbaseEvent(connInfo, requestBuf, responseBuf, cache, false)
 		require.NoError(t, err)
 		assert.False(t, ignore)
 		require.NotNil(t, info, "Should return CouchbaseInfo for the first GET")
@@ -844,7 +845,7 @@ func TestProcessCouchbaseEventPipelinedWithSetupCommands(t *testing.T) {
 	responseBuf = append(responseBuf, getResp...)
 
 	// Process the pipelined packets
-	info, ignore, err := processCouchbaseEvent(connInfo, requestBuf, responseBuf, cache)
+	info, ignore, err := processCouchbaseEvent(connInfo, requestBuf, responseBuf, cache, false)
 	require.NoError(t, err)
 	assert.False(t, ignore)
 	require.NotNil(t, info, "Should return CouchbaseInfo for GET (SELECT_BUCKET is ignored)")
@@ -1176,26 +1177,37 @@ func TestProcessCouchbaseEvent_StatementPopulated(t *testing.T) {
 	req := makeCouchbaseRequestPacket(couchbasekv.OpcodeGet, "user::42", "", nil)
 	resp := makeCouchbaseResponsePacket(couchbasekv.OpcodeGet, couchbasekv.StatusSuccess, "value")
 
-	info, ignore, err := processCouchbaseEvent(connInfo, req, resp, cache)
+	info, ignore, err := processCouchbaseEvent(connInfo, req, resp, cache, false)
 	require.NoError(t, err)
 	assert.False(t, ignore)
 	require.NotNil(t, info)
 	assert.Equal(t, "GET user::42", info.Statement)
 }
 
-func TestCouchbaseSpanSanitizedStatement(t *testing.T) {
-	cache, err := simplelru.NewLRU[BpfConnectionInfoT, CouchbaseBucketInfo](100, nil)
-	require.NoError(t, err)
-	connInfo := newTestConnInfo()
-
+func TestMatchCouchbaseSanitizeDBQueryText(t *testing.T) {
 	req := makeCouchbaseRequestPacket(couchbasekv.OpcodeSet, "user::42", "secret", make([]byte, 8))
 	resp := makeCouchbaseResponsePacket(couchbasekv.OpcodeSet, couchbasekv.StatusSuccess, "")
 
-	info, _, err := processCouchbaseEvent(connInfo, req, resp, cache)
-	require.NoError(t, err)
-	require.NotNil(t, info)
+	tests := []struct {
+		name     string
+		sanitize bool
+		expected string
+	}{
+		{name: "sanitize off", sanitize: false, expected: "SET user::42 secret"},
+		{name: "sanitize on", sanitize: true, expected: "SET user::42 ?"},
+	}
 
-	span := TCPToCouchbaseToSpan(&TCPRequestInfo{ConnInfo: connInfo}, info)
-	assert.Equal(t, "SET user::42 secret", span.Statement)
-	assert.Equal(t, "SET user::42 ?", span.DBQueryTextSanitized)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.EBPFTracer{CouchbaseDBCacheSize: 100, SanitizeDBQueryText: tt.sanitize}
+			parseCtx := NewEBPFParseContext(&cfg, nil, nil)
+			event := &TCPRequestInfo{ConnInfo: newTestConnInfo()}
+
+			span, ignore, matched, err := matchCouchbase(parseCtx, &cfg, event, largebuf.NewLargeBufferFrom(req), largebuf.NewLargeBufferFrom(resp))
+			require.NoError(t, err)
+			assert.True(t, matched)
+			assert.False(t, ignore)
+			assert.Equal(t, tt.expected, span.Statement)
+		})
+	}
 }

@@ -22,18 +22,15 @@ import (
 
 // CouchbaseInfo holds parsed Couchbase memcached binary protocol information.
 type CouchbaseInfo struct {
-	Operation          string
-	Key                string
-	Bucket             string
-	Scope              string
-	Collection         string
-	Statement          string
-	SanitizedStatement string
-	Status             couchbasekv.Status
-	IsError            bool
+	Operation  string
+	Key        string
+	Bucket     string
+	Scope      string
+	Collection string
+	Statement  string
+	Status     couchbasekv.Status
+	IsError    bool
 }
-
-const couchbaseSanitizedValue = "?"
 
 var errInvalidCouchbase = errors.New("no valid Couchbase request packets found")
 
@@ -119,16 +116,16 @@ func appendUint32Tag(b *strings.Builder, name string, val uint32) {
 
 func appendValue(b *strings.Builder, pkt couchbasekv.Packet, sanitize bool) {
 	val := couchbaseValueForStatement(pkt)
-	if val == "" {
+	if len(val) == 0 {
 		return
 	}
 
 	b.WriteByte(' ')
 	if sanitize {
-		b.WriteString(couchbaseSanitizedValue)
-	} else {
-		b.WriteString(val)
+		b.WriteByte('?')
+		return
 	}
+	b.Write(val)
 }
 
 // stripLEB128Prefix consumes the leading LEB128-encoded unsigned varint
@@ -146,32 +143,36 @@ func stripLEB128Prefix(key []byte) []byte {
 	return key
 }
 
-func couchbaseValueForStatement(pkt couchbasekv.Packet) string {
+func couchbaseValueForStatement(pkt couchbasekv.Packet) []byte {
 	dataType := pkt.Header().DataType()
 	if dataType.HasSnappy() || dataType.HasXattr() {
-		return ""
+		return nil
 	}
 	val := pkt.Value()
 	if len(val) == 0 {
-		return ""
+		return nil
 	}
 	if !utf8.Valid(val) {
-		return ""
+		return nil
 	}
-	return string(val)
+	return val
 }
 
 // ProcessPossibleCouchbaseEvent attempts to parse the event as a Couchbase memcached binary protocol event.
 // Returns a slice of CouchbaseInfo if successful, along with a boolean indicating if the event should be ignored,
 // and an error if parsing failed. Multiple packets may be present in a single TCP segment due to pipelining.
 func ProcessPossibleCouchbaseEvent(event *TCPRequestInfo, requestBuf *largebuf.LargeBuffer, responseBuf *largebuf.LargeBuffer, bucketCache *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]) (*CouchbaseInfo, bool, error) {
+	return processPossibleCouchbaseEvent(event, requestBuf, responseBuf, bucketCache, false)
+}
+
+func processPossibleCouchbaseEvent(event *TCPRequestInfo, requestBuf *largebuf.LargeBuffer, responseBuf *largebuf.LargeBuffer, bucketCache *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo], sanitize bool) (*CouchbaseInfo, bool, error) {
 	reqRaw := requestBuf.UnsafeView()
 	respRaw := responseBuf.UnsafeView()
-	info, ignore, err := processCouchbaseEvent(event.ConnInfo, reqRaw, respRaw, bucketCache)
+	info, ignore, err := processCouchbaseEvent(event.ConnInfo, reqRaw, respRaw, bucketCache, sanitize)
 	// If parsing failed (error or no valid packets found), try with buffers reversed
 	if err != nil {
 		// Try with buffers reversed - we might have captured it backwards
-		info, ignore, err = processCouchbaseEvent(event.ConnInfo, respRaw, reqRaw, bucketCache)
+		info, ignore, err = processCouchbaseEvent(event.ConnInfo, respRaw, reqRaw, bucketCache, sanitize)
 		if err == nil {
 			reverseTCPEvent(event)
 			return info, false, nil
@@ -236,7 +237,7 @@ func handleGetCollectionIDWithResponse(connInfo BpfConnectionInfoT, reqPacket co
 
 // processCouchbaseEvent parses Couchbase packets from request and response buffers.
 // It handles multiple packets that may be pipelined in a single TCP segment.
-func processCouchbaseEvent(connInfo BpfConnectionInfoT, requestBuf []byte, responseBuf []byte, bucketCache *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]) (*CouchbaseInfo, bool, error) {
+func processCouchbaseEvent(connInfo BpfConnectionInfoT, requestBuf []byte, responseBuf []byte, bucketCache *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo], sanitize bool) (*CouchbaseInfo, bool, error) {
 	// Build a map of response packets by Opaque for matching
 	respByOpaque := make(map[uint32]couchbasekv.Packet)
 	for pkt, err := range couchbasekv.ParsePackets(responseBuf) {
@@ -302,8 +303,7 @@ func processCouchbaseEvent(connInfo BpfConnectionInfoT, requestBuf []byte, respo
 			}
 		}
 
-		info.Statement = buildCouchbaseStatement(reqPacket, collectionsEnabled, false)
-		info.SanitizedStatement = buildCouchbaseStatement(reqPacket, collectionsEnabled, true)
+		info.Statement = buildCouchbaseStatement(reqPacket, collectionsEnabled, sanitize)
 
 		if hasResp && respPacket.IsResponse() {
 			info.Status = respPacket.Header().Status()
@@ -373,9 +373,8 @@ func TCPToCouchbaseToSpan(trace *TCPRequestInfo, data *CouchbaseInfo) request.Sp
 			UserPID:   app.PID(trace.Pid.UserPid),
 			Namespace: trace.Pid.Ns,
 		},
-		DBError:              dbError,
-		DBNamespace:          dbNamespace,
-		Statement:            data.Statement,
-		DBQueryTextSanitized: data.SanitizedStatement,
+		DBError:     dbError,
+		DBNamespace: dbNamespace,
+		Statement:   data.Statement,
 	}
 }

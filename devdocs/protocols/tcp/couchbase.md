@@ -142,7 +142,7 @@ The Couchbase packet parsing flow:
 1. TCP packets arrive at `ReadTCPRequestIntoSpan`
    in [tcp_detect_transform.go](../../../pkg/ebpf/common/tcp_detect_transform.go)
 
-2. `ProcessPossibleCouchbaseEvent`
+2. `processPossibleCouchbaseEvent`
    in [couchbase_detect_transform.go](../../../pkg/ebpf/common/couchbase_detect_transform.go) attempts to parse the
    packet
 
