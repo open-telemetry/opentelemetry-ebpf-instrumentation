@@ -116,6 +116,10 @@ func (m *DynamicMatcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], b
 		return Event[ProcessMatch]{}, false
 	}
 
+	if startedByOBI(proc) {
+		return Event[ProcessMatch]{}, false
+	}
+
 	if processMatch := m.matchDynamicCriteria(obj, proc); processMatch != nil {
 		m.ProcessHistory[obj.pid] = *processMatch
 

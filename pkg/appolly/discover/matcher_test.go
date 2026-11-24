@@ -634,6 +634,44 @@ func TestCriteriaMatcherContainersOnly(t *testing.T) {
 	testMatch(t, matches[1], "port-only-containers", "foo", services.ProcessInfo{Pid: 3, ExePath: "/bin/weird33", OpenPorts: []uint32{80}, PPid: 1})
 }
 
+// OBI does not instrument the processes it starts itself, such as the NVML
+// helper, even when they match the discovery criteria.
+func TestCriteriaMatcherSkipsProcessesStartedByOBI(t *testing.T) {
+	pipeConfig := obi.Config{}
+	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
+  instrument:
+  - exe_path: "*"
+`), &pipeConfig))
+
+	originalPid, originalNamespace := osPidFunc, namespaceFetcherFunc
+	osPidFunc = func() int { return 100 }
+	namespaceFetcherFunc = func(app.PID) (string, error) { return "host", nil }
+	t.Cleanup(func() { osPidFunc, namespaceFetcherFunc = originalPid, originalNamespace })
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	filteredProcesses := filteredProcessesQu.Subscribe()
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil, nil)(t.Context())
+	require.NoError(t, err)
+	go matcherFunc(t.Context())
+	defer filteredProcessesQu.Close()
+
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		ppid := map[app.PID]app.PID{1: 50, 2: 100, 3: 50}[pp.pid]
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: "/bin/app", PPid: ppid}, nil
+	}
+	discoveredProcesses.Send([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 1}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 2}}, // started by OBI
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 3}},
+	})
+
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	require.Len(t, matches, 2)
+	assert.Equal(t, app.PID(1), matches[0].Obj.Process.Pid)
+	assert.Equal(t, app.PID(3), matches[1].Obj.Process.Pid)
+}
+
 func TestInstrumentation_CoexistingWithDeprecatedServices(t *testing.T) {
 	// setup conflicting criteria and see how some of them are ignored and others not
 	type testCase struct {

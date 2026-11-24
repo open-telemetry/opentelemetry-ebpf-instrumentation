@@ -1883,6 +1883,23 @@
           "type": "string",
           "default": "auto",
           "description": "GPU instrumentation mode.\nIf omitted, `auto` is used.\n"
+        },
+        "device_metrics": {
+          "type": "object",
+          "description": "Metrics that describe the NVIDIA GPUs of the host, read through the NVIDIA Management Library (NVML).",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Report the GPU device metrics.\nIf omitted, false is used.\n"
+            },
+            "interval": {
+              "type": "string",
+              "default": "30s",
+              "description": "Time between two readings of the GPUs.\nIf omitted, `30s` is used.\n"
+            }
+          }
         }
       }
     },

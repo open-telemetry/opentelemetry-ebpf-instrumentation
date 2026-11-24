@@ -230,6 +230,9 @@ var DefaultConfig = Config{
 		InstrumentCuda: config.CudaModeAuto,
 	},
 	PeerMetadata: peer.DefaultConfig(),
+	GPUDevices: config.GPUDeviceMetrics{
+		Interval: 30 * time.Second,
+	},
 	CloudMetadata: transform.CloudMetadataConfig{
 		DetectionEnabled: true,
 		RefreshInterval:  30 * time.Second,
@@ -407,6 +410,9 @@ type Config struct {
 	// Exceptions and Logs are set only by config v2.
 	Exceptions services.ExceptionsConfig `yaml:"-" env:"-"`
 	Logs       otelcfg.LogsConfig        `yaml:"-" env:"-"`
+
+	// GPUDevices is set only by config v2.
+	GPUDevices config.GPUDeviceMetrics `yaml:"-" env:"-"`
 
 	// Exec allows selecting the instrumented executable whose complete path contains the Exec value.
 	//
@@ -887,7 +893,7 @@ func (c *Config) validate(context validationContext) error {
 	networkEnabled := c.enabledForValidation(FeatureNetO11y, context)
 	applicationEnabled := context.applicationPipelineInitialized || c.enabledForValidation(FeatureAppO11y, context)
 	statsEnabled := c.enabledForValidation(FeatureStatsO11y, context)
-	if !networkEnabled && !applicationEnabled && !statsEnabled {
+	if !networkEnabled && !applicationEnabled && !statsEnabled && !c.GPUDevices.Enabled {
 		return ConfigError("at least one of 'network', 'application' or 'stats' features must be enabled. " +
 			"Enable an OpenTelemetry or Prometheus metrics export, then enable any of the network*, application* or stats*" +
 			"features using the 'OTEL_EBPF_METRICS_FEATURES=network,application,stats' environment variable " +

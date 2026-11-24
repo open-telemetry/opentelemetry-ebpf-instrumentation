@@ -1,0 +1,17 @@
+# OBI emits the upstream hardware metrics for NVIDIA GPUs unchanged — same
+# names, units, instruments and data-point attributes — so they are imported
+# rather than redeclared. hw.errors is declared in metrics.yaml instead, so that
+# its error.type resolves to OBI's definition.
+file_format: definition/2
+
+imports:
+  metrics:
+    - hw.gpu.utilization
+    - hw.gpu.memory.usage
+    - hw.gpu.memory.limit
+    - hw.gpu.memory.utilization
+    - hw.power
+    - hw.energy
+    - hw.temperature
+    - hw.temperature.limit
+    - hw.status

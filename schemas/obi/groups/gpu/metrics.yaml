@@ -247,3 +247,184 @@ metrics:
         requirement_level: recommended
       - ref: cuda.device.model
         requirement_level: recommended
+
+  - name: hw.errors
+    brief: OBI-emitted hw.errors, the memory errors of a GPU over its lifetime.
+    instrument: counter
+    unit: "{error}"
+    stability: development
+    requirement_level: recommended
+    attributes:
+      - {ref: hw.id, requirement_level: required}
+      - {ref: hw.type, requirement_level: required}
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if and only if an error has occurred
+
+  - name: gpu.clock.frequency
+    annotations: &no_gpu_device_metric
+      obi:
+        upstream: none
+        upstream_reason: upstream defines no such GPU metric
+    instrument: gauge
+    unit: "Hz"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Frequency of a clock of the GPU.
+    attributes:
+      - {ref: hw.id, requirement_level: required}
+      - {ref: hw.model, requirement_level: recommended}
+      - {ref: hw.vendor, requirement_level: opt_in}
+      - {ref: hw.driver_version, requirement_level: opt_in}
+      - {ref: gpu.clock.type, requirement_level: recommended}
+
+  - name: gpu.clock.throttled
+    annotations: *no_gpu_device_metric
+    instrument: updowncounter
+    unit: "1"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Whether a reason is currently limiting the clocks of the GPU: `1` (true) or `0` (false) for each reason.
+    attributes:
+      - {ref: hw.id, requirement_level: required}
+      - {ref: hw.model, requirement_level: recommended}
+      - {ref: hw.vendor, requirement_level: opt_in}
+      - {ref: hw.driver_version, requirement_level: opt_in}
+      - {ref: gpu.clock.throttle.reason, requirement_level: recommended}
+
+  - name: gpu.memory.remapped_rows
+    annotations: *no_gpu_device_metric
+    instrument: gauge
+    unit: "{row}"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Memory rows that the GPU replaced with spare ones, by the kind of memory error that caused it.
+    attributes:
+      - {ref: hw.id, requirement_level: required}
+      - {ref: hw.model, requirement_level: recommended}
+      - {ref: hw.vendor, requirement_level: opt_in}
+      - {ref: hw.driver_version, requirement_level: opt_in}
+      - {ref: error.type, requirement_level: recommended}
+
+  - name: gpu.memory.activity
+    annotations: *no_gpu_device_metric
+    instrument: gauge
+    unit: "1"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Fraction of time during the last sample period that the GPU memory was being read or written.
+    attributes:
+      - {ref: hw.id, requirement_level: required}
+      - {ref: hw.model, requirement_level: recommended}
+      - {ref: hw.vendor, requirement_level: opt_in}
+      - {ref: hw.driver_version, requirement_level: opt_in}
+
+  - name: gpu.memory.reserved
+    annotations: *no_gpu_device_metric
+    instrument: updowncounter
+    unit: "By"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      GPU memory that the driver reserves for itself.
+    attributes:
+      - {ref: hw.id, requirement_level: required}
+      - {ref: hw.model, requirement_level: recommended}
+      - {ref: hw.vendor, requirement_level: opt_in}
+      - {ref: hw.driver_version, requirement_level: opt_in}
+
+  - name: gpu.pcie.replays
+    annotations: *no_gpu_device_metric
+    instrument: counter
+    unit: "{replay}"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      PCIe packets that the link of the GPU had to send again, since the driver was loaded.
+    attributes:
+      - {ref: hw.id, requirement_level: required}
+      - {ref: hw.model, requirement_level: recommended}
+      - {ref: hw.vendor, requirement_level: opt_in}
+      - {ref: hw.driver_version, requirement_level: opt_in}
+
+  - name: gpu.xid.errors
+    annotations: *no_gpu_device_metric
+    instrument: counter
+    unit: "{error}"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Xid errors that the GPU driver reported since OBI started reading the GPU.
+    attributes:
+      - {ref: hw.id, requirement_level: required}
+      - {ref: hw.model, requirement_level: recommended}
+      - {ref: hw.vendor, requirement_level: opt_in}
+      - {ref: hw.driver_version, requirement_level: opt_in}
+      - {ref: gpu.xid.code, requirement_level: recommended}
+
+  - name: gpu.process.memory.usage
+    annotations: *no_gpu_device_metric
+    instrument: updowncounter
+    unit: "By"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      GPU memory that a process is using.
+    attributes:
+      - {ref: hw.id, requirement_level: required}
+      - {ref: hw.model, requirement_level: recommended}
+      - {ref: hw.vendor, requirement_level: opt_in}
+      - {ref: hw.driver_version, requirement_level: opt_in}
+      - {ref: process.pid, requirement_level: recommended}
+      - {ref: process.executable.name, requirement_level: recommended}
+      - {ref: k8s.namespace.name, requirement_level: recommended}
+      - {ref: k8s.pod.name, requirement_level: recommended}
+      - {ref: k8s.container.name, requirement_level: recommended}
+      - {ref: k8s.deployment.name, requirement_level: recommended}
+      - {ref: k8s.replicaset.name, requirement_level: recommended}
+      - {ref: k8s.daemonset.name, requirement_level: recommended}
+      - {ref: k8s.job.name, requirement_level: recommended}
+      - {ref: k8s.cronjob.name, requirement_level: recommended}
+      - {ref: k8s.statefulset.name, requirement_level: recommended}
+      - {ref: k8s.node.name, requirement_level: recommended}
+      - {ref: k8s.pod.uid, requirement_level: recommended}
+      - {ref: k8s.pod.start_time, requirement_level: recommended}
+      - {ref: k8s.cluster.name, requirement_level: recommended}
+      - {ref: k8s.owner.name, requirement_level: recommended}
+      - {ref: k8s.kind, requirement_level: recommended}
+
+  - name: gpu.process.utilization
+    annotations: *no_gpu_device_metric
+    instrument: gauge
+    unit: "1"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Fraction of time the GPU spent on a task of a process.
+    attributes:
+      - {ref: hw.id, requirement_level: required}
+      - {ref: hw.model, requirement_level: recommended}
+      - {ref: hw.vendor, requirement_level: opt_in}
+      - {ref: hw.driver_version, requirement_level: opt_in}
+      - {ref: process.pid, requirement_level: recommended}
+      - {ref: process.executable.name, requirement_level: recommended}
+      - {ref: k8s.namespace.name, requirement_level: recommended}
+      - {ref: k8s.pod.name, requirement_level: recommended}
+      - {ref: k8s.container.name, requirement_level: recommended}
+      - {ref: k8s.deployment.name, requirement_level: recommended}
+      - {ref: k8s.replicaset.name, requirement_level: recommended}
+      - {ref: k8s.daemonset.name, requirement_level: recommended}
+      - {ref: k8s.job.name, requirement_level: recommended}
+      - {ref: k8s.cronjob.name, requirement_level: recommended}
+      - {ref: k8s.statefulset.name, requirement_level: recommended}
+      - {ref: k8s.node.name, requirement_level: recommended}
+      - {ref: k8s.pod.uid, requirement_level: recommended}
+      - {ref: k8s.pod.start_time, requirement_level: recommended}
+      - {ref: k8s.cluster.name, requirement_level: recommended}
+      - {ref: k8s.owner.name, requirement_level: recommended}
+      - {ref: k8s.kind, requirement_level: recommended}
+      - {ref: hw.gpu.task, requirement_level: recommended}

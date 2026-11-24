@@ -204,6 +204,10 @@ Enablement is controlled by `ebpf.instrument_cuda` (`OTEL_EBPF_INSTRUMENT_CUDA`)
 instrumentation when `nvidia-smi` is on the `PATH` of the OBI process. Spans and metrics are labelled with the device
 index, UUID, and model. See [gpu-monitoring.md](gpu-monitoring.md) for the emitted metrics and the full design.
 
+GPU device metrics, such as utilization, memory, power and temperature, are a separate opt-in feature that reads the
+NVIDIA Management Library (NVML). It is enabled through `capture.instrumentation.gpu.device_metrics` in Config v2 only.
+See [gpu-monitoring.md](gpu-monitoring.md#device-metrics).
+
 # Supported Context propagation frameworks
 
 For Inter-process context propagation, OBI by default assumes actions happening the same thread are part of the same

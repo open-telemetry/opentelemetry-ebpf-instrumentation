@@ -1325,6 +1325,7 @@ func applyFullV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrume
 	cfg.EBPF.CouchbaseDBCacheSize = instrumentation.Couchbase.DBCacheSize
 	cfg.EBPF.DNSRequestTimeout = instrumentation.DNS.RequestTimeout.TimeDuration()
 	cfg.EBPF.InstrumentCuda = instrumentation.GPU.EnabledMode
+	applyV2GPUDeviceMetrics(cfg, instrumentation.GPU.DeviceMetrics)
 }
 
 func applyPartialV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentation) {
@@ -1389,6 +1390,17 @@ func applyPartialV2Instrumentation(cfg *obi.Config, instrumentation schema.Instr
 	}
 	if !zeroValue(instrumentation.GPU.EnabledMode) {
 		cfg.EBPF.InstrumentCuda = instrumentation.GPU.EnabledMode
+	}
+	applyV2GPUDeviceMetrics(cfg, instrumentation.GPU.DeviceMetrics)
+}
+
+// applyV2GPUDeviceMetrics keeps the defaults of the settings the document omits.
+func applyV2GPUDeviceMetrics(cfg *obi.Config, deviceMetrics schema.GPUDeviceMetrics) {
+	if deviceMetrics.Enabled != nil {
+		cfg.GPUDevices.Enabled = *deviceMetrics.Enabled
+	}
+	if !zeroValue(deviceMetrics.Interval) {
+		cfg.GPUDevices.Interval = deviceMetrics.Interval.TimeDuration()
 	}
 }
 

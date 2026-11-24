@@ -425,9 +425,9 @@ build: docker-generate verify compile
 all: docker-generate notices-update build
 
 .PHONY: compile compile-cache
-compile:
+compile: nvml-helper-build
 	@echo "### Compiling OpenTelemetry eBPF Instrumentation"
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -o bin/$(CMD) $(MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags $(NVML_HELPER_TAG) -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -o bin/$(CMD) $(MAIN_GO_FILE)
 compile-cache:
 	@echo "### Compiling OpenTelemetry eBPF Instrumentation K8s cache"
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
@@ -441,9 +441,9 @@ dev: prereqs generate compile-for-coverage
 
 # Generated binary can provide coverage stats according to https://go.dev/blog/integration-test-coverage
 .PHONY: compile-for-coverage compile-cache-for-coverage
-compile-for-coverage:
+compile-for-coverage: nvml-helper-build
 	@echo "### Compiling project to generate coverage profiles"
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -o bin/$(CMD) $(MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags $(NVML_HELPER_TAG) -cover -o bin/$(CMD) $(MAIN_GO_FILE)
 compile-cache-for-coverage:
 	@echo "### Compiling K8s cache service to generate coverage profiles"
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
@@ -497,6 +497,22 @@ JAVA_AGENT_JAVA_HOME_CANDIDATES := /usr/lib/jvm/java-$(JAVA_AGENT_JAVA_VERSION)-
 JAVA_AGENT_JAVA_HOME_FALLBACK := $(shell ls -d /usr/lib/jvm/java-*-openjdk* 2>/dev/null | sort -V | tail -n 1)
 JAVA_AGENT_JAVA_HOME ?= $(or $(shell for d in $(JAVA_AGENT_JAVA_HOME_CANDIDATES); do [ -d "$$d" ] && { echo "$$d"; break; }; done),$(JAVA_AGENT_JAVA_HOME_FALLBACK))
 JAVA_AGENT_GRADLE_ENV := $(if $(JAVA_AGENT_JAVA_HOME),JAVA_HOME=$(JAVA_AGENT_JAVA_HOME) PATH=$(JAVA_AGENT_JAVA_HOME)/bin:$$PATH,)
+
+# NVML helper targets
+NVML_HELPER_DIR := pkg/internal/nvml
+NVML_HELPER_EMBED_DIR := $(NVML_HELPER_DIR)/embedded
+NVML_HELPER_ARCHES := amd64 arm64
+NVML_HELPER_TAG := obi_nvml_helper
+
+# OBI embeds the helper when built with NVML_HELPER_TAG, and runs it against the host filesystem to load the NVIDIA library.
+.PHONY: nvml-helper-build
+nvml-helper-build:
+	@echo "### Building NVML helper"
+	mkdir -p $(NVML_HELPER_EMBED_DIR)
+	for arch in $(NVML_HELPER_ARCHES); do \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -trimpath -buildvcs=false -ldflags="-s -w" \
+			-o $(NVML_HELPER_EMBED_DIR)/obi-nvml-helper-$$arch ./$(NVML_HELPER_DIR)/helper || exit 1; \
+	done
 
 .PHONY: java-build
 java-build:

@@ -427,6 +427,10 @@ extensions:
             traces: {}
             metrics: {}
           enabled_mode: auto
+          # Metrics of the NVIDIA GPUs of the host, read through NVML. Config v2 only.
+          device_metrics:
+            enabled: false
+            interval: 30s
 
       # runtimes controls injection of language-specific runtime instrumentation mechanisms.
       # These are independent from protocol instrumentation (HTTP, gRPC, etc.) and are used

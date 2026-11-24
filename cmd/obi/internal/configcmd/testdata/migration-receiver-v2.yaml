@@ -269,6 +269,9 @@ instrumentation:
                 http.request.method:
                     not_match: OPTIONS
         enabled_mode: auto
+        device_metrics:
+            enabled: false
+            interval: 30s
     aerospike:
         enabled:
             traces: true
