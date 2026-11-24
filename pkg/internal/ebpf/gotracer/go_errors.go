@@ -57,7 +57,7 @@ const (
 
 // decodeGoErrorEvent decodes a go_exception_payload_t. A stack that cannot be
 // symbolized leaves only the panic header rather than dropping the record.
-func decodeGoErrorEvent(_ *ebpfcommon.BpfExceptionEventHeaderT, payload []byte, event *exceptions.Event) error {
+func decodeGoErrorEvent(payload []byte, event *exceptions.Event) error {
 	p, err := ebpfcommon.ReinterpretCast[BpfGoExceptionPayloadT](payload)
 	if err != nil {
 		return err
