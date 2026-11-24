@@ -711,7 +711,6 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.Prometheus.AllowServiceGraphSelfReferences = true
 	cfg.Prometheus.SpanMetricsServiceCacheSize = 701
 	cfg.Prometheus.ExtraResourceLabels = []string{"cloud.region"}
-	cfg.Prometheus.ExtraSpanResourceLabels = []string{"service.version"}
 
 	_, ext := RuntimeToV2(&cfg)
 
@@ -819,7 +818,6 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.True(t, got.Prometheus.AllowServiceGraphSelfReferences)
 	require.Equal(t, 701, got.Prometheus.SpanMetricsServiceCacheSize)
 	require.Equal(t, []string{"cloud.region"}, got.Prometheus.ExtraResourceLabels)
-	require.Equal(t, []string{"service.version"}, got.Prometheus.ExtraSpanResourceLabels)
 }
 
 func TestV2ToRuntimeImportsRules(t *testing.T) {

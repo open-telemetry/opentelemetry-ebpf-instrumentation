@@ -78,7 +78,7 @@ type MetricsReporter struct {
 	is               instrumentations.InstrumentationSelection
 	targetMetrics    map[svc.UID]*TargetMetrics
 	attrGetters      attributes.NamedGetters[*request.Span, attribute.KeyValue]
-	spanExtraAttrs   []attr.Name
+	spanExtraAttrs   spanMetricExtraAttrs
 
 	// user-selected fields for each of the reported metrics
 	attrHTTPDuration              []attributes.Field[*request.Span, attribute.KeyValue]
@@ -259,9 +259,14 @@ func newMetricsReporter(
 		attrGetters:         request.SpanOTELGetters(unresolved),
 	}
 
-	mr.spanExtraAttrs = []attr.Name{}
+	legacySpanExtraAttrs := []attr.Name{}
 	for _, label := range cfg.ExtraSpanResourceLabels {
-		mr.spanExtraAttrs = append(mr.spanExtraAttrs, attr.Name(label))
+		legacySpanExtraAttrs = append(legacySpanExtraAttrs, attr.Name(label))
+	}
+	mr.spanExtraAttrs = spanMetricExtraAttrs{
+		requests: attribProvider.ForSpanMetrics(legacySpanExtraAttrs, mr.spanMetricsDuration(), mr.spanMetricsCalls()),
+		sizes:    attribProvider.ForSpanMetrics(legacySpanExtraAttrs, attributes.SpanMetricsRequestSize, attributes.SpanMetricsResponseSize),
+		aliases:  attribProvider.UsesV2Selection(),
 	}
 
 	mr.createEventMetrics = mr.createTargetMetricData
@@ -803,12 +808,16 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 	return nil
 }
 
-func (mr *MetricsReporter) spanMetricsCallsName() string {
+func (mr *MetricsReporter) spanMetricsCalls() attributes.Name {
 	if mr.usesLegacySpanNames() {
-		return attributes.SpanMetricsCallsLegacy.OTEL
+		return attributes.SpanMetricsCallsLegacy
 	}
 
-	return attributes.SpanMetricsCallsOTel.OTEL
+	return attributes.SpanMetricsCallsOTel
+}
+
+func (mr *MetricsReporter) spanMetricsCallsName() string {
+	return mr.spanMetricsCalls().OTEL
 }
 
 func (mr *MetricsReporter) setupSpanSizeMeters(m *Metrics, meter instrument.Meter) error {
@@ -1143,6 +1152,22 @@ func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Sp
 		})
 }
 
+type spanMetricExtraAttrs struct {
+	requests []attr.Name
+	sizes    []attr.Name
+	aliases  bool
+}
+
+func spanMetadataAttrs(span *request.Span, names []attr.Name, aliases bool) []attribute.KeyValue {
+	var kvs []attribute.KeyValue
+	for _, name := range names {
+		if key, v, ok := attributes.SpanMetadataValue(span.Service.Metadata, name, aliases); ok {
+			kvs = append(kvs, key.OTEL().String(v))
+		}
+	}
+	return kvs
+}
+
 func otelMetricsAccepted(span *request.Span) bool {
 	return span.Service.Features.AppRED() && !span.Service.ExportsOTelMetrics()
 }
@@ -1452,15 +1477,9 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 	// together, so feeding one alone makes the pair disagree. Both stay out when the
 	// duration is withheld.
 	if measured && otelSpanMetricsAccepted(span) {
-		var extraAttrs []attribute.KeyValue
-
-		for _, l := range mr.spanExtraAttrs {
-			if v, ok := span.Service.Metadata[l]; ok {
-				extraAttrs = append(extraAttrs, l.OTEL().String(v))
-			}
-		}
-
 		if span.Service.Features.SpanMetrics() {
+			extraAttrs := spanMetadataAttrs(span, mr.spanExtraAttrs.requests, mr.spanExtraAttrs.aliases)
+
 			sml, attrs := r.spanMetricsLatency.ForRecord(span, extraAttrs...)
 			sml.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 
@@ -1469,6 +1488,8 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 		}
 
 		if span.Service.Features.SpanSizes() {
+			extraAttrs := spanMetadataAttrs(span, mr.spanExtraAttrs.sizes, mr.spanExtraAttrs.aliases)
+
 			smst, attrs := r.spanMetricsRequestSizeTotal.ForRecord(span, extraAttrs...)
 			smst.Add(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
 
