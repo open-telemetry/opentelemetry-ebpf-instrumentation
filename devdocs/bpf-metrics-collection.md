@@ -1,23 +1,22 @@
 # BPF metrics collection
 
 The BPF metrics collector reports execution statistics for eBPF programs and
-entry counts for eBPF LRU hash maps loaded on the host.
+sizes and entry counts for eBPF maps loaded on the host.
 
-Which programs the collector covers depends on the
+Which programs and maps the collector covers depends on the
 [collection path](#collection-paths):
 
 - The Prometheus collector describes the node. Every collection walks the
-  kernel's complete program ID namespace from the beginning, so it captures all
-  existing programs, including programs that were not loaded by OBI. A later
-  collection also discovers programs loaded after the collector started.
-- The internal collector describes OBI. It reports only the programs OBI holds
-  a file descriptor for, directly or through a link, as listed in
-  `/proc/self/fdinfo`. These are the descriptors of the whole process: when
-  OBI runs as a Collector receiver, the internal collector also reports the
-  programs of other components in the same Collector, such as the eBPF
-  profiler.
-
-Map metrics are host-wide on both paths.
+  kernel's complete program and map ID namespaces from the beginning, so it
+  captures all existing programs and maps, including those that were not loaded
+  by OBI. A later collection also discovers objects loaded after the collector
+  started.
+- The internal collector describes OBI. It reports only the programs and maps
+  OBI holds a file descriptor for, as listed in `/proc/self/fdinfo`; a program
+  can also be held through a link. These are the descriptors of the whole
+  process: when OBI runs as a Collector receiver, the internal collector also
+  reports the programs and maps of other components in the same Collector, such
+  as the eBPF profiler.
 
 ## Supported kernel objects
 
@@ -32,9 +31,36 @@ keeps alive, such as the `uprobe_multi` copies of tail-call targets: the loader
 places them in the array and keeps no descriptor for them. As tail-call targets
 they never count executions, so the internal metrics lose no data.
 
-The collector reports entry counts only for `LRUHash` maps. Other map types are
-still encountered during the host-wide walks, but they are not emitted as
-metrics.
+Both collectors report the maximum entries of every map type, except
+global-data maps. They report entry counts for `Hash`, `LRUHash`, `PerCPUHash`
+and `LRUCPUHash` maps only. The count comes from walking the map's keys, and for
+other types that walk does not count the entries in use: the walk of an array
+returns every index, and ring buffers and storage maps have no keys. LPM tries
+are not counted because walking a large trie on every collection is expensive,
+and hash-of-maps hold inner maps rather than entries. The entries of a program
+array are its filled tail-call slots; they are not counted yet.
+
+The maximum entries are not always an entry count: for a ring buffer they are
+the buffer size in bytes, for a program array the number of slots, and for a
+perf event array usually one slot per CPU. Comparing entries with maximum
+entries is meaningful for the hash maps only.
+
+Global-data maps hold a program's global variables: one-slot arrays whose size
+never changes. Loaders name them after their ELF section, `.rodata` with
+cilium/ebpf and `<object>.rodata` with libbpf, and the collector recognises
+them as arrays whose name contains `.rodata`, `.data`, `.bss` or `.kconfig`. A
+loader that names them otherwise shows them as maps with one entry. On kernels
+before 5.2 object names cannot contain a dot, cilium/ebpf drops it, and these
+maps are reported as well.
+
+The internal collector does not list maps that only OBI's programs keep alive.
+On OBI these are global-data maps, whose descriptors the loader closes after
+loading and which are not reported anyway.
+
+Map names are the kernel names, cut to 15 characters, so two maps can share a
+name, such as OBI's `python_exception_procs` and `python_exception_pending`;
+`bpf_map_id` tells them apart. Maps that OBI shrinks for disabled features
+report one maximum entry.
 
 ## Collection paths
 
@@ -47,10 +73,10 @@ BPF metrics can be collected through either of these paths:
   configured internal reporter exports the collected values through
   Prometheus or OpenTelemetry.
 
-If both paths are active, each path owns a separate collector. Their program
-walks never overlap: the Prometheus walk briefly holds descriptors of programs
-OBI did not load, and the internal collector must not read them from
-`/proc/self/fdinfo` as OBI's own.
+If both paths are active, each path owns a separate collector. Their program and
+map walks never overlap: the Prometheus walks briefly hold descriptors of
+programs and maps OBI did not load, and the internal collector must not read
+them from `/proc/self/fdinfo` as OBI's own.
 
 ### Prometheus collector metrics
 
@@ -108,7 +134,8 @@ collector shuts down.
 
 ## Map discovery and entry counting
 
-Each collection walks every map ID and caches metadata for newly observed maps.
-For each `LRUHash` map, it opens a temporary handle, iterates the entries to
-count them, and closes the handle. Missing metadata entries are removed after a
-complete ID walk.
+Each collection lists the map IDs of its path and caches metadata for newly
+observed maps. For each hash map, it opens a temporary handle, iterates the
+entries to count them, and closes the handle. If the count fails, that
+collection reports the map's maximum entries without an entry count. Missing
+metadata entries are removed only after a complete list.
