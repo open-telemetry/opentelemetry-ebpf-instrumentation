@@ -51,6 +51,13 @@ var aiohttpImportStart = regexp.MustCompile(`^from\s+aiohttp(?:\.web)?\s+import\
 // binds it to something else.
 var aiohttpWebImportPattern = regexp.MustCompile(`^(?:from\s+aiohttp\s+import\s*(?:\(?\s*|.*[(,]\s*)web\s*(?:[,)]|$)|import\s+aiohttp\.web\s+as\s+web\b)`)
 
+// aiohttpWebName is the name route definitions use for aiohttp's web module.
+const aiohttpWebName = "web"
+
+// aiohttpWebWithPattern matches a with statement rebinding web, e.g.
+// "async with ClientSession() as web:".
+var aiohttpWebWithPattern = regexp.MustCompile(`^(?:async\s+)?with\b.*\bas\s+` + aiohttpWebName + `\s*[,:)]`)
+
 // aiohttpTablePattern does not require the closing parenthesis, so the first
 // line of a multi-line RouteTableDef( call is enough.
 var aiohttpTablePattern = regexp.MustCompile(`^` + aiohttpName + aiohttpAnnotation + `\s*=\s*(?:` + pyObj + `)?RouteTableDef\s*\(`)
@@ -197,6 +204,14 @@ func (f *aiohttpFile) scan(stmt string, routes map[string]struct{}) bool {
 	}
 	if match := aiohttpAssignmentPattern.FindStringSubmatch(stmt); match != nil {
 		delete(f.tables, match[1])
+		if match[1] == aiohttpWebName {
+			f.webImported = false
+		}
+	}
+	// A client bound to web, as in "async with ClientSession() as web:", would
+	// turn its requests into routes.
+	if aiohttpWebWithPattern.MatchString(stmt) {
+		f.webImported = false
 	}
 
 	if f.isTableDecorator(stmt) {

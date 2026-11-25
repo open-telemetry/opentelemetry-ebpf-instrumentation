@@ -121,6 +121,32 @@ func TestScanAiohttp(t *testing.T) {
 			},
 		},
 		{
+			name: "web rebound by an assignment",
+			lines: []string{
+				`from aiohttp import web, ClientSession`,
+				`web = ClientSession()`,
+				`resp = await web.get("/api/users/1")`,
+			},
+		},
+		{
+			name: "web rebound by a with statement",
+			lines: []string{
+				`from aiohttp import web, ClientSession`,
+				`async with ClientSession() as web:`,
+				`resp = await web.get("/api/users/1")`,
+			},
+		},
+		{
+			name: "web imported again after a rebind",
+			lines: []string{
+				`from aiohttp import web, ClientSession`,
+				`web = ClientSession()`,
+				`from aiohttp import web`,
+				`app.add_routes([web.get("/real", real)])`,
+			},
+			want: []string{"/real"},
+		},
+		{
 			name: "aliased web import",
 			lines: []string{
 				`from aiohttp import web as aioweb`,
