@@ -110,6 +110,13 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
+- Parsed HTTP spans accept `http` and `https` from the full-parser URL; other or missing
+  schemes fall back to the captured TLS flag. `url.scheme` on HTTP client and server spans
+  and their corresponding HTTP metrics changes when the parsed URL has a non-HTTP(S) scheme;
+  missing schemes retain the existing TLS-flag fallback. URL path rendering is unchanged.
+  For forward proxies, the parsed URL scheme can describe the upstream request rather than
+  the client-to-proxy transport.
+
 - HTTP metrics support `network.protocol.version` (`network_protocol_version` in
   Prometheus). It is opt-in on the stable duration metrics to preserve existing series,
   and enabled by default on the development body-size metrics. Select it through

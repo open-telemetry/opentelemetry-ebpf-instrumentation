@@ -54,21 +54,26 @@ func TestMethod(t *testing.T) {
 	assert.Equal(t, "GET", httpMethodFromBuf(event.Buf[:]))
 }
 
-func TestHTTPRequestResponseToSpanSetsSchemeFromSSLFlag(t *testing.T) {
+func TestHTTPRequestResponseToSpanUsesHTTPOrHTTPSScheme(t *testing.T) {
 	testCases := []struct {
 		name           string
 		sslFlag        uint8
+		parsedScheme   string
 		expectedScheme string
 	}{
-		{name: "http", sslFlag: 0, expectedScheme: "http"},
-		{name: "https", sslFlag: 1, expectedScheme: "https"},
+		{name: "plaintext fallback", sslFlag: 0, expectedScheme: "http"},
+		{name: "TLS fallback", sslFlag: 1, expectedScheme: "https"},
+		{name: "parsed http overrides TLS", sslFlag: 1, parsedScheme: "http", expectedScheme: "http"},
+		{name: "parsed https overrides plaintext", sslFlag: 0, parsedScheme: "https", expectedScheme: "https"},
+		{name: "unexpected scheme uses plaintext fallback", sslFlag: 0, parsedScheme: "ftp", expectedScheme: "http"},
+		{name: "unexpected scheme uses TLS fallback", sslFlag: 1, parsedScheme: "ftp", expectedScheme: "https"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			req := &http.Request{
 				Method: http.MethodGet,
-				URL:    &url.URL{Path: "/test"},
+				URL:    &url.URL{Scheme: tc.parsedScheme, Path: "/test"},
 				Host:   "example.com",
 				Body:   io.NopCloser(strings.NewReader("")),
 			}
@@ -80,10 +85,13 @@ func TestHTTPRequestResponseToSpanSetsSchemeFromSSLFlag(t *testing.T) {
 				Type: uint8(request.EventTypeHTTP),
 				Ssl:  tc.sslFlag,
 			}
+			wantFullPath := req.URL.String()
 			span := httpRequestResponseToSpan(nil, event, req, resp)
 
 			expectedStatement := tc.expectedScheme + request.SchemeHostSeparator + req.Host
 			assert.Equal(t, expectedStatement, span.Statement)
+			assert.Equal(t, wantFullPath, span.FullPath)
+			assert.Equal(t, tc.parsedScheme, req.URL.Scheme)
 		})
 	}
 }
