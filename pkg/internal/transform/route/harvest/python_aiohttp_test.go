@@ -89,6 +89,19 @@ func TestScanAiohttp(t *testing.T) {
 			want: []string{"/f/{name}"},
 		},
 		{
+			name: "escapes in non-raw path literals",
+			lines: []string{
+				`from aiohttp import web`,
+				`app.router.add_get(r"/a/{id:\d+}", a)`,
+				`app.router.add_get("/b/{id:\d+}", b)`,
+				`app.router.add_get("/c/{id:\\d+}", c)`,
+				`app.router.add_get("/d/{id:[\\x2f0-9]+}", d)`,
+				`app.router.add_get("/e/{id:[\x2f0-9]+}", e)`,
+				`app.router.add_get(r"/f/{id:[\x2f0-9]+}", f)`,
+			},
+			want: []string{"/a/{id}", "/b/{id}", "/c/{id}"},
+		},
+		{
 			name: "requires aiohttp import",
 			lines: []string{
 				`app.router.add_get("/users/{user_id}", user)`,

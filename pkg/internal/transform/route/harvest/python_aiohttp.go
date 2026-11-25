@@ -24,7 +24,9 @@ const (
 	// A method argument is never a path, so Flask's route("/path") is not read as route(method, path).
 	aiohttpMethodArg = `(?:[rRuU]?(?:"[^"/]*"|'[^'/]*')|[A-Za-z_][\w.]*)\s*,\s*`
 	// A path must be a whole argument, so "/users/" + user_id is not a route.
-	aiohttpPathArg       = pyLit + `\s*[,)]`
+	// The string prefix is kept, since escapes are decoded in non-raw literals.
+	aiohttpPathArg       = `(?P<` + aiohttpPrefix + `>[rRuU]?)(?:"([^"\r\n]*)"|'([^'\r\n]*)')\s*[,)]`
+	aiohttpPrefix        = "prefix"
 	aiohttpTailConverter = ":path}"
 )
 
@@ -204,18 +206,53 @@ func (f *aiohttpFile) starts(line string) bool {
 
 func addAiohttpRoutes(routes map[string]struct{}, patterns []*regexp.Regexp, stmt string) {
 	for _, re := range patterns {
+		prefix := re.SubexpIndex(aiohttpPrefix)
 		for _, match := range re.FindAllStringSubmatch(stmt, -1) {
-			for _, group := range match[1:] {
-				if !strings.HasPrefix(group, "/") {
+			path := match[prefix+1] + match[prefix+2]
+			if !strings.HasPrefix(path, "/") {
+				continue
+			}
+			if !strings.EqualFold(match[prefix], "r") {
+				var ok bool
+				if path, ok = unescapePython(path); !ok {
 					continue
 				}
-				if route, ok := aiohttpTemplate(group); ok {
-					routes[route] = struct{}{}
-				}
-				break
+			}
+			if route, ok := aiohttpTemplate(path); ok {
+				routes[route] = struct{}{}
 			}
 		}
 	}
+}
+
+// unescapePython decodes a non-raw string literal. It returns false for escapes
+// that Python interprets other than backslashes and quotes.
+func unescapePython(literal string) (string, bool) {
+	if !strings.Contains(literal, `\`) {
+		return literal, true
+	}
+
+	var decoded strings.Builder
+	for i := 0; i < len(literal); i++ {
+		if literal[i] != '\\' {
+			decoded.WriteByte(literal[i])
+			continue
+		}
+		if i+1 == len(literal) {
+			return "", false
+		}
+		i++
+		switch char := literal[i]; {
+		case char == '\\' || char == '\'' || char == '"':
+			decoded.WriteByte(char)
+		case strings.IndexByte("abfnrtvxuUN01234567", char) >= 0:
+			return "", false
+		default:
+			decoded.WriteByte('\\')
+			decoded.WriteByte(char)
+		}
+	}
+	return decoded.String(), true
 }
 
 // aiohttpTemplate returns false when a parameter regex can span several segments,
