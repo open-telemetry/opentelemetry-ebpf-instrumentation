@@ -1000,6 +1000,16 @@ func (c *Config) metricsFeatureMasks() []*export.Features {
 	return masks
 }
 
+// HTTPServerActiveRequestsEnabled reports whether any global or service feature list enables the metric.
+func (c *Config) HTTPServerActiveRequestsEnabled() bool {
+	for _, features := range c.metricsFeatureMasks() {
+		if features.HTTPServerActiveRequests() {
+			return true
+		}
+	}
+	return false
+}
+
 // resolveSpanMetricsFormats rejects an explicit legacy + OTel combination and resolves the
 // implicit one coming from "all"/"*" in favor of OTel, for every feature list that reaches
 // the exporters. Resolving only the top-level list would let a per-service "all" put every

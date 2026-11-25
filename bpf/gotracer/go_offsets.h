@@ -32,6 +32,7 @@ typedef enum {
     _req_header_ptr_pos,
     _req_proto_major_pos,
     _req_proto_minor_pos,
+    _req_tls_pos,
     _resp_proto_major_pos,
     _resp_proto_minor_pos,
     _io_writer_buf_ptr_pos,

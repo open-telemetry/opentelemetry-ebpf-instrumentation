@@ -1789,6 +1789,28 @@ func loadConfig(t *testing.T, env envMap) *Config {
 	return cfg
 }
 
+func TestHTTPServerActiveRequestsEnabled(t *testing.T) {
+	const feature = export.FeatureHTTPServerActiveRequests
+
+	cfg := &Config{}
+	assert.False(t, cfg.HTTPServerActiveRequestsEnabled())
+
+	cfg.Metrics.Features = feature
+	assert.True(t, cfg.HTTPServerActiveRequestsEnabled())
+
+	cfg.Metrics.Features = export.FeatureApplicationRED
+	cfg.Discovery.Instrument = services.GlobDefinitionCriteria{{
+		Metrics: perapp.SvcMetricsConfig{Features: feature},
+	}}
+	assert.True(t, cfg.HTTPServerActiveRequestsEnabled())
+
+	cfg.Discovery.Instrument = nil
+	cfg.Discovery.Services = services.RegexDefinitionCriteria{{
+		Metrics: perapp.SvcMetricsConfig{Features: feature},
+	}}
+	assert.True(t, cfg.HTTPServerActiveRequestsEnabled())
+}
+
 func TestNormalizeConfig_MetricFeatures(t *testing.T) {
 	type testCase struct {
 		name     string
