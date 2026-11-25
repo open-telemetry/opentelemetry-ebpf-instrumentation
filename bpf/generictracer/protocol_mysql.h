@@ -11,6 +11,7 @@
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/large_buffers.h>
+#include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/sql.h>
 
@@ -63,6 +64,7 @@ struct {
     __type(key, connection_info_t);
     __type(value, struct mysql_state_data);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } mysql_state SEC(".maps");
 
 // This function is used to store the MySQL header if it comes in split packets
@@ -227,7 +229,7 @@ static __always_inline u8 mysql_classify(connection_info_t *conn_info,
         return 0;
     }
 
-    bpf_dbg_printk("is_mysql: payload_length=%d sequence_id=%d command_id=%d",
+    bpf_dbg_printk("is_mysql: payload_length=%d, sequence_id=%d, command_id=%d",
                    payload_len,
                    hdr.sequence_id,
                    hdr.command_id);

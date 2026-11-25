@@ -168,6 +168,8 @@ Comments must be minimal:
 - Do not add comments that restate the code.
 - Prefer clearer code over explanatory comments.
 - Add comments only when they provide necessary context, explain non-obvious behavior, or document verifier, kernel, or ABI constraints.
+- Do not write a doc comment for every function, type, or constant. Unexported identifiers need none unless the comment carries information the name and signature do not, such as a non-obvious contract, a reason, or a constraint. The Go convention of documenting every identifier applies to exported API only.
+- A comment must add information beyond the identifier name and signature. The conventional Go doc prefix (`// Name returns …`) is fine when the rest says something non-obvious. Bad: `// skipDigits reports whether it skipped at least one digit.` Good: no comment, or one that states why.
 
 ## Go Guidelines
 

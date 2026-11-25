@@ -68,7 +68,7 @@ int GUARDED_PROG(obi_ngx_event_connect_peer_ret, struct pt_regs *, ctx) {
 
     u64 *req_val = bpf_map_lookup_elem(&upstream_init_args, &id);
 
-    bpf_dbg_printk("=(o|o)= uretprobe ngx_event_connect_peer id=%d, req_val %llx", id, req_val);
+    bpf_dbg_printk("=(o|o)= uretprobe ngx_event_connect_peer id=%d, req_val=%llx", id, req_val);
 
     if (!req_val) {
         return 0;
@@ -90,7 +90,7 @@ int GUARDED_PROG(obi_ngx_event_connect_peer_ret, struct pt_regs *, ctx) {
 
     int fd = 0;
     bpf_probe_read(&fd, sizeof(int), peer_conn + ngx_connection_s_fd);
-    bpf_dbg_printk("= PEER conn %llx, fd = %d =", peer_conn, fd);
+    bpf_dbg_printk("= PEER conn=%llx, fd=%d =", peer_conn, fd);
 
     if (fd) {
         fd_info_t fdinfo = {};

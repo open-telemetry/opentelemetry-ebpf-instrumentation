@@ -257,7 +257,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.BufferSizes.TCP = 105
 	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
-	cfg.Attributes.SanitizeDBQueryText = true
+	cfg.EBPF.SanitizeDBQueryText = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201
 	cfg.EBPF.MSSQLPreparedStatementsCacheSize = 202
@@ -309,7 +309,6 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.OTELMetrics.ReportersCacheLen = 915
 	cfg.OTELMetrics.TTL = 916 * time.Second
 	cfg.OTELMetrics.InsecureSkipVerify = true
-	cfg.OTELMetrics.ExtraSpanResourceLabels = []string{"deployment.environment", "service.version"}
 	cfg.OTELMetrics.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationHTTP,
 	}
@@ -317,7 +316,6 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.Prometheus.AllowServiceGraphSelfReferences = true
 	cfg.Prometheus.SpanMetricsServiceCacheSize = 918
 	cfg.Prometheus.ExtraResourceLabels = []string{"cloud.region"}
-	cfg.Prometheus.ExtraSpanResourceLabels = []string{"service.version", "k8s.cluster.name"}
 	cfg.Prometheus.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationRedis,
 		instrumentations.InstrumentationDNS,
@@ -474,7 +472,6 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, true, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "allow_service_graph_self_references"))
 	require.Equal(t, 918, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "span_metrics_service_cache_size"))
 	require.Equal(t, []string{"cloud.region"}, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "extra_resource_attributes"))
-	require.Equal(t, []string{"service.version", "k8s.cluster.name", "deployment.environment"}, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "extra_span_resource_attributes"))
 }
 
 func TestRuntimeToV2NormalizesLogFormat(t *testing.T) {

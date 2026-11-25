@@ -185,6 +185,11 @@ section empty once drained.
   `obi_bpf_probe_executions_total`, `obi_bpf_probe_latency_seconds_total`) cover only the
   programs OBI loaded, of every type: series of other eBPF tools on the node disappear, and
   series of OBI's tracepoint, raw tracepoint, XDP and `Tracing` programs appear.
+- `obi.stat.tcp.io` (`obi_stat_tcp_io_bytes_total` in Prometheus) counts the bytes sent by
+  sockets that context propagation tracks, which it missed before. Transmit values grow on
+  hosts with context propagation enabled, in both OTLP and Prometheus. Kernel TLS sends are
+  counted too, and on kernels before 6.5 every sendpage path: `sendfile()`, splice, and
+  in-kernel senders such as NFS, NVMe/TCP, iSCSI, Ceph and ESP-in-TCP.
 
 ## Hosting notes
 

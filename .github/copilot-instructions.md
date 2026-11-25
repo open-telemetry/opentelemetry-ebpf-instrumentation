@@ -14,12 +14,14 @@
 - Keep functions small and focused, and use early returns when they improve readability.
 - Avoid unnecessary interfaces, wrappers, layers, and hidden coupling.
 - Keep comments minimal and only add context that the code itself cannot convey.
+- Do not add doc comments to unexported identifiers unless they carry information the name and signature do not. A comment must add information beyond the identifier name and signature. The conventional Go doc prefix (`// Name returns …`) is fine when the rest says something non-obvious.
 - Do not assume AI-generated code, plans, issue reports, or PR descriptions are correct. Check them against the repository before accepting them.
 - Contributors are responsible for understanding and being able to explain every line they submit, including AI-assisted changes.
 - When a change introduces a new helper, utility, abstraction, or pattern, check whether equivalent functionality already exists and prefer reuse.
 - Refactors are acceptable only when they are directly relevant to the problem being solved.
 - In reviews, prioritize signs of contributor ownership and repository-specific understanding over generic style commentary.
 - In reviews, flag PR descriptions that sound generic, plan-like, or tool-generated and do not explain why the approach fits this repository.
+- In reviews, flag comments that only restate the code, name, or signature, including doc comments on unexported identifiers that add no information. The conventional Go doc prefix alone is not a reason to flag.
 - In reviews, flag duplicated implementations, oversized scope, unrelated cleanup, unnecessary abstractions, and changes that do not follow existing repository structure.
 - In reviews, flag follow-up patches that appear to apply feedback mechanically without integrating it coherently into the surrounding code.
 - In reviews, ask concrete questions about rationale, reuse of existing code, scope, validation, and why this approach is appropriate for this codebase.

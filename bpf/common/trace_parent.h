@@ -199,7 +199,7 @@ resolve_python_current_task(const trace_key_t *t_key, u64 pid_tgid, python_task_
 
     if (thread_state->current_task) {
         if (resolve_python_task_ref(pid_tgid, thread_state->current_task, task_ref)) {
-            bpf_dbg_printk("resolve_python_current_task: resolved tid=%d task=%llx",
+            bpf_dbg_printk("resolve_python_current_task: resolved tid=%d, task=%llx",
                            t_key->p_key.tid,
                            thread_state->current_task);
             return PYTHON_TASK_RESOLVED;
@@ -216,7 +216,7 @@ resolve_python_current_task(const trace_key_t *t_key, u64 pid_tgid, python_task_
     const python_task_resolution_t resolution =
         resolve_python_task_from_context(pid_tgid, thread_state->current_context, task_ref);
     if (resolution == PYTHON_TASK_RESOLVED) {
-        bpf_dbg_printk("resolve_python_current_task: context fallback tid=%d ctx=%llx task=%llx",
+        bpf_dbg_printk("resolve_python_current_task: context fallback tid=%d, ctx=%llx, task=%llx",
                        t_key->p_key.tid,
                        thread_state->current_context,
                        task_ref->addr);
@@ -238,7 +238,7 @@ find_python_parent_trace(const trace_key_t *t_key, u64 pid_tgid, u8 *allow_paren
             *allow_parent_fallback = 0;
         }
         bpf_dbg_printk(
-            "python parent unresolved tid=%d status=%d", t_key->p_key.tid, task_resolution);
+            "python parent unresolved tid=%d, status=%d", t_key->p_key.tid, task_resolution);
         return NULL;
     }
 
@@ -250,9 +250,9 @@ find_python_parent_trace(const trace_key_t *t_key, u64 pid_tgid, u8 *allow_paren
     }
     if (server_tp) {
         bpf_dbg_printk(
-            "find_python_parent_trace: FOUND tid=%d task=%llx", t_key->p_key.tid, task_ref.addr);
+            "find_python_parent_trace: FOUND tid=%d, task=%llx", t_key->p_key.tid, task_ref.addr);
     } else {
-        bpf_dbg_printk("find_python_parent_trace: no owning trace for tid=%d task=%llx",
+        bpf_dbg_printk("find_python_parent_trace: no owning trace for tid=%d, task=%llx",
                        t_key->p_key.tid,
                        task_ref.addr);
     }
@@ -462,8 +462,10 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
 
         if (!should_be_in_same_transaction(&server_tp->tp, tp)) {
             bpf_dbg_printk("Parent and child are too far apart, discarding the parent trace");
-            bpf_dbg_printk(
-                "%lld >>> %lld (max: %lld)", tp->ts, server_tp->tp.ts, max_transaction_time);
+            bpf_dbg_printk("child_ts=%lld, parent_ts=%lld, max=%lld",
+                           tp->ts,
+                           server_tp->tp.ts,
+                           max_transaction_time);
             if (parent_trace_is_stale(&server_tp->tp, tp)) {
                 server_tp->valid = 0;
             }
@@ -512,8 +514,10 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
 
         if (!should_be_in_same_transaction(&server_tp->tp, tp)) {
             bpf_dbg_printk("Parent and child are too far apart, discarding the parent trace");
-            bpf_dbg_printk(
-                "%lld >>> %lld (max: %lld)", tp->ts, server_tp->tp.ts, max_transaction_time);
+            bpf_dbg_printk("child_ts=%lld, parent_ts=%lld, max=%lld",
+                           tp->ts,
+                           server_tp->tp.ts,
+                           max_transaction_time);
             if (parent_trace_is_stale(&server_tp->tp, tp)) {
                 server_tp->valid = 0;
             }

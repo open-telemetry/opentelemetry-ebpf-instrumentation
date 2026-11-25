@@ -25,11 +25,16 @@
 
 #include <gotracer/go_offsets.h>
 
+enum { k_max_go_executable_identity_requests = 64 };
+
+// Serialized transient TID entry held only during uprobe_register; userspace
+// inserts and deletes entries, BPF only looks up and updates in place.
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, u32);
     __type(value, go_executable_key_t);
-    __uint(max_entries, MAX_GO_PROGRAMS);
+    __uint(max_entries, k_max_go_executable_identity_requests);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
     __uint(pinning, OBI_PIN_INTERNAL);
 } go_executable_identity_requests SEC(".maps");
 

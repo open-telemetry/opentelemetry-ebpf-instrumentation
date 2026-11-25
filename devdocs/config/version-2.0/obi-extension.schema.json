@@ -1199,7 +1199,8 @@
                         "type": "string"
                       },
                       "default": [],
-                      "description": "Additional span resource attributes to include in OBI-generated Prometheus span metrics.\nIf omitted, no extra attributes are added.\n"
+                      "deprecated": true,
+                      "description": "Deprecated: select span metric dimensions with `capture.attributes.select`.\nAdditional span resource attributes to include in OBI-generated Prometheus span metrics, in addition to the selection.\nIf omitted, no extra attributes are added.\n"
                     }
                   }
                 }
@@ -1642,7 +1643,7 @@
         "sanitize_query_text": {
           "type": "boolean",
           "default": false,
-          "description": "Replace literal values in `db.query.text` with `?`: string, numeric, hexadecimal and boolean literals of SQL and SQL++ spans, Redis argument values (keys are kept), and the values in Elasticsearch and OpenSearch request bodies (field names are kept). Couchbase key-value spans are not sanitized. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
+          "description": "Replace literal values in `db.query.text` with `?`: string, numeric, hexadecimal and boolean literals of SQL and SQL++ spans, Redis argument values and Couchbase key-value document values (keys are kept), and the values in Elasticsearch and OpenSearch request bodies (field names are kept). By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
         }
       }
     },

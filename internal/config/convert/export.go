@@ -195,7 +195,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 	return schema.Instrumentation{
 		HTTP:      httpInstrumentation,
 		GRPC:      protocols[protocolGRPC],
-		DB:        schema.DBInstrumentation{SanitizeQueryText: cfg.Attributes.SanitizeDBQueryText},
+		DB:        schema.DBInstrumentation{SanitizeQueryText: cfg.EBPF.SanitizeDBQueryText},
 		SQL:       sqlInstrumentation,
 		Redis:     redisInstrumentation,
 		Kafka:     kafkaInstrumentation,
@@ -814,11 +814,20 @@ func daemon(cfg *obi.Config) *schema.Daemon {
 					AllowServiceGraphSelfReferences: cfg.Prometheus.AllowServiceGraphSelfReferences,
 					SpanMetricsServiceCacheSize:     cfg.Prometheus.SpanMetricsServiceCacheSize,
 					ExtraResourceAttributes:         cfg.Prometheus.ExtraResourceLabels,
-					ExtraSpanResourceAttributes:     mergedStrings(cfg.Prometheus.ExtraSpanResourceLabels, cfg.OTELMetrics.ExtraSpanResourceLabels),
+					ExtraSpanResourceAttributes:     deprecatedPrometheusSpanResourceAttributes(cfg),
 				},
 			},
 		},
 	}
+}
+
+// deprecatedPrometheusSpanResourceAttributes round-trips the deprecated v2 field.
+// Migration from v1 moves the Prometheus list into capture.attributes.select instead.
+func deprecatedPrometheusSpanResourceAttributes(cfg *obi.Config) []string {
+	if !cfg.Attributes.UseV2Selection {
+		return nil
+	}
+	return cfg.Prometheus.ExtraSpanResourceLabels
 }
 
 func logLevel(level obi.LogLevel) otelconfx.SeverityNumber {
@@ -854,19 +863,4 @@ func configFormat(format obi.LogConfigOption) schema.ConfigFormat {
 	default:
 		return schema.ConfigFormatUnset
 	}
-}
-
-func mergedStrings(values ...[]string) []string {
-	var out []string
-	seen := map[string]struct{}{}
-	for _, list := range values {
-		for _, value := range list {
-			if _, ok := seen[value]; ok {
-				continue
-			}
-			seen[value] = struct{}{}
-			out = append(out, value)
-		}
-	}
-	return out
 }

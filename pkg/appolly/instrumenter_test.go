@@ -301,8 +301,8 @@ func TestTracerPipelineSanitizeDBQueryText(t *testing.T) {
 				Select: attributes.Selection{
 					"traces": attributes.InclusionLists{Include: []string{"db.query.text"}},
 				},
-				SanitizeDBQueryText: sanitize,
 			},
+			EBPF: config.EBPFTracer{SanitizeDBQueryText: sanitize},
 		}, gctx(0, nil), tracesInput, processEvents, nil)
 
 		tracesInput.Send([]request.Span{{

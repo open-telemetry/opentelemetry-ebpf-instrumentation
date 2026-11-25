@@ -117,7 +117,7 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
                     bpf_dbg_printk("setting the client info as used");
                 } else {
                     bpf_dbg_printk("incompatible trace info, not using the correlated tp, type=%d, "
-                                   "other type=%d",
+                                   "other_type=%d",
                                    type,
                                    existing_tp->req_type);
                 }

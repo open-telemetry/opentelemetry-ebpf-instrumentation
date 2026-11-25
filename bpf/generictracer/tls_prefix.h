@@ -184,7 +184,7 @@ static __always_inline void tls_prefix_register_egress(void *bio, const void *bu
         .pid = pid,
     };
 
-    bpf_dbg_printk("tls prefix: registered %d bytes for ssl=%llx", scratch->key.len, info->ssl);
+    bpf_dbg_printk("tls prefix: registered len=%d, ssl=%llx", scratch->key.len, info->ssl);
 
     bpf_map_update_elem(&tls_prefix_to_ssl, &scratch->key, &val, BPF_ANY);
 }

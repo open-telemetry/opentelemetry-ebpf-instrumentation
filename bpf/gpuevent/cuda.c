@@ -497,7 +497,7 @@ int BPF_KRETPROBE_GUARDED(obi_cuda_malloc_ret, int ret) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uretprobe/cudaMalloc id=%llx ret=%d ===", id, ret);
+    bpf_dbg_printk("=== uretprobe/cudaMalloc id=%llx, ret=%d ===", id, ret);
 
     if (ret != 0 || !tracked) {
         return 0;
@@ -576,7 +576,7 @@ int BPF_KRETPROBE_GUARDED(obi_cuda_free_ret, int ret) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uretprobe/cudaFree id=%llx ret=%d ===", id, ret);
+    bpf_dbg_printk("=== uretprobe/cudaFree id=%llx, ret=%d ===", id, ret);
 
     if (ret != 0 || !tracked) {
         // The free failed and the allocation is still live, or the pointer was
@@ -890,7 +890,7 @@ int BPF_KPROBE_GUARDED(obi_cuda_set_device, int device) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe/cudaSetDevice id=%llx device=%d ===", id, device);
+    bpf_dbg_printk("=== uprobe/cudaSetDevice id=%llx, device=%d ===", id, device);
 
     const cuda_set_device_ctx_t set_ctx = {
         .index = (u32)device,
@@ -921,7 +921,7 @@ int BPF_KRETPROBE_GUARDED(obi_cuda_set_device_ret, int ret) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uretprobe/cudaSetDevice id=%llx ret=%d ===", id, ret);
+    bpf_dbg_printk("=== uretprobe/cudaSetDevice id=%llx, ret=%d ===", id, ret);
 
     if (ret != 0 || !tracked) {
         return 0;
@@ -970,7 +970,7 @@ int BPF_KRETPROBE_GUARDED(obi_cuda_get_device_ret, int ret) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uretprobe/cudaGetDevice id=%llx ret=%d ===", id, ret);
+    bpf_dbg_printk("=== uretprobe/cudaGetDevice id=%llx, ret=%d ===", id, ret);
 
     if (ret != 0 || !captured) {
         return 0;
@@ -1003,7 +1003,7 @@ int BPF_KPROBE_GUARDED(obi_cuda_get_device_properties, void *prop, int device) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe/cudaGetDeviceProperties id=%llx device=%d ===", id, device);
+    bpf_dbg_printk("=== uprobe/cudaGetDeviceProperties id=%llx, device=%d ===", id, device);
 
     capture_introspect(id, (u64)prop, (u32)device, 0, k_cuda_introspect_props);
 
@@ -1022,7 +1022,7 @@ int BPF_KRETPROBE_GUARDED(obi_cuda_get_device_properties_ret, int ret) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uretprobe/cudaGetDeviceProperties id=%llx ret=%d ===", id, ret);
+    bpf_dbg_printk("=== uretprobe/cudaGetDeviceProperties id=%llx, ret=%d ===", id, ret);
 
     if (ret != 0 || !captured) {
         return 0;
@@ -1042,7 +1042,7 @@ int BPF_KPROBE_GUARDED(obi_cuda_get_device_properties_v2, void *prop, int device
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe/cudaGetDeviceProperties_v2 id=%llx device=%d ===", id, device);
+    bpf_dbg_printk("=== uprobe/cudaGetDeviceProperties_v2 id=%llx, device=%d ===", id, device);
 
     capture_introspect(id, (u64)prop, (u32)device, 0, k_cuda_introspect_props);
 
@@ -1061,7 +1061,7 @@ int BPF_KRETPROBE_GUARDED(obi_cuda_get_device_properties_v2_ret, int ret) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uretprobe/cudaGetDeviceProperties_v2 id=%llx ret=%d ===", id, ret);
+    bpf_dbg_printk("=== uretprobe/cudaGetDeviceProperties_v2 id=%llx, ret=%d ===", id, ret);
 
     if (ret != 0 || !captured) {
         return 0;
@@ -1083,7 +1083,7 @@ int BPF_KPROBE_GUARDED(obi_cu_device_get_uuid, void *uuid, int dev) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe/cuDeviceGetUuid id=%llx dev=%d ===", id, dev);
+    bpf_dbg_printk("=== uprobe/cuDeviceGetUuid id=%llx, dev=%d ===", id, dev);
 
     capture_introspect(id, (u64)uuid, (u32)dev, 0, k_cuda_introspect_uuid);
 
@@ -1102,7 +1102,7 @@ int BPF_KRETPROBE_GUARDED(obi_cu_device_get_uuid_ret, int ret) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uretprobe/cuDeviceGetUuid id=%llx ret=%d ===", id, ret);
+    bpf_dbg_printk("=== uretprobe/cuDeviceGetUuid id=%llx, ret=%d ===", id, ret);
 
     if (ret != 0 || !captured) {
         return 0;
@@ -1127,7 +1127,7 @@ int BPF_KPROBE_GUARDED(obi_cu_device_get_uuid_v2, void *uuid, int dev) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe/cuDeviceGetUuid_v2 id=%llx dev=%d ===", id, dev);
+    bpf_dbg_printk("=== uprobe/cuDeviceGetUuid_v2 id=%llx, dev=%d ===", id, dev);
 
     capture_introspect(id, (u64)uuid, (u32)dev, 0, k_cuda_introspect_uuid);
 
@@ -1146,7 +1146,7 @@ int BPF_KRETPROBE_GUARDED(obi_cu_device_get_uuid_v2_ret, int ret) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uretprobe/cuDeviceGetUuid_v2 id=%llx ret=%d ===", id, ret);
+    bpf_dbg_printk("=== uretprobe/cuDeviceGetUuid_v2 id=%llx, ret=%d ===", id, ret);
 
     if (ret != 0 || !captured) {
         return 0;
@@ -1172,7 +1172,7 @@ int BPF_KPROBE_GUARDED(obi_cu_device_get_name, void *name, int len, int dev) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe/cuDeviceGetName id=%llx dev=%d len=%d ===", id, dev, len);
+    bpf_dbg_printk("=== uprobe/cuDeviceGetName id=%llx, dev=%d, len=%d ===", id, dev, len);
 
     capture_introspect(id, (u64)name, (u32)dev, (u32)len, k_cuda_introspect_name);
 
@@ -1191,7 +1191,7 @@ int BPF_KRETPROBE_GUARDED(obi_cu_device_get_name_ret, int ret) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uretprobe/cuDeviceGetName id=%llx ret=%d ===", id, ret);
+    bpf_dbg_printk("=== uretprobe/cuDeviceGetName id=%llx, ret=%d ===", id, ret);
 
     if (ret != 0 || !captured) {
         return 0;

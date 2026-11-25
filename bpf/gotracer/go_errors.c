@@ -19,17 +19,17 @@
 #include <gotracer/types/errors.h>
 #include <gotracer/types/nethttp.h>
 
+#include <pid/pid.h>
 #include <pid/pid_helpers.h>
 
-// Returns the capture flags of the current process, or 0 when it does not
-// capture exceptions.
-static __always_inline u8 go_exception_pid_flags(void) {
+// Returns the capture flags of the process with this OBI-visible PID, or 0
+// when it does not capture exceptions.
+static __always_inline u8 go_exception_pid_flags(const u32 pid) {
     if (!g_exceptions_enabled) {
         return 0;
     }
 
-    const u32 host_pid = bpf_get_current_pid_tgid() >> 32;
-    const u8 *flags = bpf_map_lookup_elem(&go_exception_pids, &host_pid);
+    const u8 *flags = bpf_map_lookup_elem(&go_exception_pids, &pid);
     if (!flags || !(*flags & k_go_exception_pid_enabled)) {
         return 0;
     }
@@ -182,6 +182,7 @@ static __always_inline void go_exception_read_stack(struct pt_regs *ctx,
 }
 
 static __always_inline int go_exception_emit(struct pt_regs *ctx,
+                                             const u32 pid,
                                              const u8 kind,
                                              const go_string_t *message,
                                              const u64 value_type,
@@ -196,6 +197,7 @@ static __always_inline int go_exception_emit(struct pt_regs *ctx,
     go_exception_payload_t *payload = (go_exception_payload_t *)record->payload;
     __builtin_memset(payload, 0, sizeof(*payload));
     payload->kind = kind;
+    payload->obi_pid = pid;
     payload->value_type = value_type;
     go_string_t panic_message = {};
     go_exception_read_value(payload, value_data, &panic_message);
@@ -227,7 +229,8 @@ int GUARDED_PROG(obi_uprobe_fmt_errorf_ret, struct pt_regs *, ctx) {
         return 0;
     }
 
-    const u8 flags = go_exception_pid_flags();
+    const u32 pid = obi_pid(bpf_get_current_pid_tgid());
+    const u8 flags = go_exception_pid_flags(pid);
     if (!(flags & k_go_exception_pid_formatted_errors)) {
         return 0;
     }
@@ -237,16 +240,18 @@ int GUARDED_PROG(obi_uprobe_fmt_errorf_ret, struct pt_regs *, ctx) {
     if (bpf_probe_read_user(&message, sizeof(message), data)) {
         return 0;
     }
-    return go_exception_emit(ctx, k_go_exception_formatted_error, &message, 0, NULL);
+    return go_exception_emit(ctx, pid, k_go_exception_formatted_error, &message, 0, NULL);
 }
 
 // func runtime.gopanic(e any)
 SEC("uprobe/runtime_gopanic")
 int GUARDED_PROG(obi_uprobe_runtime_gopanic, struct pt_regs *, ctx) {
-    const u8 flags = go_exception_pid_flags();
+    const u32 pid = obi_pid(bpf_get_current_pid_tgid());
+    const u8 flags = go_exception_pid_flags(pid);
     if (!(flags & k_go_exception_pid_panics)) {
         return 0;
     }
 
-    return go_exception_emit(ctx, k_go_exception_panic, NULL, (u64)GO_PARAM1(ctx), GO_PARAM2(ctx));
+    return go_exception_emit(
+        ctx, pid, k_go_exception_panic, NULL, (u64)GO_PARAM1(ctx), GO_PARAM2(ctx));
 }

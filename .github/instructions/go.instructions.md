@@ -24,6 +24,8 @@ Comments:
 - Do not add comments that restate the code.
 - Prefer clearer code over explanatory comments.
 - Add comments only when they provide necessary context or explain non-obvious behavior.
+- Do not add a doc comment to every function, type, or constant. Unexported identifiers need none unless the comment says something the name and signature do not (a non-obvious contract, a reason, a constraint).
+- A comment must add information beyond the identifier name and signature. The conventional Go doc prefix (`// Name returns …`) is fine when the rest says something non-obvious. Bad: `// skipDigits reports whether it skipped at least one digit.`
 
 Abstractions:
 
@@ -44,4 +46,4 @@ Validation:
 - Ensure changes compile and pass existing tests.
 - Do not introduce changes that break linting or formatting rules.
 
-When reviewing Go changes, flag unnecessary abstractions, duplicated logic, awkward mechanical conditionals, violations of existing patterns, branch-heavy code without targeted tests, and changes that increase complexity without clear benefit.
+When reviewing Go changes, flag comments that only restate the code, name, or signature (the conventional doc prefix alone is not a reason to flag), unnecessary abstractions, duplicated logic, awkward mechanical conditionals, violations of existing patterns, branch-heavy code without targeted tests, and changes that increase complexity without clear benefit.

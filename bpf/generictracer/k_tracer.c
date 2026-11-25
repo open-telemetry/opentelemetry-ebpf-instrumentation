@@ -307,7 +307,7 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_udp_sendmsg, int ret) {
     if (ret > 0) {
         obi_commit_unconn_dns_query(id);
     } else {
-        bpf_dbg_printk("=== kretprobe/udp_sendmsg id=%llx failed ret=%d ===", id, ret);
+        bpf_dbg_printk("=== kretprobe/udp_sendmsg failed id=%llx, ret=%d ===", id, ret);
         obi_discard_unconn_dns_query(id);
     }
 
@@ -706,7 +706,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                     if (!ssl) {
                         s_args.buffer_read = 1;
                         s_args.size = size;
-                        bpf_dbg_printk("msg_buffer: size %d, buf=[%s]", size, buf);
+                        bpf_dbg_printk("msg_buffer: size=%d, buf=[%s]", size, buf);
                         const u64 sock_p = (u64)sk;
                         bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
                         bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
@@ -856,7 +856,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
             bpf_dbg_printk("possibly never connected sock: id=%d, sock=%llx, ct=%llx", id, sk, ct);
 
             if (g_bpf_debug && ct) {
-                bpf_dbg_printk("established=%d, already failed=%d", ct->established, ct->failed);
+                bpf_dbg_printk("established=%d, already_failed=%d", ct->established, ct->failed);
             }
 
             if (ct && !ct->established && !ct->failed) {
@@ -1184,8 +1184,9 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
                 // Tecnically we have information in tracked connection if this was connect or accept,
                 // however if OBI tracks both processes, we'll see connect and accept on the same pair
                 // and last one wins.
-                bpf_dbg_printk(
-                    "setting unreadable buffer ports=%d,%d", info.conn.d_port, info.conn.s_port);
+                bpf_dbg_printk("setting unreadable buffer d_port=%d, s_port=%d",
+                               info.conn.d_port,
+                               info.conn.s_port);
                 mark_port_unreadable(info.conn.d_port);
                 mark_port_unreadable(info.conn.s_port);
             }
@@ -1521,7 +1522,7 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_sys_clone, int tid) {
         .pid = parent.pid,
     };
 
-    bpf_dbg_printk("=== kretprobe/sys_clone id->tid: %d -> %d ===", id, tid);
+    bpf_dbg_printk("=== kretprobe/sys_clone id=%d, tid=%d ===", id, tid);
     bpf_map_update_elem(&clone_map, &child, &parent, BPF_ANY);
 
     return 0;

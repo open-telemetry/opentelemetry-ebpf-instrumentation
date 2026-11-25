@@ -1582,6 +1582,71 @@ func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
 	assert.Empty(t, expected)
 }
 
+func TestSpanMetrics_V2AttributeSelection(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 100)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:                50 * time.Millisecond,
+		MetricsProtocol:         otelcfg.ProtocolHTTPProtobuf,
+		TTL:                     30 * time.Minute,
+		ReportersCacheLen:       100,
+		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		MetricsExport:           testMetricsConsumer(metricRecords),
+	}
+	selection := attributes.Selection{
+		"traces.span.metrics.duration": {Include: []string{"deployment.environment"}},
+	}
+	selection.Normalize()
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureSpanOTel},
+		&attributes.SelectorConfig{SelectionCfg: selection, UseV2Selection: true},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+
+	go reporter.reportMetrics(ctx)
+
+	metrics.Send([]request.Span{{
+		Service: svc.Attrs{
+			Features: export.FeatureSpanOTel,
+			UID:      svc.UID{Instance: "foo"},
+			Metadata: map[attr.Name]string{
+				attr.Name("deployment.environment"): "production",
+				attr.Name("service.version"):        "1.2.3",
+			},
+		},
+		Type:         request.EventTypeHTTPClient,
+		Method:       "GET",
+		Route:        "/v1/traces",
+		RequestStart: 100,
+		End:          200,
+	}})
+
+	res := readMetricsByName(t, metricRecords, timeout,
+		reporter.spanMetricsLatencyName(),
+		reporter.spanMetricsCallsName(),
+	)
+	require.Len(t, res, 2)
+	for _, record := range res {
+		assert.NotContains(t, record.Attributes, "service.version", record.Name)
+		assert.Equal(t, "production", record.Attributes["deployment.environment"], record.Name)
+	}
+}
+
 // Span metrics are the highest-cardinality family OBI emits, so the base attribute set that
 // spanMetricAttributes builds is pinned here: one added multiplies every series, one removed
 // silently breaks consumers grouping by it. (A user can still append to it through

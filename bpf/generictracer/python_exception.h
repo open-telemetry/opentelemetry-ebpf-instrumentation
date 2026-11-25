@@ -130,6 +130,7 @@ struct {
     __type(key, u32); // OBI-visible PID
     __type(value, python_exception_proc_t);
     __uint(max_entries, k_max_concurrent_pids);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
     __uint(pinning, OBI_PIN_INTERNAL);
 } python_exception_procs SEC(".maps");
 
@@ -642,7 +643,7 @@ python_exception_emit(const u32 host_pid, const tp_info_t *tp, const u64 request
     record->hdr.payload_len = python_exception_payload_len(&candidate->payload);
     __builtin_memcpy(record->payload, &candidate->payload, sizeof(candidate->payload));
 
-    bpf_dbg_printk("python exception: submitting pid=%d owner=%d", host_pid, candidate->owner);
+    bpf_dbg_printk("python exception: submitting pid=%d, owner=%d", host_pid, candidate->owner);
     exception_record_submit(record);
     bpf_map_delete_elem(&python_exception_pending, &key);
 }
