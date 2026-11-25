@@ -7,4 +7,4 @@ COPY internal/test/integration/components/djangoserver .
 
 ENV DJANGO_SETTINGS_MODULE=settings
 EXPOSE 8380
-CMD ["sh", "-c", "python -m django migrate --noinput && exec gunicorn --bind 0.0.0.0:8380 --workers 1 wsgi:application"]
+CMD ["sh", "-c", "python -m django migrate --noinput && exec gunicorn --bind 0.0.0.0:8380 --workers 1 --no-control-socket wsgi:application"]
