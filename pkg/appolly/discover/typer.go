@@ -389,7 +389,7 @@ func isGoProxy(offsets *goexec.Offsets) bool {
 func (t *typer) loadAllGoFunctionNames() {
 	uniqueFunctions := map[string]struct{}{}
 	t.allGoFunctions = nil
-	for _, p := range newGoTracersGroup(nil, t.cfg, t.metrics) {
+	for _, p := range newGoTracersGroup(nil, t.cfg, t.metrics, false) {
 		for symbolName := range p.GoProbes() {
 			t.addGoFunctionName(uniqueFunctions, symbolName)
 		}

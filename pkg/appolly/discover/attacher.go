@@ -45,6 +45,8 @@ type traceAttacher struct {
 	log     *slog.Logger
 	Cfg     *obi.Config
 	Metrics imetrics.Reporter
+	// ExternalSpanExport keeps the trace-only Go probes attached, see global.ContextInfo
+	ExternalSpanExport bool
 
 	// processInstances keeps track of the instances of each process. This will help making sure
 	// that we don't remove the BPF resources of an executable until all their instances are removed
@@ -357,6 +359,7 @@ func (ta *traceAttacher) getTracer(ctx context.Context, ie *ebpf.Instrumentable)
 				ta.EbpfEventContext.CommonPIDsFilter,
 				ta.Cfg,
 				ta.Metrics,
+				ta.ExternalSpanExport,
 			))
 		}
 	case svc.InstrumentableNodejs, svc.InstrumentableDeno, svc.InstrumentableJava, svc.InstrumentableJavaNative, svc.InstrumentableRuby, svc.InstrumentablePython, svc.InstrumentableDotnet, svc.InstrumentableGeneric, svc.InstrumentableRust, svc.InstrumentablePHP, svc.InstrumentableCPP:

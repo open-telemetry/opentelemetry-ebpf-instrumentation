@@ -323,6 +323,7 @@ type Tracer struct {
 	supportsBPFLoop                   bool
 	traceCtxMapEnabled                bool
 	runtimeMetricsEnabled             bool
+	traceOutputDisabled               bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfoT
 	pidSamplers                       ebpfcommon.PIDSamplers
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
@@ -371,6 +372,7 @@ func New(
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
 		traceCtxMapEnabled:                cfg.PopulateTraceContext(),
 		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
+		traceOutputDisabled:               !cfg.Traces.Enabled() && !cfg.TracePrinter.Enabled(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfoT{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
@@ -2732,11 +2734,18 @@ func (p *Tracer) goAutoSDKActivationProbesEnabled() bool {
 	return p.goAutoSDKActivationByExecutable[p.currentBinary] && p.supportsContextPropagation()
 }
 
+// KeepTraceOutputProbes keeps the probes that only feed traces attached when spans are
+// consumed outside OBI's exporters, for example through an overridden export queue.
+func (p *Tracer) KeepTraceOutputProbes() {
+	p.traceOutputDisabled = false
+}
+
 func (p *Tracer) goChannelLinkProbesEnabled() bool {
 	if p == nil || p.currentBinary.Ino == 0 {
 		return false
 	}
-	if p.cfg != nil && p.cfg.DisableGoChannelLinks {
+	// channel links are only visible in traces
+	if p.traceOutputDisabled || (p.cfg != nil && p.cfg.DisableGoChannelLinks) {
 		return false
 	}
 

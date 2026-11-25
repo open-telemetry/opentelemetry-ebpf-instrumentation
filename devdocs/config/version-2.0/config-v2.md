@@ -649,7 +649,9 @@ Each runtime has a simple structure: `enabled` (boolean) controls whether to att
 Java also includes additional runtime-specific configuration such as debug controls and attachment timeout.
 
 `capture.runtimes.go.channel_links` controls the Go channel probes (`runtime.chansend1`, `runtime.chanrecv1` and `runtime.chanrecv2`) that link spans across goroutines.
-The default is `true`. Set it to `false` to skip these probes when channel span links are unnecessary, for example when exporting only metrics.
+The default is `true`. Set it to `false` to skip these probes when channel span links are unnecessary.
+OBI also skips them, regardless of this setting, when traces are neither exported nor printed, for example when exporting only metrics.
+They stay attached when spans are read from an overridden export queue (vendored mode).
 These probes run on every channel send and receive, which can add notable kernel CPU to busy Go services.
 This field is available through Config v2 only and has no effect when Go runtime instrumentation is disabled.
 

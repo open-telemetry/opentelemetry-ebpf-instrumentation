@@ -31,7 +31,10 @@ needed by the target binary:
 
 If any required `runtime.hchan` offset is unavailable, OBI skips channel-link
 probes for that binary instead of failing instrumentation. Disabling Go-specific
-tracers also disables channel-link probes.
+tracers also disables channel-link probes, and so does running OBI without
+exporting or printing traces. In vendored mode, where spans are read from an
+overridden export queue (`instrumenter.OverrideAppExportQueue`), the probes stay
+attached.
 
 ## Supported Handoffs
 
