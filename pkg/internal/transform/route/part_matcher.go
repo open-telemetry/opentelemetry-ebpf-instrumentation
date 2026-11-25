@@ -41,11 +41,14 @@ func NewPartialRouteMatcher(routes []string) *PartialRouteMatcher {
 // Find the router pattern that would match a given URL path, or empty if no pattern
 // matches it. Uses partial matching across multiple root trees.
 func (rm *PartialRouteMatcher) Find(path string) string {
+	return rm.findTokens(path, tokenize(path))
+}
+
+func (rm *PartialRouteMatcher) findTokens(path string, tokens []string) string {
 	if path == "/" && rm.hasAbsoluteRoot {
 		return path
 	}
 
-	tokens := tokenize(path)
 	return rm.findCombined(tokens, 0, make([]string, len(tokens)), 0)
 }
 

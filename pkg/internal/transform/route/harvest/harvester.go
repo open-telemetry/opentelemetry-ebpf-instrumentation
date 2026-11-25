@@ -242,31 +242,9 @@ func routeValues(result *RouteHarvesterResult) []string {
 	return result.Routes
 }
 
-type separateRouteMatcher struct {
-	complete route.Matcher
-	partial  route.Matcher
-}
-
-func (m separateRouteMatcher) Find(path string) string {
-	if m.complete != nil {
-		if found := m.complete.Find(path); found != "" {
-			return found
-		}
-	}
-
-	if m.partial != nil {
-		return m.partial.Find(path)
-	}
-
-	return ""
-}
-
 func RouteMatcherFromResult(r RouteHarvesterResult) route.Matcher {
 	if r.HasSeparateRoutes {
-		return separateRouteMatcher{
-			complete: route.NewMatcher(r.Complete),
-			partial:  route.NewPartialRouteMatcher(r.Partial),
-		}
+		return route.NewCombinedRouteMatcher(r.Complete, r.Partial)
 	}
 
 	switch r.Kind {
