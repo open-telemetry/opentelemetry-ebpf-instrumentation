@@ -9,6 +9,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -71,6 +72,12 @@ func LoadSources(sources []Source) (*obi.Config, string, error) {
 		mergeDocument(document, values)
 		basePaths = append(basePaths, source.Path)
 	}
+	if base == VersionV2 && len(pending.fields) != 0 {
+		if err := pending.mergeLegacyFields(document); err != nil {
+			return nil, "", fmt.Errorf("%s: %w", strings.Join(pending.paths, ", "), err)
+		}
+		basePaths = append(basePaths, pending.paths...)
+	}
 	data, err := yaml.Marshal(document)
 	if err != nil {
 		return nil, "", err
@@ -80,9 +87,6 @@ func LoadSources(sources []Source) (*obi.Config, string, error) {
 		cfg, err = obi.LoadConfigYAML(data, pending.apply)
 	} else {
 		cfg, err = loadV2Expanded(data)
-		if err == nil {
-			err = pending.apply(cfg)
-		}
 	}
 	if err != nil {
 		return nil, "", fmt.Errorf("%s: %w", strings.Join(basePaths, ", "), err)
@@ -98,28 +102,48 @@ func (p *mixedOverrides) apply(cfg *obi.Config) error {
 	if err != nil {
 		return err
 	}
-	var layer obi.Config
-	if p.version == VersionV1 {
-		// A v2 base only inherits explicit legacy file settings.
-		if err := yaml.Unmarshal(data, &layer); err != nil {
-			return fmt.Errorf("%s: %w", strings.Join(p.paths, ", "), err)
-		}
-	} else {
-		doc, _, err := schema.ParseStandaloneYAML(data)
-		if err != nil {
-			return fmt.Errorf("%s: %w", strings.Join(p.paths, ", "), err)
-		}
-		v2, err := convert.DocumentToRuntime(doc)
-		if err != nil {
-			return fmt.Errorf("%s: %w", strings.Join(p.paths, ", "), err)
-		}
-		layer = *v2
-		if err := convert.ApplyTracerProvider(cfg, doc.TracerProvider); err != nil {
-			return fmt.Errorf("%s: tracer_provider: %w", p.tracerSource, err)
-		}
+	doc, _, err := schema.ParseStandaloneYAML(data)
+	if err != nil {
+		return fmt.Errorf("%s: %w", strings.Join(p.paths, ", "), err)
+	}
+	layer, err := convert.DocumentToRuntime(doc)
+	if err != nil {
+		return fmt.Errorf("%s: %w", strings.Join(p.paths, ", "), err)
+	}
+	if err := convert.ApplyTracerProvider(cfg, doc.TracerProvider); err != nil {
+		return fmt.Errorf("%s: tracer_provider: %w", p.tracerSource, err)
 	}
 	for _, apply := range p.fields {
-		apply(cfg, &layer)
+		apply(cfg, layer)
+	}
+	return nil
+}
+
+// Decode only the winning legacy scalars. YAML null leaves a scalar at its
+// legacy default. Putting those values into the v2 document before conversion
+// also subjects them to the same checks as native v2 settings.
+func (p *mixedOverrides) mergeLegacyFields(document map[string]any) error {
+	layer := obi.DefaultConfig
+	for _, setting := range sharedSettings {
+		if _, ok := p.fields[setting.v2]; !ok {
+			continue
+		}
+		if raw := p.document[setting.v1]; raw != nil {
+			node, ok := raw.(*yaml.Node)
+			if !ok {
+				return fmt.Errorf("%s: expected a scalar", setting.v1)
+			}
+			if err := node.Decode(setting.field(&layer)); err != nil {
+				return fmt.Errorf("%s: %w", setting.v1, err)
+			}
+		}
+		parts := strings.Split(setting.v2, ".")
+		last := len(parts) - 1
+		value := map[string]any{parts[last]: setting.field(&layer)}
+		for _, key := range slices.Backward(parts[:last]) {
+			value = map[string]any{key: value}
+		}
+		mergeDocument(document, value)
 	}
 	return nil
 }
@@ -205,29 +229,36 @@ func hasPath(values map[string]any, path string) bool {
 type sharedSetting struct {
 	v1, v2 string
 	copy   func(dst, src *obi.Config)
+	field  func(*obi.Config) any
+}
+
+func scalar[T any](v1, v2 string, field func(*obi.Config) *T) sharedSetting {
+	return sharedSetting{
+		v1: v1, v2: v2,
+		copy:  func(dst, src *obi.Config) { *field(dst) = *field(src) },
+		field: func(cfg *obi.Config) any { return field(cfg) },
+	}
 }
 
 const extension = "extensions.obi."
 
 var sharedSettings = []sharedSetting{
-	{"channel_buffer_len", extension + "capture.channels.buffer_len", func(d, s *obi.Config) { d.ChannelBufferLen = s.ChannelBufferLen }},
-	{"channel_send_timeout", extension + "capture.channels.send_timeout", func(d, s *obi.Config) { d.ChannelSendTimeout = s.ChannelSendTimeout }},
-	{"channel_send_timeout_panic", extension + "capture.channels.panic_on_send_timeout", func(d, s *obi.Config) { d.ChannelSendTimeoutPanic = s.ChannelSendTimeoutPanic }},
-	{"shutdown_timeout", extension + "daemon.shutdown.timeout", func(d, s *obi.Config) { d.ShutdownTimeout = s.ShutdownTimeout }},
-	{"log_level", "log_level", func(d, s *obi.Config) { d.LogLevel = s.LogLevel }},
-	{"log_format", extension + "daemon.logging.format", func(d, s *obi.Config) { d.LogFormat = s.LogFormat }},
+	scalar("channel_buffer_len", extension+"capture.channels.buffer_len", func(c *obi.Config) *int { return &c.ChannelBufferLen }),
+	scalar("channel_send_timeout", extension+"capture.channels.send_timeout", func(c *obi.Config) *time.Duration { return &c.ChannelSendTimeout }),
+	scalar("channel_send_timeout_panic", extension+"capture.channels.panic_on_send_timeout", func(c *obi.Config) *bool { return &c.ChannelSendTimeoutPanic }),
+	scalar("shutdown_timeout", extension+"daemon.shutdown.timeout", func(c *obi.Config) *time.Duration { return &c.ShutdownTimeout }),
+	scalar("log_level", "log_level", func(c *obi.Config) *obi.LogLevel { return &c.LogLevel }),
+	scalar("log_format", extension+"daemon.logging.format", func(c *obi.Config) *obi.LogFormat { return &c.LogFormat }),
 }
 
 type mixedOverrides struct {
 	fields       map[string]func(*obi.Config, *obi.Config)
 	document     map[string]any
-	version      string
 	paths        []string
 	tracerSource string
 }
 
 func (p *mixedOverrides) add(base, version string, values map[string]any, source string) error {
-	p.version = version
 	p.paths = append(p.paths, source)
 	mergeDocument(p.document, values)
 	if version == VersionV2 {

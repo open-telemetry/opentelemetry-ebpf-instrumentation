@@ -249,3 +249,24 @@ func TestLoadSourcesIsolatesResourceLabels(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, cfg.Attributes.Kubernetes.ResourceLabels, "custom")
 }
+
+func TestLegacyBufferLengthUsesV2Validation(t *testing.T) {
+	cfg, _, err := LoadSources(sources(v2Header, "channel_buffer_len: -1"))
+	require.Nil(t, cfg)
+	require.ErrorContains(t, err, "b.yml")
+	require.ErrorContains(t, err, "capture.channels.buffer_len must be greater than or equal to zero")
+
+	cfg, _, err = LoadSources(sources(v2Header, "channel_buffer_len: -1",
+		v2Header+"    capture: {channels: {buffer_len: 0}}"))
+	require.NoError(t, err)
+	require.Zero(t, cfg.ChannelBufferLen)
+}
+
+func TestLegacyNullUsesV1DefaultWithV2Base(t *testing.T) {
+	t.Setenv("OTEL_EBPF_LOG_LEVEL", "ERROR")
+	base := "log_level: debug\n" + v2Header + "    capture: {channels: {buffer_len: 111}}"
+	cfg, _, err := LoadSources(sources(base, "log_level: null"))
+	require.NoError(t, err)
+	require.Equal(t, obi.LogLevelInfo, cfg.LogLevel)
+	require.Equal(t, 111, cfg.ChannelBufferLen)
+}
