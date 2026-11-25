@@ -27,7 +27,7 @@ services:
     build:
       context: ../../..
       dockerfile: ./internal/test/integration/components/javakafka/Dockerfile_400
-    image: hatest-testserver-java-kafka
+    image: hatest-testserver-java-kafka-400
     ports:
       - "${TEST_SERVICE_PORTS}"
     depends_on:
@@ -52,6 +52,7 @@ services:
     environment:
       OTEL_EBPF_CONFIG_PATH: "/configs/obi-config.yml"
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms

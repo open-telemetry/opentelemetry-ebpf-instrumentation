@@ -255,7 +255,7 @@ static __always_inline void http2_grpc_start(void *ctx,
         return;
     }
     http2_grpc_request_t *h2g_info = empty_http2_info();
-    bpf_dbg_printk("http2/grpc start direction=%d stream=%d", direction, s_key->stream_id);
+    bpf_dbg_printk("http2/grpc start direction=%d, stream=%d", direction, s_key->stream_id);
     //dbg_print_http_connection_info(&s_key->pid_conn.conn); // commented out since GitHub CI doesn't like this call
     if (!h2g_info) {
         return;
@@ -426,8 +426,8 @@ static __always_inline frame_header_t next_frame(const grpc_frames_ctx_t *g_ctx)
     header.length = bpf_ntohl(header.length << 8);
     header.stream_id = bpf_ntohl(header.stream_id << 1);
 
-    //bpf_dbg_printk("http2 frame type = %u, len = %u", header.type, header.length);
-    //bpf_dbg_printk("http2 frame stream_id = %u, flags = %u", header.stream_id, header.flags);
+    //bpf_dbg_printk("http2 frame type=%u, len=%u", header.type, header.length);
+    //bpf_dbg_printk("http2 frame stream_id=%u, flags=%u", header.stream_id, header.flags);
 
     return header;
 }
@@ -733,8 +733,7 @@ static __always_inline u8 h2_server_huffscan(grpc_frames_ctx_t *g_ctx,
 
 // SERVER tail call: HPACK parse first (per-stream, no trace_map race), per-conn
 // fallback if missed. Skips optional PADDED/PRIORITY prefix + trailing pad
-SEC("kprobe/http2")
-int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server, void *, ctx) {
+static __always_inline int h2_server_start(void *ctx, const bool use_bpf_loop) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
         return 0;
@@ -753,7 +752,12 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server, void *, ctx)
     // an earlier stream in this buffer may have left huffman retry state here
     bpf_memset(&g_ctx->huff_scan, 0, sizeof(g_ctx->huff_scan));
 
-    if (parse_hpack_traceparent(h2g_info->data + hpack_off, hpack_len, &tp_p->tp, &g_ctx->huff)) {
+    const u8 parsed = use_bpf_loop
+                          ? parse_hpack_traceparent_loop(
+                                h2g_info->data, hpack_off, hpack_len, &tp_p->tp, &g_ctx->huff)
+                          : parse_hpack_traceparent(
+                                h2g_info->data + hpack_off, hpack_len, &tp_p->tp, &g_ctx->huff);
+    if (parsed) {
         h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
         return 0;
     }
@@ -773,6 +777,17 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server, void *, ctx)
 
     h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
     return 0;
+}
+
+SEC("kprobe/http2")
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server, void *, ctx) {
+    return h2_server_start(ctx, true);
+}
+
+// for kernels without bpf_loop, where the verifier walks every scan position
+SEC("kprobe/http2")
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_legacy, void *, ctx) {
+    return h2_server_start(ctx, false);
 }
 
 // SERVER huffscan: kept as a program so huffman retries can jump back to it
@@ -873,8 +888,7 @@ static __always_inline void h2_server_commit(void *ctx,
 }
 
 // SERVER finalize: searches for a traceparent value on its own, then commits
-SEC("kprobe/http2")
-int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_finalize, void *, ctx) {
+static __always_inline int h2_server_finalize(void *ctx, const bool use_bpf_loop) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
         return 0;
@@ -897,12 +911,28 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_finalize, voi
         u32 hpack_off;
         const u32 hpack_len = h2_hpack_window(h2g_info, &hpack_off);
         // a miss leaves tp invalid and commit assigns a new trace id
-        (void)find_hpack_traceparent_value(h2g_info->data + hpack_off, hpack_len, &tp_p->tp);
+        if (use_bpf_loop) {
+            (void)find_hpack_traceparent_value_loop(
+                h2g_info->data, hpack_off, hpack_len, &tp_p->tp);
+        } else {
+            (void)find_hpack_traceparent_value(h2g_info->data + hpack_off, hpack_len, &tp_p->tp);
+        }
     }
 
     // commit here: one tail call less per stream, so more streams fit in a buffer
     h2_server_commit(ctx, g_ctx, h2g_info, tp_p);
     return 0;
+}
+
+SEC("kprobe/http2")
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_finalize, void *, ctx) {
+    return h2_server_finalize(ctx, true);
+}
+
+// for kernels without bpf_loop, where the verifier walks every scan position
+SEC("kprobe/http2")
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_finalize_legacy, void *, ctx) {
+    return h2_server_finalize(ctx, false);
 }
 
 // SERVER commit: shared post-branch — new_trace_id if missing, commit tp,
@@ -955,7 +985,7 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_end_frame, void *, ctx) {
         // carries END_STREAM=1). Keep ongoing_http2_grpc so the correct
         // -direction end can fire later (response trailers for CLIENT,
         // request send for SERVER).
-        bpf_dbg_printk("grpc request/response mismatch, req_type %d, prev_info->type %d",
+        bpf_dbg_printk("grpc request/response mismatch, req_type=%d, prev_type=%d",
                        req_type,
                        g_ctx->prev_info.type);
     }

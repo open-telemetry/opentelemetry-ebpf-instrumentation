@@ -168,6 +168,8 @@ Comments must be minimal:
 - Do not add comments that restate the code.
 - Prefer clearer code over explanatory comments.
 - Add comments only when they provide necessary context, explain non-obvious behavior, or document verifier, kernel, or ABI constraints.
+- Do not write a doc comment for every function, type, or constant. Unexported identifiers need none unless the comment carries information the name and signature do not, such as a non-obvious contract, a reason, or a constraint. The Go convention of documenting every identifier applies to exported API only.
+- A comment must add information beyond the identifier name and signature. The conventional Go doc prefix (`// Name returns …`) is fine when the rest says something non-obvious. Bad: `// skipDigits reports whether it skipped at least one digit.` Good: no comment, or one that states why.
 
 ## Go Guidelines
 
@@ -194,3 +196,19 @@ Comments must be minimal:
 - Respect verifier limitations and kernel compatibility.
 - Avoid patterns that increase verifier complexity or risk rejection.
 - Keep programs simple and predictable.
+
+## BPF debug logging
+
+Unless the task specifies otherwise, add or refine debug logs in the BPF path
+being changed only when they help diagnose a failure or explain an unusual
+outcome. Preserve existing prints unless the task calls for changing them.
+
+- Check callers, filtering, and how often the condition can occur. Log after
+  the relevant PID, connection, or request checks. Keep routine successes,
+  expected misses, and repeated failures on hot paths quiet.
+- Include the operation and available context, such as the helper error,
+  correlation ID, size, or offset. Reuse values already available and keep
+  application payloads out of new logs.
+- Follow [BPF print format](devdocs/bpf-print-format.md) and use the existing
+  debug macros. Keep messages within the 80-byte record, including the function
+  suffix and NUL, and use at most three format arguments.

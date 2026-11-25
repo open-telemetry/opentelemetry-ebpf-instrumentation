@@ -37,7 +37,7 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 			Instrumentation: captureInstrumentation(cfg),
 			Runtimes:        captureRuntimes(cfg),
 			Network:         captureNetwork(cfg),
-			Metrics:         schema.CaptureMetrics{Features: cfg.Metrics.Features.Names()},
+			Metrics:         captureMetrics(cfg),
 			Limits:          captureLimits(cfg),
 			Engine:          captureEngine(cfg),
 			Safety:          captureSafety(cfg),
@@ -100,6 +100,10 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 	}
 
 	http := protocols[protocolHTTP]
+	redaction := schema.Redaction{
+		Names:       new(cloneStrings(cfg.Attributes.SensitiveQueryParams.Effective())),
+		Replacement: cfg.Attributes.SensitiveQueryParams.Replacement,
+	}
 	httpInstrumentation := schema.HTTPInstrumentation{
 		Enabled: schema.HTTPProtocolEnablement{
 			ProtocolEnablement: http.Enabled,
@@ -112,15 +116,15 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		GoHTTPClientBufferTimeout: schema.Duration(cfg.EBPF.GoHTTPClientBufferTimeout),
 		BufferSize:                cfg.EBPF.BufferSizes.HTTP,
 		Routes:                    httpRoutes(cfg),
+		QueryParameters:           schema.HTTPQueryParameters{Redaction: &redaction},
 		PayloadExtraction:         payloadExtraction(cfg),
 	}
 
 	sql := protocols[protocolSQL]
 	sqlInstrumentation := schema.SQLInstrumentation{
-		Enabled:           sql.Enabled,
-		Filters:           sql.Filters,
-		HeuristicDetect:   cfg.EBPF.HeuristicSQLDetect,
-		SanitizeQueryText: cfg.Attributes.SanitizeSQLQueryText,
+		Enabled:         sql.Enabled,
+		Filters:         sql.Filters,
+		HeuristicDetect: cfg.EBPF.HeuristicSQLDetect,
 		MySQL: schema.SQLDatabaseInstrumentation{
 			BufferSize:                  cfg.EBPF.BufferSizes.MySQL,
 			PreparedStatementsCacheSize: cfg.EBPF.MySQLPreparedStatementsCacheSize,
@@ -191,6 +195,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 	return schema.Instrumentation{
 		HTTP:      httpInstrumentation,
 		GRPC:      protocols[protocolGRPC],
+		DB:        schema.DBInstrumentation{SanitizeQueryText: cfg.EBPF.SanitizeDBQueryText},
 		SQL:       sqlInstrumentation,
 		Redis:     redisInstrumentation,
 		Kafka:     kafkaInstrumentation,
@@ -277,9 +282,12 @@ func protocolSelected(list []instrumentations.Instrumentation, mapping protocolM
 }
 
 func captureRuntimes(cfg *obi.Config) schema.CaptureRuntimes {
+	goChannelLinks := !cfg.EBPF.DisableGoChannelLinks
+
 	return schema.CaptureRuntimes{
-		Go: schema.Runtime{
-			Enabled: !cfg.Discovery.SkipGoSpecificTracers,
+		Go: schema.GoRuntime{
+			Enabled:      !cfg.Discovery.SkipGoSpecificTracers,
+			ChannelLinks: &goChannelLinks,
 		},
 		NodeJS: schema.Runtime{
 			Enabled: cfg.NodeJS.Enabled,
@@ -410,6 +418,14 @@ func statsFeatures(features featureexport.Features) []string {
 		out = append(out, statsFeatureTCPResets)
 	}
 	return out
+}
+
+func captureMetrics(cfg *obi.Config) schema.CaptureMetrics {
+	targetInfo := !cfg.Metrics.DisableTargetInfo
+	return schema.CaptureMetrics{
+		Features:   cfg.Metrics.Features.Names(),
+		TargetInfo: schema.CaptureTargetInfo{Enabled: &targetInfo},
+	}
 }
 
 func captureLimits(cfg *obi.Config) schema.CaptureLimits {
@@ -668,6 +684,7 @@ func enrich(cfg *obi.Config) *schema.Enrich {
 				MetadataCache: schema.KubernetesMetadataCache{
 					Address:           cfg.Attributes.Kubernetes.MetaCacheAddress,
 					RestrictLocalNode: cfg.Attributes.Kubernetes.MetaRestrictLocalNode,
+					TLS:               schema.KubernetesMetadataCacheTLS(cfg.Attributes.Kubernetes.MetaCacheTLS),
 					SourceLabels: schema.KubernetesSourceLabels{
 						ServiceName:      cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName,
 						ServiceNamespace: cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace,
@@ -797,11 +814,20 @@ func daemon(cfg *obi.Config) *schema.Daemon {
 					AllowServiceGraphSelfReferences: cfg.Prometheus.AllowServiceGraphSelfReferences,
 					SpanMetricsServiceCacheSize:     cfg.Prometheus.SpanMetricsServiceCacheSize,
 					ExtraResourceAttributes:         cfg.Prometheus.ExtraResourceLabels,
-					ExtraSpanResourceAttributes:     mergedStrings(cfg.Prometheus.ExtraSpanResourceLabels, cfg.OTELMetrics.ExtraSpanResourceLabels),
+					ExtraSpanResourceAttributes:     deprecatedPrometheusSpanResourceAttributes(cfg),
 				},
 			},
 		},
 	}
+}
+
+// deprecatedPrometheusSpanResourceAttributes round-trips the deprecated v2 field.
+// Migration from v1 moves the Prometheus list into capture.attributes.select instead.
+func deprecatedPrometheusSpanResourceAttributes(cfg *obi.Config) []string {
+	if !cfg.Attributes.UseV2Selection {
+		return nil
+	}
+	return cfg.Prometheus.ExtraSpanResourceLabels
 }
 
 func logLevel(level obi.LogLevel) otelconfx.SeverityNumber {
@@ -837,19 +863,4 @@ func configFormat(format obi.LogConfigOption) schema.ConfigFormat {
 	default:
 		return schema.ConfigFormatUnset
 	}
-}
-
-func mergedStrings(values ...[]string) []string {
-	var out []string
-	seen := map[string]struct{}{}
-	for _, list := range values {
-		for _, value := range list {
-			if _, ok := seen[value]; ok {
-				continue
-			}
-			seen[value] = struct{}{}
-			out = append(out, value)
-		}
-	}
-	return out
 }

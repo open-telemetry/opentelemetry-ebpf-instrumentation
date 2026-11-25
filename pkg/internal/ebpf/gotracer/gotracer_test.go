@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/cilium/ebpf"
@@ -24,6 +25,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
@@ -102,8 +104,16 @@ func TestRingbufMetricsConstant(t *testing.T) {
 	assert.Equal(t, false, tracer.constants(0)["ringbuf_metrics_enabled"])
 
 	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
+	assert.Equal(t, false, tracer.constants(0)["ringbuf_metrics_enabled"])
+
+	tracer = New(nil, &obi.Config{}, bpfMetricsReporter{})
 	assert.Equal(t, true, tracer.constants(0)["ringbuf_metrics_enabled"])
 }
+
+// bpfMetricsReporter collects the BPF internal metrics, so it turns the ring buffer accounting on.
+type bpfMetricsReporter struct{ imetrics.NoopReporter }
+
+func (bpfMetricsReporter) BpfInternalMetricsScrapeInterval() time.Duration { return time.Second }
 
 func TestWakeupDataBytesUsesScaledRingBufSize(t *testing.T) {
 	setContextPropagationSupportForTest(t, false)
@@ -718,6 +728,18 @@ func TestProcessBinarySelectsRecordedChannelOffsetState(t *testing.T) {
 	assert.False(t, tracer.goChannelLinkProbesEnabled())
 
 	tracer.ProcessBinary(nil)
+	assert.False(t, tracer.goChannelLinkProbesEnabled())
+}
+
+func TestGoChannelLinkProbesCanBeDisabled(t *testing.T) {
+	tracer := &Tracer{
+		cfg: &config.EBPFTracer{DisableGoChannelLinks: true},
+		goChannelOffsetsByExecutable: map[executableIdentity]bool{
+			{Ino: 1}: true,
+		},
+	}
+
+	tracer.ProcessBinary(exec.New(exec.Init{Ino: 1}))
 	assert.False(t, tracer.goChannelLinkProbesEnabled())
 }
 
@@ -2084,4 +2106,234 @@ func TestRuntimeMetricPIDInfoLeavesHostPIDZero(t *testing.T) {
 	assert.Zero(t, pidInfo.HostPid)
 	assert.Equal(t, ns, pidInfo.Ns)
 	assert.NotZero(t, pidInfo.UserPid)
+}
+
+var errFakeMapFull = errors.New("fake map full")
+
+type fakeGoOffsetsMap struct {
+	maxEntries int
+	entries    map[executableIdentity]BpfOffTableT
+}
+
+func (f *fakeGoOffsetsMap) Put(key, value any) error {
+	if f.entries == nil {
+		f.entries = map[executableIdentity]BpfOffTableT{}
+	}
+	k := key.(executableIdentity)
+	if _, exists := f.entries[k]; !exists && f.maxEntries > 0 && len(f.entries) >= f.maxEntries {
+		return errFakeMapFull
+	}
+	f.entries[k] = value.(BpfOffTableT)
+	return nil
+}
+
+func (f *fakeGoOffsetsMap) Delete(key any) error {
+	k := key.(executableIdentity)
+	if _, ok := f.entries[k]; !ok {
+		return ebpf.ErrKeyNotExist
+	}
+	delete(f.entries, k)
+	return nil
+}
+
+type fakeRuntimeMetricTargetMap struct {
+	entries map[BpfPidInfoT]BpfGoRuntimeMetricTargetT
+}
+
+func (f *fakeRuntimeMetricTargetMap) Put(key, value any) error {
+	if f.entries == nil {
+		f.entries = map[BpfPidInfoT]BpfGoRuntimeMetricTargetT{}
+	}
+	f.entries[key.(BpfPidInfoT)] = value.(BpfGoRuntimeMetricTargetT)
+	return nil
+}
+
+func (f *fakeRuntimeMetricTargetMap) Delete(key any) error {
+	k := key.(BpfPidInfoT)
+	if _, ok := f.entries[k]; !ok {
+		return ebpf.ErrKeyNotExist
+	}
+	delete(f.entries, k)
+	return nil
+}
+
+func TestGoOffsetsMapStaleCleanupAndReplacement(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping test because not on linux")
+	}
+	// Non-zero major device number ensures kernelDeviceNumber conversion is exercised,
+	// and maxEntries: 2 ensures stale entries are drained before Put to avoid E2BIG.
+	const statDev = uint64(0xfc01)
+
+	fakeMap := &fakeGoOffsetsMap{maxEntries: 2}
+	tracer := &Tracer{goOffsetsMap: fakeMap}
+
+	firstFile := exec.New(exec.Init{Dev: statDev, Ino: 10})
+	secondFile := exec.New(exec.Init{Dev: statDev, Ino: 20})
+	firstID := goOffsetsMapKey(firstFile)
+	secondID := goOffsetsMapKey(secondFile)
+	require.NotEqual(t, statDev, firstID.Dev)
+
+	// Register first executable and then replace it (same key: Put -> Unregister -> Register).
+	require.NoError(t, tracer.putGoOffsets(firstID, BpfOffTableT{}))
+	tracer.RegisterExecutable(firstFile)
+	require.NoError(t, tracer.putGoOffsets(firstID, BpfOffTableT{}))
+	tracer.UnregisterExecutable(firstFile.Dev(), firstFile.Ino())
+	tracer.RegisterExecutable(firstFile)
+
+	// Replacement must not leave firstID stale when another executable registers.
+	require.NoError(t, tracer.putGoOffsets(secondID, BpfOffTableT{}))
+	assert.Contains(t, fakeMap.entries, firstID)
+	assert.Contains(t, fakeMap.entries, secondID)
+
+	// Genuine unlink marks firstID stale, and the next putGoOffsets drains it before Put.
+	tracer.UnregisterExecutable(firstFile.Dev(), firstFile.Ino())
+	thirdID := goOffsetsMapKey(exec.New(exec.Init{Dev: statDev, Ino: 30}))
+	require.NoError(t, tracer.putGoOffsets(thirdID, BpfOffTableT{}))
+	assert.NotContains(t, fakeMap.entries, firstID)
+	assert.Contains(t, fakeMap.entries, secondID)
+	assert.Contains(t, fakeMap.entries, thirdID)
+
+	// Close drains any remaining stale entries before closing the shared map handle.
+	tracer.UnregisterExecutable(secondFile.Dev(), secondFile.Ino())
+	require.NoError(t, tracer.Close())
+	assert.NotContains(t, fakeMap.entries, secondID)
+	assert.Contains(t, fakeMap.entries, thirdID)
+}
+
+func TestRollbackUncommittedOffsets(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping test because not on linux")
+	}
+	const (
+		statDev = uint64(0xfc01)
+		ns      = uint32(4026531836)
+	)
+	pid := app.PID(os.Getpid())
+	fileInfo := exec.New(exec.Init{Pid: pid, Ns: ns, Dev: statDev, Ino: 42})
+	identity := goOffsetsMapKey(fileInfo)
+	pidInfo := BpfPidInfoT{UserPid: uint32(pid), Ns: ns}
+
+	t.Run("deletes both maps when executable is not committed and pid is not allowed", func(t *testing.T) {
+		offsetsMap := &fakeGoOffsetsMap{entries: map[executableIdentity]BpfOffTableT{identity: {}}}
+		runtimeMap := &fakeRuntimeMetricTargetMap{entries: map[BpfPidInfoT]BpfGoRuntimeMetricTargetT{pidInfo: {}}}
+		tracer := &Tracer{
+			log:                               slog.Default(),
+			goOffsetsMap:                      offsetsMap,
+			goRuntimeMetricTargetMap:          runtimeMap,
+			runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfoT{{pid: pid, ns: ns}: pidInfo},
+			goChannelOffsetsByExecutable:      map[executableIdentity]bool{identity: true},
+			goAutoSDKActivationByExecutable:   map[executableIdentity]bool{identity: true},
+			embeddedSDKActivationByExecutable: map[executableIdentity]bool{identity: true},
+			goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{identity: 1},
+			goRuntimeGCGoalSourceByExecutable: map[executableIdentity]goRuntimeGCGoalSource{identity: 1},
+		}
+
+		tracer.RollbackUncommittedOffsets(fileInfo, false)
+
+		assert.NotContains(t, offsetsMap.entries, identity)
+		assert.NotContains(t, runtimeMap.entries, pidInfo)
+		assert.NotContains(t, tracer.runtimeMetricTargetKeys, runtimeMetricTargetKey{pid: pid, ns: ns})
+		assert.NotContains(t, tracer.goChannelOffsetsByExecutable, identity)
+		assert.NotContains(t, tracer.goAutoSDKActivationByExecutable, identity)
+		assert.NotContains(t, tracer.embeddedSDKActivationByExecutable, identity)
+		assert.NotContains(t, tracer.goRuntimeMetricMaskByExecutable, identity)
+		assert.NotContains(t, tracer.goRuntimeGCGoalSourceByExecutable, identity)
+	})
+
+	t.Run("preserves executable offsets when keepExecutable is true and runtime target when pid is allowed", func(t *testing.T) {
+		offsetsMap := &fakeGoOffsetsMap{entries: map[executableIdentity]BpfOffTableT{identity: {}}}
+		runtimeMap := &fakeRuntimeMetricTargetMap{entries: map[BpfPidInfoT]BpfGoRuntimeMetricTargetT{pidInfo: {}}}
+		filter := ebpfcommon.NewPIDsFilter(&services.DiscoveryConfig{}, slog.Default(), imetrics.NoopReporter{})
+		filter.AllowPID(pid, ns, fileInfo, ebpfcommon.PIDTypeGo)
+		tracer := &Tracer{
+			log:                      slog.Default(),
+			pidsFilter:               filter,
+			goOffsetsMap:             offsetsMap,
+			goRuntimeMetricTargetMap: runtimeMap,
+			runtimeMetricTargetKeys:  map[runtimeMetricTargetKey]BpfPidInfoT{{pid: pid, ns: ns}: pidInfo},
+		}
+
+		tracer.RollbackUncommittedOffsets(fileInfo, true)
+
+		assert.Contains(t, offsetsMap.entries, identity)
+		assert.Contains(t, runtimeMap.entries, pidInfo)
+		assert.Contains(t, tracer.runtimeMetricTargetKeys, runtimeMetricTargetKey{pid: pid, ns: ns})
+	})
+
+	t.Run("deletes runtime target when pid was blocked within retention window", func(t *testing.T) {
+		offsetsMap := &fakeGoOffsetsMap{entries: map[executableIdentity]BpfOffTableT{identity: {}}}
+		runtimeMap := &fakeRuntimeMetricTargetMap{entries: map[BpfPidInfoT]BpfGoRuntimeMetricTargetT{pidInfo: {}}}
+		filter := ebpfcommon.NewPIDsFilter(&services.DiscoveryConfig{}, slog.Default(), imetrics.NoopReporter{})
+		filter.AllowPID(pid, ns, fileInfo, ebpfcommon.PIDTypeGo)
+		filter.BlockPID(pid, ns)
+		require.True(t, filter.ValidPID(pid, ns, ebpfcommon.PIDTypeGo))
+		tracer := &Tracer{
+			log:                      slog.Default(),
+			pidsFilter:               filter,
+			goOffsetsMap:             offsetsMap,
+			goRuntimeMetricTargetMap: runtimeMap,
+			runtimeMetricTargetKeys:  map[runtimeMetricTargetKey]BpfPidInfoT{{pid: pid, ns: ns}: pidInfo},
+		}
+
+		tracer.RollbackUncommittedOffsets(fileInfo, true)
+
+		assert.Contains(t, offsetsMap.entries, identity)
+		assert.NotContains(t, runtimeMap.entries, pidInfo)
+		assert.NotContains(t, tracer.runtimeMetricTargetKeys, runtimeMetricTargetKey{pid: pid, ns: ns})
+	})
+
+	t.Run("clears all executable state when putGoOffsets fails in RegisterOffsets", func(t *testing.T) {
+		runtimeMap := &fakeRuntimeMetricTargetMap{entries: map[BpfPidInfoT]BpfGoRuntimeMetricTargetT{pidInfo: {}}}
+		tracer := &Tracer{
+			log:                               slog.Default(),
+			goRuntimeMetricTargetMap:          runtimeMap,
+			runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfoT{{pid: pid, ns: ns}: pidInfo},
+			goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
+			goAutoSDKActivationByExecutable:   map[executableIdentity]bool{identity: true},
+			embeddedSDKActivationByExecutable: map[executableIdentity]bool{identity: true},
+			goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{identity: 1},
+			goRuntimeGCGoalSourceByExecutable: map[executableIdentity]goRuntimeGCGoalSource{identity: 1},
+		}
+
+		tracer.RegisterOffsets(fileInfo, &goexec.Offsets{
+			Field: map[goexec.GoOffset]any{
+				goexec.HchanQcountPos:   uint64(1),
+				goexec.HchanDataqsizPos: uint64(2),
+				goexec.HchanSendxPos:    uint64(3),
+				goexec.HchanRecvxPos:    uint64(4),
+			},
+		})
+
+		assert.NotContains(t, runtimeMap.entries, pidInfo)
+		assert.NotContains(t, tracer.runtimeMetricTargetKeys, runtimeMetricTargetKey{pid: pid, ns: ns})
+		assert.NotContains(t, tracer.goChannelOffsetsByExecutable, identity)
+		assert.NotContains(t, tracer.goAutoSDKActivationByExecutable, identity)
+		assert.NotContains(t, tracer.embeddedSDKActivationByExecutable, identity)
+		assert.NotContains(t, tracer.goRuntimeMetricMaskByExecutable, identity)
+		assert.NotContains(t, tracer.goRuntimeGCGoalSourceByExecutable, identity)
+	})
+}
+
+func TestMetadataMapSpecsUseNoPrealloc(t *testing.T) {
+	const bpfFlagNoPrealloc uint32 = 1
+
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	for _, name := range []string{
+		"go_offsets_map",
+		"go_runtime_metric_targets",
+		"go_executable_identity_requests",
+		"pid_samplers",
+		"go_auto_targets",
+		"go_exception_pids",
+	} {
+		m, ok := spec.Maps[name]
+		require.True(t, ok, "expected map %s in gotracer spec", name)
+		assert.Equal(t, ebpf.Hash, m.Type, "map %s should be BPF_MAP_TYPE_HASH", name)
+		assert.NotZero(t, m.Flags&bpfFlagNoPrealloc, "map %s should set BPF_F_NO_PREALLOC", name)
+	}
+
+	assert.Equal(t, uint32(64), spec.Maps["go_executable_identity_requests"].MaxEntries)
 }

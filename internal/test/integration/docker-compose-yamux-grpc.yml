@@ -60,6 +60,7 @@ services:
     cgroup: "host"
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_METRICS_INTERVAL: "${OTEL_EBPF_METRICS_INTERVAL:-1s}"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "${OTEL_EBPF_BPF_BATCH_TIMEOUT:-250ms}"

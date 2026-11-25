@@ -1214,6 +1214,52 @@ func TestGenerateTracesWithAttributesDropsInvalidManualOTelJSON(t *testing.T) {
 	assert.Equal(t, 0, ss.Len())
 }
 
+func TestGenerateTracesWithAttributesSharesScopeSpansAmongOBISpans(t *testing.T) {
+	service := &svc.Attrs{UID: svc.UID{Name: "checkout"}}
+	cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
+	obiSpan := func(id byte) TraceSpanAndAttributes {
+		return TraceSpanAndAttributes{Span: &request.Span{
+			Type:         request.EventTypeHTTP,
+			Method:       "GET",
+			Route:        "/test",
+			Status:       200,
+			RequestStart: 1,
+			Start:        1,
+			End:          2,
+			TraceID:      trace2.TraceID{1},
+			SpanID:       trace2.SpanID{id},
+		}}
+	}
+	manualSpan := TraceSpanAndAttributes{Span: &request.Span{
+		Type:           request.EventTypeManualSpan,
+		ManualOTelJSON: manualOTelPayload(t),
+	}}
+
+	traces := GenerateTracesWithAttributes(
+		cache,
+		service,
+		nil,
+		&metadata.NodeMeta{},
+		[]TraceSpanAndAttributes{obiSpan(1), manualSpan, obiSpan(2), obiSpan(3)},
+		"obi",
+	)
+
+	require.Equal(t, 1, traces.ResourceSpans().Len())
+	scopes := traces.ResourceSpans().At(0).ScopeSpans()
+	require.Equal(t, 2, scopes.Len())
+
+	obiScope := scopes.At(0)
+	assert.Equal(t, "obi", obiScope.Scope().Name())
+	assert.Equal(t, attr.TelemetryDistroVersion(), obiScope.Scope().Version())
+	assert.Equal(t, attr.OBISchemaURL, obiScope.SchemaUrl())
+	assert.Equal(t, 3, obiScope.Spans().Len())
+
+	manualScope := scopes.At(1)
+	assert.Equal(t, "manual-scope", manualScope.Scope().Name())
+	require.Equal(t, 1, manualScope.Spans().Len())
+	assert.Equal(t, "manual-json", manualScope.Spans().At(0).Name())
+}
+
 func TestAppendManualOTelJSONRejectsInvalidShape(t *testing.T) {
 	tests := []struct {
 		name    string

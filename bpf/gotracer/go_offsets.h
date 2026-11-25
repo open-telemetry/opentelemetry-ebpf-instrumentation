@@ -138,6 +138,7 @@ typedef enum {
     // route resolution
     _mux_template_pos,
     _gin_fullpath_pos,
+    _restful_route_path_pos,
     // Go runtime metrics
     _runtime_memstats_numgc_pos,
     _runtime_gc_controller_memory_limit_pos,
@@ -209,11 +210,14 @@ typedef struct go_executable_key {
     u64 ino;
 } go_executable_key_t;
 
+// Userspace-populated (BPF lookup-only); BPF_F_NO_PREALLOC avoids preallocating
+// MAX_GO_PROGRAMS offset tables upfront.
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, go_executable_key_t);
     __type(value, off_table_t); // the offset table
     __uint(max_entries, MAX_GO_PROGRAMS);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
     __uint(pinning, OBI_PIN_INTERNAL);
 } go_offsets_map SEC(".maps");
 

@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path"
 	"reflect"
@@ -32,6 +33,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/expire"
+	"go.opentelemetry.io/obi/pkg/internal/otelenv"
 	"go.opentelemetry.io/obi/pkg/metadata"
 )
 
@@ -553,11 +555,20 @@ func (l *LogrAdaptor) WithName(name string) logr.LogSink {
 func HeadersFromEnv(varName string) map[string]string {
 	headers := map[string]string{}
 
-	addToMap := func(k string, v string) {
-		headers[k] = v
+	envVar, ok := os.LookupEnv(varName)
+	if !ok {
+		return headers
 	}
 
-	parseProcessOTELEnvVar(varName, addToMap)
+	addToMap := func(k string, v string) {
+		value, err := url.PathUnescape(v)
+		if err != nil {
+			return
+		}
+		headers[k] = strings.TrimSpace(value)
+	}
+
+	otelenv.ParseKeyValues(string(config.ReplaceEnv([]byte(envVar))), addToMap)
 
 	return headers
 }

@@ -116,6 +116,10 @@ section empty once drained.
   `attributes.select` to split duration series by HTTP version. When selected, unknown
   versions are omitted from OTLP attributes and use an empty Prometheus label.
 
+- HTTP metric data points for requests without a known route (for example with
+  `routes.incoming.unmatched: unset` or `routes.outgoing.unmatched: unset`) omit `http.route` (server) and `url.template` (client) in OTLP
+  instead of carrying an empty string, matching the spans. Prometheus labels are unchanged.
+
 - A SQL++ span from a server other than Couchbase (`db.system.name` `other_sql`) that names no
   collection or bucket is named `{db.operation.name}`, like other SQL spans, instead of
   `{db.operation.name} {server.address}:{server.port}`. Couchbase SQL++ spans are unchanged.
@@ -133,6 +137,13 @@ section empty once drained.
   `client.address`. These attributes remain available on the stable HTTP duration metrics.
   They were opt-in, so only selections including them change. Attribute filters and spans
   retain these attributes.
+- The opt-in `url.path` dimension on both stable HTTP duration metrics and `client.address`
+  on `http.server.request.duration` are deprecated as high-cardinality OBI extensions
+  outside the HTTP metric semantic conventions. They remain supported throughout OBI v1,
+  with removal planned for OBI v2. The notice also applies to the Prometheus labels
+  `url_path` and `client_address`. Use `http.route` on server duration metrics or opt into
+  `url.template` on client duration metrics for route aggregation, and spans for raw paths
+  or client addresses. See the [migration guidance](../TELEMETRY.md#deprecated-http-metric-dimensions).
 - The span reference (`site/docs/spans.md`) documents every span's name. The emitted
   telemetry is unchanged.
 - The trace resource no longer carries `otel.scope.name`. Spans now carry the instrumentation
@@ -159,6 +170,26 @@ section empty once drained.
   per-bucket counts for the bounds that received executions only. Bucket values grow and new
   `le` series appear, and `histogram_quantile` over this metric now returns correct values.
   The OTLP `obi.bpf.probe.latency` histogram is unchanged.
+- MySQL and MariaDB spans and the database operation duration metrics carry `db.namespace` once
+  OBI has seen the connection's handshake or a database change, so their metric series split by
+  database.
+- MySQL and MariaDB spans for statements that name no table are named
+  `{db.operation.name} {db.namespace}` when the database is known (`SELECT sakila` instead of
+  `SELECT`). This changes `span.name` on the span metrics as well.
+- The Prometheus `bpf_probe_latency_seconds` histogram (`ebpf` metrics feature) reports
+  programs of every type on the node instead of only kprobe, socket filter, TC, `sk_msg` and
+  `sockops` programs, so tracepoint, raw tracepoint, XDP, cgroup and `Tracing` programs add
+  series. On cgroup v2 nodes, container runtimes load one cgroup device program per
+  container, so the histogram gains one set of series per container, under a new
+  `bpf_probe_id` after each container restart. The internal BPF probe metrics (`obi.bpf.probe.latency`,
+  `obi_bpf_probe_executions_total`, `obi_bpf_probe_latency_seconds_total`) cover only the
+  programs OBI loaded, of every type: series of other eBPF tools on the node disappear, and
+  series of OBI's tracepoint, raw tracepoint, XDP and `Tracing` programs appear.
+- `obi.stat.tcp.io` (`obi_stat_tcp_io_bytes_total` in Prometheus) counts the bytes sent by
+  sockets that context propagation tracks, which it missed before. Transmit values grow on
+  hosts with context propagation enabled, in both OTLP and Prometheus. Kernel TLS sends are
+  counted too, and on kernels before 6.5 every sendpage path: `sendfile()`, splice, and
+  in-kernel senders such as NFS, NVMe/TCP, iSCSI, Ceph and ESP-in-TCP.
 
 ## Hosting notes
 

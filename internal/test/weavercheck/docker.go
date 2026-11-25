@@ -69,12 +69,6 @@ func DrainDockerTap(ctx context.Context, warnf func(format string, args ...any))
 		return nil
 	}
 
-	select {
-	case <-time.After(dockerDrainWindow):
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
 	for _, collector := range collectors {
 		if err := drainCollector(ctx, collector, warnf); err != nil {
 			return err
@@ -173,7 +167,13 @@ func drainCollector(parent context.Context, collector tapCollector, warnf func(f
 	ctx, cancel := context.WithTimeout(parent, dockerCollectorDrainTimeout)
 	defer cancel()
 
-	stats, err := waitForSettledTap(ctx, collector)
+	scrape := func(ctx context.Context) (TapStats, error) { return scrapeCollectorTelemetry(ctx, collector) }
+	stats, err := waitForForwardedExport(ctx, scrape)
+	if err != nil {
+		return fmt.Errorf("reading the weaver tap's exporter telemetry: %w", err)
+	}
+
+	stats, err = waitForSettledTap(ctx, scrape, stats)
 	switch {
 	case errors.Is(err, errTapNotSettled):
 		warnf("weaver: %v", err)
@@ -187,14 +187,59 @@ func drainCollector(parent context.Context, collector tapCollector, warnf func(f
 	return nil
 }
 
-func waitForSettledTap(ctx context.Context, collector tapCollector) (TapStats, error) {
+// Receiver and exporter counts cannot be compared directly: the interval processor
+// combines metric points. Wait for each signal's exporter to advance independently,
+// allowing an idle signal with prior deliveries to stop waiting after the drain window.
+func waitForForwardedExport(ctx context.Context, scrape func(context.Context) (TapStats, error)) (TapStats, error) {
+	begin, err := scrape(ctx)
+	if err != nil {
+		return begin, err
+	}
+	started := time.Now()
+	return pollTap(ctx, scrape, func(stats TapStats) bool {
+		idle := time.Since(started) >= dockerDrainWindow
+		active := false
+		for signal, received := range stats.Received {
+			if received == 0 {
+				continue
+			}
+			active = true
+			fresh := received > begin.Received[signal]
+			if stats.Sent[signal] > begin.Sent[signal] && (fresh || begin.Sent[signal] == 0 || idle) {
+				continue
+			}
+			failed := stats.FailedBySignal[signal] > begin.FailedBySignal[signal]
+			if !idle || (!failed && (fresh || stats.Sent[signal] == 0)) {
+				return false
+			}
+		}
+		return active || idle
+	})
+}
+
+func pollTap(ctx context.Context, scrape func(context.Context) (TapStats, error), done func(TapStats) bool) (TapStats, error) {
 	ticker := time.NewTicker(dockerTapPoll)
 	defer ticker.Stop()
 
-	previous, err := scrapeCollectorTelemetry(ctx, collector)
-	if err != nil {
-		return previous, err
+	for {
+		select {
+		case <-ctx.Done():
+			return TapStats{}, ctx.Err()
+		case <-ticker.C:
+		}
+
+		stats, err := scrape(ctx)
+		if err != nil || done(stats) {
+			return stats, err
+		}
 	}
+}
+
+func waitForSettledTap(ctx context.Context, scrape func(context.Context) (TapStats, error), previous TapStats) (TapStats, error) {
+	ticker := time.NewTicker(dockerTapPoll)
+	defer ticker.Stop()
+
+	pending := make(map[string]float64)
 	for {
 		select {
 		case <-ctx.Done():
@@ -202,14 +247,25 @@ func waitForSettledTap(ctx context.Context, collector tapCollector) (TapStats, e
 		case <-ticker.C:
 		}
 
-		current, err := scrapeCollectorTelemetry(ctx, collector)
+		current, err := scrape(ctx)
 		if err != nil && ctx.Err() != nil {
 			return previous, fmt.Errorf("%w within %s (%.0f item(s) still queued)", errTapNotSettled, dockerCollectorDrainTimeout, previous.Queued)
 		}
 		if err != nil {
 			return current, err
 		}
-		if current.Settled(previous) {
+		for signal, received := range current.Received {
+			forwarded := current.Sent[signal] > previous.Sent[signal] || current.FailedBySignal[signal] > previous.FailedBySignal[signal]
+			if _, waiting := pending[signal]; !waiting && received > previous.Received[signal] && !forwarded {
+				pending[signal] = current.Sent[signal]
+			}
+		}
+		for signal, sent := range pending {
+			if current.Sent[signal] > sent || current.FailedBySignal[signal] > previous.FailedBySignal[signal] {
+				delete(pending, signal)
+			}
+		}
+		if len(pending) == 0 && current.Settled(previous) {
 			return current, nil
 		}
 		previous = current

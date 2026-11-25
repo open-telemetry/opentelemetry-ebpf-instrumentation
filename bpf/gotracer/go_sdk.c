@@ -108,6 +108,7 @@ struct {
     __type(key, u32);
     __type(value, u64);
     __uint(max_entries, k_max_concurrent_pids);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
     __uint(pinning, OBI_PIN_INTERNAL);
 } go_auto_targets SEC(".maps");
 

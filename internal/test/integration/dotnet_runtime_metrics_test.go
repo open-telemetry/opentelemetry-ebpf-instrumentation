@@ -37,9 +37,9 @@ var dotnetRuntimeImages = []struct {
 	version string
 	image   string
 }{
-	{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:67e16b7d568208713e05db7f7bcc81827679a636222160bf57bb148acd23622e"},
-	{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:aa92aa3080341fa17bcf58c1651afd1ede4b07c4c461ee12495cdd439704bd16"},
-	{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:a3f9f81954b9c810af2ed18849716c8dc74a4707bd0907fdbd69be81554c0f30"},
+	{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:21b0f8ba67bef2f121781d17a8e21956aeaa2d8da8e4b5db0da1ea8f91e2b6a1"},
+	{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:aa21f09894760dc31b207e29256fcf9a74fb14da4384b81ba49b1f038604087f"},
+	{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:0a0e20d12b84b081fb737fddb92d8d205edce9ac2dc62796d2aab30f03804498"},
 }
 
 func TestDotnetRuntimeMetrics(t *testing.T) {
@@ -104,7 +104,10 @@ func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage, mode s
 		compose.Env = append(compose.Env, "DOTNET_RUNTIME_PROCESSOR_COUNT=", "DOTNET_RUNTIME_CPUS=2", fmt.Sprintf("DOTNET_RUNTIME_CPUSET=%d", cpu))
 	}
 	t.Cleanup(func() { require.NoError(t, compose.Close()) })
-	t.Cleanup(func() { runWeaverValidation(t) })
+	// quota and affinity only change the CPU count value, so the override cycle covers their telemetry shapes
+	if mode != "quota" && mode != "affinity" {
+		t.Cleanup(func() { runWeaverValidation(t) })
+	}
 	require.NoError(t, compose.Up())
 
 	client := &http.Client{Timeout: 2 * time.Second}

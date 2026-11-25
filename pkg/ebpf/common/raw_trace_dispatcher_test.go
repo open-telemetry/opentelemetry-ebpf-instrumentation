@@ -83,6 +83,7 @@ func newTraceDispatcherTestContext() (*EBPFParseContext, *config.EBPFTracer, Ser
 		largeBuffers:               expirable.NewLRU[largeBufferKey, *largebuf.LargeBuffer](testParseCacheSize, nil, 0),
 		mongoRequestCache:          expirable.NewLRU[MongoRequestKey, *MongoRequestValue](testParseCacheSize, nil, 0),
 		mysqlPreparedStatements:    newTestLRU[mysqlPreparedStatementsKey, string](),
+		mysqlConns:                 newTestLRU[BpfConnectionInfoT, mysqlConnInfo](),
 		postgresPreparedStatements: newTestLRU[postgresPreparedStatementsKey, postgresPreparedStatement](),
 		postgresPortals:            newTestLRU[postgresPortalsKey, string](),
 		postgresNamespaces:         newTestLRU[BpfConnectionInfoT, postgresNamespace](),

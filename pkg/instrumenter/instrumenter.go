@@ -291,6 +291,7 @@ func BuildCommonContextInfo(
 		ResyncPeriod:             config.Attributes.Kubernetes.InformersResyncPeriod,
 		DisabledInformers:        config.Attributes.Kubernetes.DisableInformers,
 		MetaCacheAddr:            config.Attributes.Kubernetes.MetaCacheAddress,
+		MetaCacheTLS:             config.Attributes.Kubernetes.MetaCacheTLS,
 		ResourceLabels:           resourceLabels,
 		RestrictLocalNode:        config.Attributes.Kubernetes.MetaRestrictLocalNode,
 		ServiceNameTemplate:      templ,
@@ -335,6 +336,9 @@ func internalMetrics(
 	promMgr *connector.PrometheusManager,
 ) (imetrics.Reporter, error) {
 	switch {
+	case config.InternalMetrics.MeterProvider != nil:
+		slog.Debug("reporting internal metrics through the provided MeterProvider")
+		return otel.NewInternalMetricsReporterWithProvider(ctx, config.InternalMetrics.MeterProvider, &config.InternalMetrics)
 	case config.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL:
 		slog.Debug("reporting internal metrics as OpenTelemetry")
 		return otel.NewInternalMetricsReporter(ctx, ctxInfo, &config.OTELMetrics, &config.InternalMetrics)

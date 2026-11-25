@@ -29,7 +29,7 @@ This section will cover the difference between using **`=`** and **`:`**.
 
 #### Multiple variables (key-value pairs)
 
-The equals sign **`=`** is best for creating clear key-value pairs, especially when logging multiple variables. Example:
+Use `=` between keys and values. Separate multiple key-value pairs with a comma and a space.
 
 ```c
 bpf_dbg_printk("id=%d, size=%d", id, msg->size);

@@ -20,6 +20,7 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 
 	"go.opentelemetry.io/obi/pkg/config"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -44,17 +45,22 @@ const (
 	progObiStatsRawTpTCPRetransmitSkb                     = "obi_stats_raw_tp_tcp_retransmit_skb"
 	progObiStatsRawTpTCPSendReset                         = "obi_stats_raw_tp_tcp_send_reset"
 	progObiStatsRawTpTCPReceiveReset                      = "obi_stats_raw_tp_tcp_receive_reset"
-	progObiStatsKprobeTCPSendmsg                          = "obi_stats_kprobe_tcp_sendmsg"
-	progObiStatsKretprobeTCPSendmsg                       = "obi_stats_kretprobe_tcp_sendmsg"
+	progObiStatsRawTpTCPDestroySockSegRst                 = "obi_stats_raw_tp_tcp_destroy_sock_seg_rst"
+	progObiStatsKprobeTCPSend                             = "obi_stats_kprobe_tcp_send"
+	progObiStatsKretprobeTCPSendmsgLocked                 = "obi_stats_kretprobe_tcp_sendmsg_locked"
+	progObiStatsKretprobeDoTCPSendpages                   = "obi_stats_kretprobe_do_tcp_sendpages"
 	progObiStatsKprobeTCPCleanupRbuf                      = "obi_stats_kprobe_tcp_cleanup_rbuf"
+	progObiStatsKprobeTCPRcvStateProcess                  = "obi_stats_kprobe_tcp_rcv_state_process"
 )
 
 // Hook point names, grouped by attach type.
 const (
 	// Kprobes: kernel function names.
-	KprobeTCPClose       = "tcp_close"
-	KprobeTCPSendMsg     = "tcp_sendmsg"
-	KprobeTCPCleanupRbuf = "tcp_cleanup_rbuf"
+	KprobeTCPClose           = "tcp_close"
+	KprobeTCPSendMsgLocked   = "tcp_sendmsg_locked"
+	KprobeDoTCPSendPages     = "do_tcp_sendpages"
+	KprobeTCPCleanupRbuf     = "tcp_cleanup_rbuf"
+	KprobeTCPRcvStateProcess = "tcp_rcv_state_process"
 
 	// Tracepoints: group/name, are validated by TestTracepointConstantFormat
 	TracepointInetSockSetState = "sock/inet_sock_set_state"
@@ -64,6 +70,7 @@ const (
 	RawTracepointTCPRetransmitSkb = "tcp_retransmit_skb"
 	RawTracepointTCPSendReset     = "tcp_send_reset"
 	RawTracepointTCPReceiveReset  = "tcp_receive_reset"
+	RawTracepointTCPDestroySock   = "tcp_destroy_sock"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
@@ -123,10 +130,10 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		toDisable = append(toDisable, progObiStatsRawTpTCPRetransmitSkb)
 	}
 	if !features.StatsTCPResets() {
-		toDisable = append(toDisable, progObiStatsRawTpTCPSendReset, progObiStatsRawTpTCPReceiveReset)
+		toDisable = append(toDisable, progObiStatsRawTpTCPSendReset, progObiStatsRawTpTCPReceiveReset, progObiStatsKprobeTCPRcvStateProcess, progObiStatsRawTpTCPDestroySockSegRst)
 	}
 	if !features.StatsTCPIo() {
-		toDisable = append(toDisable, progObiStatsKprobeTCPSendmsg, progObiStatsKretprobeTCPSendmsg, progObiStatsKprobeTCPCleanupRbuf, progObiStatsKprobeTCPCloseIoFlush)
+		toDisable = append(toDisable, progObiStatsKprobeTCPSend, progObiStatsKretprobeTCPSendmsgLocked, progObiStatsKretprobeDoTCPSendpages, progObiStatsKprobeTCPCleanupRbuf, progObiStatsKprobeTCPCloseIoFlush)
 	}
 
 	if err := fixupSpec(spec, toDisable); err != nil {
@@ -159,14 +166,19 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 			enabled: features.StatsTCPIo(),
 		},
 		{
-			name:    KprobeTCPSendMsg,
-			program: objects.ObiStatsKprobeTcpSendmsg,
+			name:    KprobeTCPSendMsgLocked,
+			program: objects.ObiStatsKprobeTcpSend,
 			enabled: features.StatsTCPIo(),
 		},
 		{
 			name:    KprobeTCPCleanupRbuf,
 			program: objects.ObiStatsKprobeTcpCleanupRbuf,
 			enabled: features.StatsTCPIo(),
+		},
+		{
+			name:    KprobeTCPRcvStateProcess,
+			program: objects.ObiStatsKprobeTcpRcvStateProcess,
+			enabled: features.StatsTCPResets(),
 		},
 	} {
 		if !k.enabled {
@@ -184,8 +196,8 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	// kretprobes
 	for _, k := range []probe{
 		{
-			name:    KprobeTCPSendMsg,
-			program: objects.ObiStatsKretprobeTcpSendmsg,
+			name:    KprobeTCPSendMsgLocked,
+			program: objects.ObiStatsKretprobeTcpSendmsgLocked,
 			enabled: features.StatsTCPIo(),
 		},
 	} {
@@ -198,6 +210,10 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 			return nil, fmt.Errorf("failed kretprobe attachment %s: %w", k.name, err)
 		}
 		closables = append(closables, l)
+	}
+
+	if features.StatsTCPIo() {
+		closables = append(closables, attachDoTCPSendPages(tlog, &objects)...)
 	}
 
 	// tracepoints
@@ -254,6 +270,11 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 			program: objects.ObiStatsRawTpTcpReceiveReset,
 			enabled: features.StatsTCPResets(),
 		},
+		{
+			name:    RawTracepointTCPDestroySock,
+			program: objects.ObiStatsRawTpTcpDestroySockSegRst,
+			enabled: features.StatsTCPResets(),
+		},
 	} {
 		if !t.enabled {
 			continue
@@ -274,6 +295,46 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		objects:   &objects,
 		closables: closables,
 	}, nil
+}
+
+var (
+	kernelHasSymbol = ebpfcommon.KernelHasSymbol
+	attachKprobe    = kprobe.Attach
+)
+
+// sockmap sends go through do_tcp_sendpages before kernel 6.5, which removed it
+func attachDoTCPSendPages(log *slog.Logger, objects *StatsObjects) []io.Closer {
+	found, err := kernelHasSymbol(ebpfcommon.KSymDoTCPSendPages)
+	if err != nil {
+		log.Warn("kernel symbol not checked, TCP IO metrics may miss the bytes sent by sockets in a sockmap",
+			"symbol", KprobeDoTCPSendPages, "error", err)
+		return nil
+	}
+	if !found {
+		return nil
+	}
+
+	var closables []io.Closer
+
+	for _, p := range []struct {
+		program *ebpf.Program
+		ret     bool
+	}{
+		{program: objects.ObiStatsKretprobeDoTcpSendpages, ret: true},
+		{program: objects.ObiStatsKprobeTcpSend},
+	} {
+		l, err := attachKprobe(KprobeDoTCPSendPages, p.program, p.ret)
+		if err != nil {
+			log.Warn("kprobe not attached, TCP IO metrics miss the bytes sent by sockets in a sockmap",
+				"symbol", KprobeDoTCPSendPages, "error", err)
+			// an entry probe without its return probe leaves entries nobody consumes
+			closeAll(closables)
+			return nil
+		}
+		closables = append(closables, l)
+	}
+
+	return closables
 }
 
 func closeAll(closables []io.Closer) {

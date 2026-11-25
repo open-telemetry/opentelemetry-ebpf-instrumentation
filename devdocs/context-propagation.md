@@ -60,6 +60,13 @@ Examples:
 - `tcp` - TCP options only
 - `headers` - HTTP headers only
 
+When `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES` is enabled (the default),
+tpinjector stops adding HTTP/1 and HTTP/2 headers for a process as soon as OBI
+detects that it exports OTLP traces. Existing connections are included. TCP
+option injection and runtime-specific header injectors are unchanged. See
+[excluding instrumented services](exclude-otel-instrumented-services.md) for
+detection and PID filter behavior.
+
 > **⚠️ TCP options and middleboxes.** TCP-option propagation writes an unknown
 > TCP option (kind 25) onto the connection's segments. On SSL/TLS connections
 > this is the *only* channel, since the payload is ciphertext (see Case 1). An

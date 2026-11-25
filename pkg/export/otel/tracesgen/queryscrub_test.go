@@ -92,7 +92,7 @@ func TestScrubQuery(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, scrubQuery(tc.qs, buildRedactSet(tc.keys)))
+			assert.Equal(t, tc.want, scrubQuery(tc.qs, buildRedactSet(tc.keys), defaultQueryParamReplacement))
 		})
 	}
 }

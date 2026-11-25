@@ -21,6 +21,8 @@
   ],
   "prConcurrentLimit": 10,
   "prHourlyLimit": 3,
+  // the post-process workflow commits on top of Renovate branches as this bot; ignoring it lets Renovate keep rebasing them
+  "gitIgnoredAuthors": ["358818252+otelbot-ebpf-instrumentation[bot]@users.noreply.github.com"],
   "pip-compile": {
     "managerFilePatterns": [
       "/^internal\\/test\\/integration\\/components\\/.*\\/requirements(-[^/]+)?\\.txt$/",
@@ -355,6 +357,27 @@
       "schedule": ["before 6am on Thursday"]
     },
     {
+      "description": "Keep the OpenTelemetry API compatible with the fixtures' SDK 2.x peer dependency",
+      "matchManagers": ["npm"],
+      "matchFileNames": [
+        "internal/test/integration/components/tpclient/package.json",
+        "pkg/internal/nodejs/spanbridge_test/package.json"
+      ],
+      "matchPackageNames": ["@opentelemetry/api"],
+      "allowedVersions": "<1.10.0"
+    },
+    {
+      "description": "Keep tpclient on the SDK 2.x experimental packages while it runs on Node 20; 0.300+ requires Node 22",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["internal/test/integration/components/tpclient/package.json"],
+      "matchPackageNames": [
+        "@opentelemetry/exporter-trace-otlp-http",
+        "@opentelemetry/instrumentation",
+        "@opentelemetry/instrumentation-http"
+      ],
+      "allowedVersions": "<0.300.0"
+    },
+    {
       "groupName": "Rust",
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
@@ -593,6 +616,13 @@
       "matchPackageNames": ["grafana/gcx"],
       "groupName": "GCX CLI",
       "enabled": true
+    },
+    {
+      // Must come after the per-ecosystem groups above, since packageRules are last-match-wins.
+      "description": "Group all examples/ dependency updates into one weekly PR",
+      "matchFileNames": ["examples/**"],
+      "groupName": "Examples",
+      "schedule": ["before 6am on Monday"]
     },
     {
       // Pin every otel/weaver reference to one version in a single PR. The refs

@@ -273,7 +273,7 @@ func TestInstrumentationFilterPreservesUnfilteredSQLChild(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
-func TestTracerPipelineSanitizeSQLQueryText(t *testing.T) {
+func TestTracerPipelineSanitizeDBQueryText(t *testing.T) {
 	const statement = "SELECT * FROM users WHERE ssn = '123-45-6789'"
 	cases := map[bool]string{
 		false: statement,
@@ -292,6 +292,7 @@ func TestTracerPipelineSanitizeSQLQueryText(t *testing.T) {
 			Traces: otelcfg.TracesConfig{
 				BatchTimeout:      10 * time.Millisecond,
 				TracesEndpoint:    tc.ServerEndpoint,
+				TracesProtocol:    otelcfg.ProtocolHTTPProtobuf,
 				ReportersCacheLen: 16,
 				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 			},
@@ -300,8 +301,8 @@ func TestTracerPipelineSanitizeSQLQueryText(t *testing.T) {
 				Select: attributes.Selection{
 					"traces": attributes.InclusionLists{Include: []string{"db.query.text"}},
 				},
-				SanitizeSQLQueryText: sanitize,
 			},
+			EBPF: config.EBPFTracer{SanitizeDBQueryText: sanitize},
 		}, gctx(0, nil), tracesInput, processEvents, nil)
 
 		tracesInput.Send([]request.Span{{

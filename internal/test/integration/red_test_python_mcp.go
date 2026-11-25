@@ -430,6 +430,8 @@ func testPythonMCPSessionMetrics(t *testing.T) {
 	time.Sleep(6 * time.Second)
 
 	pq := promtest.Client{HostPort: prometheusHostPort}
+	// Poll both exporters concurrently: the direct Prometheus session series
+	// are one-shot and can expire while the OTLP assertions are still waiting.
 	for _, tc := range []struct {
 		name  string
 		query string
@@ -455,6 +457,7 @@ func testPythonMCPSessionMetrics(t *testing.T) {
 			`service_namespace="integration-test"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
 				results, err := pq.Query(tc.query)
 				require.NoError(ct, err)
@@ -466,13 +469,16 @@ func testPythonMCPSessionMetrics(t *testing.T) {
 
 	// The direct exporter derives the job label from the service attributes
 	// retained in the session snapshot.
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		results, err := pq.Query(`mcp_server_session_duration_seconds_count{` +
-			`exported="prometheus",service_name="main"}`)
-		require.NoError(ct, err)
-		enoughPromResults(ct, results)
-		for _, res := range results {
-			assert.Equal(ct, "integration-test/main", res.Metric["job"])
-		}
-	}, testTimeout, 100*time.Millisecond)
+	t.Run("direct prometheus job label", func(t *testing.T) {
+		t.Parallel()
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			results, err := pq.Query(`mcp_server_session_duration_seconds_count{` +
+				`exported="prometheus",service_name="main"}`)
+			require.NoError(ct, err)
+			enoughPromResults(ct, results)
+			for _, res := range results {
+				assert.Equal(ct, "integration-test/main", res.Metric["job"])
+			}
+		}, testTimeout, 100*time.Millisecond)
+	})
 }

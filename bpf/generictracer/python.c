@@ -59,9 +59,9 @@ static __always_inline void map_context_to_task(u64 pid_tgid, u64 context, u64 t
     const python_addr_key_t context_key = python_addr_key(pid_tgid, context);
     const long err = bpf_map_update_elem(&python_context_task, &context_key, &mapping, BPF_ANY);
     if (err) {
-        bpf_dbg_printk("python context bind failed ctx=%llx err=%ld", context, err);
+        bpf_dbg_printk("python context bind failed ctx=%llx, err=%ld", context, err);
     } else {
-        bpf_dbg_printk("python context bind ctx=%llx task=%llx", context, task);
+        bpf_dbg_printk("python context bind ctx=%llx, task=%llx", context, task);
     }
 }
 
@@ -346,7 +346,7 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
             resolve_python_task_from_context(id, thread_state->current_context, &parent_ref);
     } else {
         bpf_dbg_printk(
-            "python task root from network task=%llx port=%u", child_task, conn_part.port);
+            "python task root from network task=%llx, port=%u", child_task, conn_part.port);
     }
     const python_addr_key_t child_task_key = python_addr_key(id, child_task);
     const u64 generation = allocate_python_task_generation();
@@ -370,7 +370,7 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
 
     if (parent_resolution == PYTHON_TASK_STALE) {
         bpf_dbg_printk(
-            "python task rejected task=%llx ctx=%llx", child_task, thread_state->current_context);
+            "python task rejected task=%llx, ctx=%llx", child_task, thread_state->current_context);
         bpf_map_delete_elem(&python_task_state, &child_task_key);
         return 0;
     }
@@ -381,19 +381,19 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
     // request by the time the child task is initialized.
     if (parent_state_found && parent_state.conn.port) {
         task_state.conn = parent_state.conn;
-        bpf_dbg_printk("python task inherit task=%llx parent=%llx", child_task, parent_ref.addr);
+        bpf_dbg_printk("python task inherit task=%llx, parent=%llx", child_task, parent_ref.addr);
     } else if (parent_resolution != PYTHON_TASK_STALE) {
         if (info) {
             task_state.conn = conn_part;
             bpf_dbg_printk(
-                "python task thread fallback task=%llx port=%u", child_task, task_state.conn.port);
+                "python task thread fallback task=%llx, port=%u", child_task, task_state.conn.port);
         } else {
             bpf_dbg_printk("python task has no connection task=%llx", child_task);
         }
     }
     const long err = bpf_map_update_elem(&python_task_state, &child_task_key, &task_state, BPF_ANY);
     if (err) {
-        bpf_dbg_printk("python task store failed task=%llx err=%ld", child_task, err);
+        bpf_dbg_printk("python task store failed task=%llx, err=%ld", child_task, err);
     }
 
     return 0;

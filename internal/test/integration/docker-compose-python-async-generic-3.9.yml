@@ -49,6 +49,7 @@ services:
     pid: "host"
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: "8392,8080"
       OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel,application_service_graph,ebpf"
@@ -82,7 +83,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 125M
+          # Each request uses a distinct path, so the collector retains many metric series while draining to Weaver.
+          memory: 512M
     restart: unless-stopped
     command:
       - "--config=/etc/otelcol-config/otelcol-config-weaver.yml"

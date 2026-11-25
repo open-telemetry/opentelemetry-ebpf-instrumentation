@@ -188,7 +188,7 @@ int GUARDED_PROG(obi_uprobe_cryptoTlsWrite, struct pt_regs *, ctx) {
         return 0;
     }
 
-    bpf_dbg_printk("[%d] buf=%s", len, buf);
+    bpf_dbg_printk("len=%d, buf=%s", len, buf);
 
     net_args_t args = {0};
 

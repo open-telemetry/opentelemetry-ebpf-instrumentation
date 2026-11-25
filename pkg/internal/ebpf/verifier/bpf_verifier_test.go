@@ -222,6 +222,12 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"ringbuf_metrics_enabled", []any{true, false}},
 	})
 
+	forEachCombination(t, "generictracer/BpfExceptions", generictracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_exceptions_enabled", []any{true}},
+		{"g_traces_ctx_v1_enabled", []any{true}},
+	})
+
 	// nodejs_runtime_metrics_enabled only gates the decode path in nodejs.c,
 	// which shares no code with the constants above except the debug and
 	// traceparent machinery — a dedicated small matrix keeps the nodejs path
@@ -284,6 +290,10 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
 		// pinned on, not paired: see the generictracer matrix above
 		{"g_traces_ctx_v1_enabled", []any{true}},
+	})
+	forEachCombination(t, "gotracer/BpfExceptions", gotracerbpf.LoadBpf, []constOption{
+		{"g_exceptions_enabled", []any{true}},
+		{"pid_ns_mode", pidNamespaceModes},
 	})
 	forEachCombination(t, "gotracer/BpfRingbufMetrics", gotracerbpf.LoadBpf, []constOption{
 		{"ringbuf_metrics_enabled", []any{true, false}},

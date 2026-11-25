@@ -104,6 +104,47 @@ instrumentation:
                 disabled_languages: []
                 java:
                     delay: 5s
+        query_parameters:
+            redaction:
+                names:
+                    - X-Amz-Signature
+                    - X-Amz-Credential
+                    - X-Amz-Security-Token
+                    - AWSAccessKeyId
+                    - Signature
+                    - SecurityToken
+                    - X-Goog-Signature
+                    - sig
+                    - token
+                    - access_token
+                    - refresh_token
+                    - id_token
+                    - jwt
+                    - session
+                    - sid
+                    - signature
+                    - api_key
+                    - apikey
+                    - client_secret
+                    - secret
+                    - password
+                    - pass
+                    - pwd
+                    - reset_token
+                    - invite_token
+                    - verify_token
+                    - otp
+                    - totp
+                    - mfa_code
+                    - verification_code
+                    - SAMLResponse
+                    - assertion
+                    - card
+                    - cc
+                    - pan
+                    - cvv
+                    - ssn
+                    - tax_id
         payload_extraction:
             enabled: []
             sqlpp:
@@ -130,6 +171,8 @@ instrumentation:
             metrics:
                 http.request.method:
                     not_match: OPTIONS
+    db:
+        sanitize_query_text: false
     sql:
         enabled:
             traces: true
@@ -142,7 +185,6 @@ instrumentation:
                 http.request.method:
                     not_match: OPTIONS
         heuristic_detect: false
-        sanitize_query_text: false
         mysql:
             buffer_size: 0
             prepared_statements_cache_size: 1024
@@ -242,6 +284,7 @@ instrumentation:
 runtimes:
     go:
         enabled: true
+        channel_links: true
     nodejs:
         enabled: true
     java:
@@ -332,6 +375,8 @@ network:
 metrics:
     features:
         - application
+    target_info:
+        enabled: true
 limits:
     network_packets: 5000
     metric_span_names: 100

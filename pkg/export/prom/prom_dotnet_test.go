@@ -39,7 +39,8 @@ func TestDotnetExceptions(t *testing.T) {
 		Service: svc.Attrs{UID: svc.UID{Name: "orders"}, SDKLanguage: svc.InstrumentableDotnet, Features: export.FeatureApplicationRuntime},
 	}
 	publish := func(count uint64) {
-		snapshot.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{Exceptions: map[string]uint64{"Failure": count}}
+		snapshot.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+		snapshot.DotnetExceptions = map[string]uint64{"Failure": count, "Other": 2 * count}
 		reporter.collectDotnetRuntimeMetrics(snapshot)
 	}
 	publish(2)
@@ -58,6 +59,9 @@ func TestDotnetExceptions(t *testing.T) {
 	point := gatheredMetric(t, registry, attributes.DotnetExceptions.Prom, map[string]string{"service_name": "orders", "error_type": "Failure"})
 	require.NotNil(t, point)
 	require.InDelta(t, 12, point.GetCounter().GetValue(), 0)
+	other := gatheredMetric(t, registry, attributes.DotnetExceptions.Prom, map[string]string{"service_name": "orders", "error_type": "Other"})
+	require.NotNil(t, other)
+	require.InDelta(t, 24, other.GetCounter().GetValue(), 0)
 	// Removal clears process baselines but retains the exported cumulative series.
 	snapshot.Removed = true
 	reporter.collectDotnetRuntimeMetrics(snapshot)
@@ -67,6 +71,7 @@ func TestDotnetExceptions(t *testing.T) {
 	require.Empty(t, reporter.dotnetRuntimeMetrics.values)
 	reporter.dotnetRuntimeMetrics.delete(reporter.labelValuesTargetInfo(&snapshot.Service))
 	require.Nil(t, gatheredMetric(t, registry, attributes.DotnetExceptions.Prom, map[string]string{"service_name": "orders", "error_type": "Failure"}))
+	require.Nil(t, gatheredMetric(t, registry, attributes.DotnetExceptions.Prom, map[string]string{"service_name": "orders", "error_type": "Other"}))
 }
 
 func TestDotnetRuntimeCollectorLabels(t *testing.T) {

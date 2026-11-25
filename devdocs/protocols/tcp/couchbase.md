@@ -142,7 +142,7 @@ The Couchbase packet parsing flow:
 1. TCP packets arrive at `ReadTCPRequestIntoSpan`
    in [tcp_detect_transform.go](../../../pkg/ebpf/common/tcp_detect_transform.go)
 
-2. `ProcessPossibleCouchbaseEvent`
+2. `processPossibleCouchbaseEvent`
    in [couchbase_detect_transform.go](../../../pkg/ebpf/common/couchbase_detect_transform.go) attempts to parse the
    packet
 
@@ -203,6 +203,9 @@ It is optionally added to the `db.query.text` attribute and must be included in 
 - Truncated values are included as-is.
 - SET/ADD/REPLACE extras: flags field is always omitted; TTL is shown only when non-zero.
 - INCREMENT/DECREMENT extras: DELTA is always shown; INITIAL is omitted; TTL is shown only when non-zero.
+- With `capture.instrumentation.db.sanitize_query_text: true` (config v2), a value that would be included,
+  truncated or not, is replaced with `?`, for example `SET user::42 TTL=3600 ?`. Operations without a value
+  are unchanged.
 
 **Collection ID prefix stripping:**
 
@@ -335,7 +338,7 @@ SQL++ spans are generated with the following attributes:
 
 For prepared statements, `db.operation.name` and `db.query.text` come from the prepared statement. A PREPARE without `auto_execute` reports `db.operation.name` = `"PREPARE"`. An execution whose name OBI never saw prepared reports `db.operation.name` = `"EXECUTE"`; `db.query.text` is the `EXECUTE ...` text when the SQL++ form was used, and empty for a name-only request.
 
-Set `capture.instrumentation.sql.sanitize_query_text: true` (config v2) to replace string, numeric and boolean literals in `db.query.text` with `?`, as for SQL spans.
+Set `capture.instrumentation.db.sanitize_query_text: true` (config v2) to replace string, numeric and boolean literals in `db.query.text` with `?`, as for SQL spans.
 
 ### Configuration
 

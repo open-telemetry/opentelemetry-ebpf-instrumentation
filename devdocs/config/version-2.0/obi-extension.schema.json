@@ -1024,6 +1024,18 @@
               },
               "type": "array",
               "description": "Metric features using the same names as Config v1. An explicit list replaces the selection inferred from protocol and network switches; [] disables all metric features. When omitted, protocol and network enablement determines the features."
+            },
+            "target_info": {
+              "type": "object",
+              "description": "Controls the target.info and traces.target.info metrics, exported as target_info and traces_target_info by the Prometheus reader.",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Export the target.info and traces.target.info metrics.\nIf omitted, true is used.\n"
+                }
+              }
             }
           }
         },
@@ -1187,7 +1199,8 @@
                         "type": "string"
                       },
                       "default": [],
-                      "description": "Additional span resource attributes to include in OBI-generated Prometheus span metrics.\nIf omitted, no extra attributes are added.\n"
+                      "deprecated": true,
+                      "description": "Deprecated: select span metric dimensions with `capture.attributes.select`.\nAdditional span resource attributes to include in OBI-generated Prometheus span metrics, in addition to the selection.\nIf omitted, no extra attributes are added.\n"
                     }
                   }
                 }
@@ -1212,6 +1225,76 @@
         }
       }
     },
+    "Redaction": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Redaction policy owned by the data component. Omitted fields retain the component's defaults.",
+      "properties": {
+        "names": {
+          "type": ["array", "null"],
+          "items": {"type": "string"},
+          "description": "Complete selection of literal names. An explicit list replaces the component's default selection; [] selects no names. Omission or null retains the default selection."
+        },
+        "replacement": {
+          "type": ["string", "null"],
+          "description": "Replacement text for selected values. Omission or null retains the component's default. An empty string removes the value's contents."
+        }
+      }
+    },
+    "HttpQueryParameters": {
+      "type": ["object", "null"],
+      "description": "Controls how OBI handles HTTP query parameters in telemetry.",
+      "additionalProperties": false,
+      "properties": {
+        "redaction": {
+          "$ref": "#/$defs/Redaction",
+          "default": {
+            "names": [
+              "X-Amz-Signature",
+              "X-Amz-Credential",
+              "X-Amz-Security-Token",
+              "AWSAccessKeyId",
+              "Signature",
+              "SecurityToken",
+              "X-Goog-Signature",
+              "sig",
+              "token",
+              "access_token",
+              "refresh_token",
+              "id_token",
+              "jwt",
+              "session",
+              "sid",
+              "signature",
+              "api_key",
+              "apikey",
+              "client_secret",
+              "secret",
+              "password",
+              "pass",
+              "pwd",
+              "reset_token",
+              "invite_token",
+              "verify_token",
+              "otp",
+              "totp",
+              "mfa_code",
+              "verification_code",
+              "SAMLResponse",
+              "assertion",
+              "card",
+              "cc",
+              "pan",
+              "cvv",
+              "ssn",
+              "tax_id"
+            ],
+            "replacement": "REDACTED"
+          },
+          "description": "Policy for case-sensitive, decoded query-parameter names. Omission, null, or an empty object preserves the built-in selection and REDACTED replacement. Explicit replacement text is URL-encoded as a query value."
+        }
+      }
+    },
     "HttpInstrumentation": {
       "type": "object",
       "description": "HTTP instrumentation controls.",
@@ -1229,6 +1312,9 @@
           "type": "boolean",
           "default": false,
           "description": "Capture configured inbound/outbound HTTP headers.\nIf omitted, false is used.\n"
+        },
+        "query_parameters": {
+          "$ref": "#/$defs/HttpQueryParameters"
         },
         "request_timeout": {
           "type": "string",
@@ -1299,7 +1385,9 @@
                 "enum": [
                   "graphql",
                   "elasticsearch",
-                  "aws",
+                  "aws_s3",
+                  "aws_sqs",
+                  "aws_sns",
                   "sqlpp",
                   "openai",
                   "anthropic",
@@ -1314,11 +1402,16 @@
                   "rerank",
                   "retrieval",
                   "jsonrpc",
-                  "enrichment"
+                  "enrichment",
+                  "genai",
+                  "database",
+                  "aws",
+                  "all",
+                  "*"
                 ]
               },
               "default": [],
-              "description": "Payload extractors enabled for HTTP-derived parsing.\nIf omitted, no payload extractors are enabled.\n"
+              "description": "Payload extractors enabled for HTTP-derived parsing.\n`genai` enables openai, anthropic, gemini, qwen, bedrock, mcp, ollama, cohere, openai_compatible, embedding, rerank, and retrieval.\n`database` enables elasticsearch and sqlpp.\n`aws` enables aws_s3, aws_sqs, and aws_sns.\n`all` and `*` enable every extractor except enrichment, which must be listed explicitly.\nIf omitted, no payload extractors are enabled.\n"
             },
             "sqlpp": {
               "type": "object",
@@ -1542,6 +1635,18 @@
         }
       }
     },
+    "DbInstrumentation": {
+      "type": "object",
+      "description": "Settings shared by all database protocols.",
+      "additionalProperties": false,
+      "properties": {
+        "sanitize_query_text": {
+          "type": "boolean",
+          "default": false,
+          "description": "Replace literal values in `db.query.text` with `?`: string, numeric, hexadecimal and boolean literals of SQL and SQL++ spans, Redis argument values and Couchbase key-value document values (keys are kept). Elasticsearch query bodies are not sanitized. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
+        }
+      }
+    },
     "SqlInstrumentation": {
       "type": "object",
       "description": "SQL instrumentation controls.",
@@ -1559,11 +1664,6 @@
           "type": "boolean",
           "default": false,
           "description": "Enable heuristic SQL protocol detection.\nIf omitted, false is used.\n"
-        },
-        "sanitize_query_text": {
-          "type": "boolean",
-          "default": false,
-          "description": "Replace string, numeric, hexadecimal and boolean literals in `db.query.text` of SQL and SQL++ spans with `?`. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
         },
         "mysql": {
           "type": "object",
@@ -1803,6 +1903,27 @@
         }
       }
     },
+    "GoRuntime": {
+      "type": "object",
+      "description": "Go runtime injection controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Go probes.\nIf omitted, true is used.\n"
+        },
+        "filter": {
+          "$ref": "#/$defs/FilterMap",
+          "description": "Optional per-injector refinement filter.\nIf omitted, injection applies to all selected services.\n"
+        },
+        "channel_links": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Go channel probes that link spans across goroutines.\nIf omitted, true is used.\n"
+        }
+      }
+    },
     "JavaRuntime": {
       "type": "object",
       "description": "Java runtime injection controls.",
@@ -1846,11 +1967,12 @@
       "additionalProperties": false,
       "properties": {
         "go": {
-          "$ref": "#/$defs/RuntimeInjection",
+          "$ref": "#/$defs/GoRuntime",
           "description": "Go runtime instrumentation controls.\nIf omitted, Go injection defaults are used.\n",
           "default": {
             "enabled": true,
-            "filter": {}
+            "filter": {},
+            "channel_links": true
           }
         },
         "nodejs": {
@@ -1890,6 +2012,10 @@
             },
             "filters": {}
           }
+        },
+        "db": {
+          "$ref": "#/$defs/DbInstrumentation",
+          "description": "Settings shared by all database protocols.\nIf omitted, database defaults are used.\n"
         },
         "sql": {
           "$ref": "#/$defs/SqlInstrumentation",
@@ -2354,7 +2480,7 @@
                       "items": {
                         "type": "string"
                       },
-                      "description": "Optional allowlist of discovered hosted zones.\nDiscovery includes account public zones and private zones associated with the detected VPC. Without a detected VPC and region, only public zones are eligible. Explicit IDs retain the same VPC and address filters. All configurations require route53:ListHostedZones and, when the VPC and region are known, route53:ListHostedZonesByVPC.\n"
+                      "description": "Explicit hosted zones are read directly with route53:ListResourceRecordSets permissions.\nWhen omitted, discovery includes account public zones and private zones associated with the detected VPC and additionally requires route53:ListHostedZones and, when the VPC and region are known, route53:ListHostedZonesByVPC.\n"
                     }
                   }
                 }
@@ -2608,6 +2734,14 @@
             "formatted_errors": { "type": "boolean" }
           },
           "description": "Go capture selection. Panics default to enabled and formatted errors to disabled; workload overrides inherit omitted fields."
+        },
+        "python": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" }
+          },
+          "description": "Python exception capture. Enabled by default when exception capture is enabled; workload overrides inherit omitted fields."
         },
         "enabled": {
           "type": "boolean",

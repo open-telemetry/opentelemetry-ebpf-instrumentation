@@ -31,6 +31,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
 	featureexport "go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/transform"
@@ -691,9 +692,20 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 		}
 	}
 
+	awsEnabledPath := yamlPath{"ebpf", "payload_extraction", "http", "aws", "enabled"}
+	awsEnabledName := formatPath(awsEnabledPath)
+	if _, configured := valueAtPath(source, awsEnabledPath); configured {
+		if !sameAWSServiceEnablement(before.EBPF.PayloadExtraction.HTTP.AWS, after.EBPF.PayloadExtraction.HTTP.AWS) {
+			changed = append(changed, awsEnabledName)
+		}
+	}
+
 	for _, path := range leafPaths(source, nil) {
 		name := formatPath(path)
 		if name == languageDetectionSkipsName || strings.HasPrefix(name, languageDetectionSkipsName+"[") {
+			continue
+		}
+		if name == awsEnabledName {
 			continue
 		}
 		if name == logEnricherName || strings.HasPrefix(name, logEnricherName+"[") {
@@ -720,6 +732,15 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 		afterValue, afterOK := valueAtPath(afterMap, path)
 		if beforeOK != afterOK || !reflect.DeepEqual(beforeValue, afterValue) {
 			changed = append(changed, name)
+		}
+	}
+	if hasAnyPath(root, "attributes.sensitive_query_params") {
+		beforeKeys := slices.Clone(before.Attributes.SensitiveQueryParams.Effective())
+		afterKeys := slices.Clone(after.Attributes.SensitiveQueryParams.Effective())
+		slices.Sort(beforeKeys)
+		slices.Sort(afterKeys)
+		if !slices.Equal(slices.Compact(beforeKeys), slices.Compact(afterKeys)) {
+			changed = append(changed, "attributes.sensitive_query_params")
 		}
 	}
 	changed = append(changed, unsupportedLayeredRoutePaths(root, before.Routes)...)
@@ -760,6 +781,11 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 	if changedExemplarFilter(before, after) {
 		changed = append(changed, "prometheus_export.exemplar_filter")
 	}
+	spanMetricPaths, err := changedSpanMetricAttributes(before, after)
+	if err != nil {
+		return nil, err
+	}
+	changed = append(changed, spanMetricPaths...)
 	if before.Enabled(obi.FeatureNetO11y) != after.Enabled(obi.FeatureNetO11y) {
 		changed = append(changed, migrationNetworkEnablePath(root))
 	}
@@ -803,6 +829,27 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 	}
 	sort.Strings(changed)
 	return slices.Compact(changed), nil
+}
+
+func changedSpanMetricAttributes(before, after *obi.Config) ([]string, error) {
+	selector, err := attributes.NewAttrSelector(attributes.AttrGroups(-1), &attributes.SelectorConfig{
+		SelectionCfg:            after.Attributes.Select,
+		ExtraGroupAttributesCfg: after.Attributes.ExtraGroupAttributes,
+		UseV2Selection:          after.Attributes.UseV2Selection,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var changed []string
+	for _, exporter := range convert.ActiveSpanMetricExporterAttributes(before) {
+		for _, pair := range convert.EnabledSpanMetricPairs(before) {
+			if !convert.SameSpanMetricAttributes(exporter.Attributes, selector.ForSpanMetrics(nil, pair...)) {
+				changed = append(changed, exporter.Path)
+				break
+			}
+		}
+	}
+	return changed, nil
 }
 
 func changedExemplarFilter(before, after *obi.Config) bool {
@@ -969,6 +1016,12 @@ func zeroMigrationValue(value any) bool {
 	}
 }
 
+func sameAWSServiceEnablement(before, after obiconfig.AWSConfig) bool {
+	return before.S3Enabled() == after.S3Enabled() &&
+		before.SQSEnabled() == after.SQSEnabled() &&
+		before.SNSEnabled() == after.SNSEnabled()
+}
+
 func equalMigrationValues(path string, before, after any) bool {
 	if path == "log_level" {
 		return strings.EqualFold(fmt.Sprint(before), fmt.Sprint(after))
@@ -1084,6 +1137,7 @@ func migrationAlias(path string) bool {
 		return true
 	}
 	for _, prefix := range []string{
+		"attributes.sensitive_query_params",
 		"executable_path",
 		"filter.application",
 		"open_port",
@@ -1094,6 +1148,8 @@ func migrationAlias(path string) bool {
 		"otel_metrics_export.protocol",
 		"prometheus_export.exemplar_filter",
 		"prometheus_export.features",
+		convert.OTLPSpanMetricAttributesPath,
+		convert.PrometheusSpanMetricAttributesPath,
 		"routes",
 		"otel_traces_export.protocol",
 		"otel_traces_export.sampler",

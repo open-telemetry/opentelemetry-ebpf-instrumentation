@@ -6,6 +6,7 @@ package docker
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -114,6 +115,130 @@ func TestServicesToBuildFallsBackOnUnreadableFile(t *testing.T) {
 
 	_, ok := c.servicesToBuild()
 	assert.False(t, ok, "unparseable compose file must fall back to building everything")
+}
+
+func TestObiServices(t *testing.T) {
+	c := composeFromYAML(t, `
+services:
+  obi:
+    image: hatest-obi
+  client-obi:
+    image: hatest-obi
+  obi-config-migrate:
+    image: hatest-obi
+  testserver:
+    image: hatest-testserver
+  mobile-app:
+    image: hatest-mobile
+`)
+
+	services, ok := c.obiServices()
+	require.True(t, ok)
+	assert.Equal(t, []string{"client-obi", "obi", "obi-config-migrate"}, services)
+}
+
+func TestObiServicesFallsBackOnUnreadableFile(t *testing.T) {
+	c := &Compose{Path: filepath.Join(t.TempDir(), "missing.yml")}
+
+	_, ok := c.obiServices()
+	assert.False(t, ok, "an unparseable compose file must fall back to stopping everything gracefully")
+}
+
+func TestServicesToBuildSkipsImagesBuiltEarlier(t *testing.T) {
+	t.Setenv("PREBUILT_IMAGES", "hatest-obi")
+	c := composeFromYAML(t, `
+services:
+  fixture:
+    build:
+      context: ../../..
+      args:
+        BASE: ${MEMO_BASE:-debian}
+    image: hatest-memo-fixture
+  envarg:
+    build:
+      context: ../../..
+      args:
+        - FROM_ENV
+    image: hatest-memo-envarg
+  fresh:
+    build: ../../..
+    image: hatest-memo-fresh
+`)
+	services, ok := c.services()
+	require.True(t, ok)
+	for _, name := range []string{"fixture", "envarg"} {
+		image := services[name].Image
+		builtImages.Store(image, c.buildDefinition(services[name].Build))
+		t.Cleanup(func() { builtImages.Delete(image) })
+	}
+
+	toBuild, ok := c.servicesToBuild()
+	require.True(t, ok)
+	assert.Equal(t, []string{"fresh"}, toBuild, "an image built from the same definition is not built again")
+
+	c.Env = []string{"MEMO_BASE=alpine", "FROM_ENV=other"}
+	toBuild, ok = c.servicesToBuild()
+	require.True(t, ok)
+	assert.Equal(t, []string{"envarg", "fixture", "fresh"}, toBuild, "a different build arg rebuilds the image")
+}
+
+func TestBuildsNameWhatServicesBuild(t *testing.T) {
+	dir := t.TempDir()
+	composeAt := func(file, content string) *Compose {
+		path := filepath.Join(dir, file)
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+		return &Compose{Path: path}
+	}
+	first := composeAt("first.yml", `
+services:
+  tagged:
+    build:
+      context: ../../..
+      dockerfile: testserver/Dockerfile
+    image: ${TAGGED_IMAGE:-hatest-tagged}
+  untagged:
+    build: ../../..
+  envarg:
+    build:
+      context: ../../..
+      args:
+        - BASE_IMAGE
+    image: hatest-envarg
+`)
+	same := composeAt("same.yml", `
+services:
+  other:
+    build:
+      context: ../../../
+      dockerfile: ./testserver/Dockerfile
+    image: hatest-tagged
+  envarg:
+    build:
+      context: ../../..
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-debian}
+    image: hatest-envarg
+`)
+	different := composeAt("different.yml", `
+services:
+  other:
+    build:
+      context: ../../..
+      dockerfile: dotnetserver/Dockerfile
+    image: hatest-tagged
+`)
+
+	builds := first.builds([]string{"tagged", "untagged", "envarg"})
+	require.Len(t, builds, 3)
+	assert.True(t, strings.HasPrefix(builds[0], "hatest-tagged@"))
+	assert.True(t, strings.HasPrefix(builds[1], "first.yml/untagged@"))
+	assert.Equal(t, builds[0], same.builds([]string{"other"})[0], "equivalent paths are the same build")
+	assert.NotEqual(t, builds[0], different.builds([]string{"other"})[0], "a tag reused for another Dockerfile is another build")
+
+	first.Env = []string{"BASE_IMAGE=debian"}
+	assert.NotEqual(t, builds[2], first.builds([]string{"envarg"})[0], "args taken from the environment are part of the build")
+	assert.Equal(t, first.builds([]string{"envarg"})[0], same.builds([]string{"envarg"})[0],
+		"an arg resolves to the same value whether it is listed or mapped")
 }
 
 func TestComposeArgsIncludeOverrides(t *testing.T) {

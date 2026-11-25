@@ -96,6 +96,12 @@ type EBPFTracer struct {
 	// Disables OBI black-box context propagation. Used for testing purposes only.
 	DisableBlackBoxCP bool `yaml:"disable_black_box_cp" env:"OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP" validate:"boolean"`
 
+	// Disables the Go channel probes (runtime.chansend1, runtime.chanrecv1, runtime.chanrecv2) that
+	// link spans across goroutines. They run on every channel send and receive, which can add notable
+	// kernel CPU to busy Go services. Setups that only export metrics do not need these links.
+	// Loaded from Config v2 only.
+	DisableGoChannelLinks bool `yaml:"-" env:"-"`
+
 	// Optimizes for getting requests information immediately when request response is seen
 	HighRequestVolume bool `yaml:"high_request_volume" env:"OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME" validate:"boolean"`
 
@@ -176,6 +182,10 @@ type EBPFTracer struct {
 	PopulateTraceContext bool `yaml:"populate_trace_context" env:"OTEL_EBPF_BPF_POPULATE_TRACE_CONTEXT" validate:"boolean"`
 
 	CouchbaseDBCacheSize int `yaml:"couchbase_db_cache_size" env:"OTEL_EBPF_COUCHBASE_DB_CACHE_SIZE" validate:"gt=0"`
+
+	// Replaces literal values in db.query.text. Couchbase applies it while parsing;
+	// the trace exporter applies it for SQL, SQL++ and Redis. Loaded from Config v2 only.
+	SanitizeDBQueryText bool `yaml:"-" env:"-" json:"-"`
 
 	// BPF path used to pin eBPF maps
 	BPFFSPath string `yaml:"bpf_fs_path" env:"OTEL_EBPF_BPF_FS_PATH"`

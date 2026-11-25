@@ -2177,3 +2177,56 @@ func TestSpanMetricsNames(t *testing.T) {
 		})
 	}
 }
+
+func TestSpanMetrics_V2AttributeSelection(t *testing.T) {
+	ctx := t.Context()
+	registry, promURL := newPrometheusTestServer(t)
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	features := export.FeatureApplicationRED | export.FeatureSpanOTel
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{
+			Port:                        registry.Port,
+			Path:                        "/metrics",
+			TTL:                         3 * time.Minute,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+			ExtraSpanResourceLabels:     []string{"deployment_environment"},
+		},
+		&perapp.GlobalMetricsConfig{Features: features},
+		&attributes.SelectorConfig{
+			UseV2Selection: true,
+			SelectionCfg: attributes.Selection{
+				"traces.span.metrics.*": attributes.InclusionLists{Include: []string{"service.version"}},
+			},
+		},
+		request.UnresolvedNames{}, promInput, processEvents, nil,
+	)(ctx)
+	require.NoError(t, err)
+	go exporter(ctx)
+
+	span := request.Span{
+		Type:         request.EventTypeHTTP,
+		Method:       "GET",
+		Path:         "/users",
+		Status:       200,
+		RequestStart: 100,
+		End:          200,
+	}
+	span.Service = svc.Attrs{
+		Features: features,
+		UID:      svc.UID{Name: "users", Instance: "foo"},
+		Metadata: map[attr.Name]string{
+			"service.version":        "1.2.3",
+			"deployment.environment": "prod",
+		},
+	}
+	promInput.Send([]request.Span{span})
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Regexp(ct, `traces_span_metrics_calls_total\{[^}]*service_version="1.2.3"[^}]*\} 1`, exported)
+		assert.Regexp(ct, `traces_span_metrics_calls_total\{[^}]*deployment_environment="prod"[^}]*\} 1`, exported)
+	}, timeout, 100*time.Millisecond)
+}

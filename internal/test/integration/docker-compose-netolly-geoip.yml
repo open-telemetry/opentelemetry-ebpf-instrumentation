@@ -51,6 +51,7 @@ services:
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-netolly-geoip.yml
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_NETWORK_METRICS: "true" # explicitly enabling network metrics
       OTEL_EBPF_NETWORK_PRINT_FLOWS: "true"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"

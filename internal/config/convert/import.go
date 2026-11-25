@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -135,6 +136,12 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 				)
 			}
 		}
+	}
+
+	if cfg.NameResolver != nil && len(cfg.CloudMetadata.Route53.HostedZoneIDs) == 0 {
+		cfg.CloudMetadata.Route53.DiscoverHostedZones = slices.ContainsFunc(cfg.NameResolver.Sources, func(source transform.Source) bool {
+			return strings.EqualFold(string(source), string(transform.SourceRoute53))
+		})
 	}
 
 	return &cfg, nil
@@ -353,6 +360,13 @@ func applyV2Capture(cfg *obi.Config, src *schema.Extension, policy schema.Captur
 	applyV2NetworkStats(cfg, src.Capture.Network.Stats, complete || completeNetworkStats(src.Capture.Network.Stats))
 	applyV2Runtimes(cfg, src.Capture.Runtimes, complete || completeRuntimes(src.Capture.Runtimes))
 	applyV2CaptureTelemetry(cfg, src.Capture.Telemetry, complete || completeCaptureTelemetry(src.Capture.Telemetry))
+	applyV2TargetInfo(cfg, src.Capture.Metrics.TargetInfo)
+}
+
+func applyV2TargetInfo(cfg *obi.Config, targetInfo schema.CaptureTargetInfo) {
+	if targetInfo.Enabled != nil {
+		cfg.Metrics.DisableTargetInfo = !*targetInfo.Enabled
+	}
 }
 
 func applyV2Policy(cfg *obi.Config, policy schema.CapturePolicy, complete bool) {
@@ -744,10 +758,15 @@ func validateV2HTTPPayloadExtraction(payload schema.PayloadExtraction) error {
 }
 
 func validV2HTTPPayloadExtractor(extractor string) bool {
+	if _, ok := payloadExtractorGroups[extractor]; ok {
+		return true
+	}
 	switch extractor {
 	case payloadExtractorGraphQL,
 		payloadExtractorElasticsearch,
-		payloadExtractorAWS,
+		payloadExtractorAWSS3,
+		payloadExtractorAWSSQS,
+		payloadExtractorAWSSNS,
 		payloadExtractorSQLPP,
 		payloadExtractorOpenAI,
 		payloadExtractorAnthropic,
@@ -1266,6 +1285,7 @@ func applyV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentat
 	}
 
 	applyV2InstrumentationFilters(cfg, instrumentation)
+	applyV2HTTPQueryParameters(cfg, instrumentation.HTTP.QueryParameters)
 
 	complete = complete || completeInstrumentation(instrumentation)
 	if !complete {
@@ -1281,8 +1301,9 @@ func applyV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentat
 func applyFullV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentation) {
 	applyFullV2HTTPInstrumentation(cfg, instrumentation.HTTP)
 
+	cfg.EBPF.SanitizeDBQueryText = instrumentation.DB.SanitizeQueryText
+
 	cfg.EBPF.HeuristicSQLDetect = instrumentation.SQL.HeuristicDetect
-	cfg.Attributes.SanitizeSQLQueryText = instrumentation.SQL.SanitizeQueryText
 	cfg.EBPF.BufferSizes.MySQL = instrumentation.SQL.MySQL.BufferSize
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = instrumentation.SQL.MySQL.PreparedStatementsCacheSize
 	cfg.EBPF.BufferSizes.Postgres = instrumentation.SQL.Postgres.BufferSize
@@ -1311,12 +1332,13 @@ func applyPartialV2Instrumentation(cfg *obi.Config, instrumentation schema.Instr
 		applyPartialV2HTTPInstrumentation(cfg, instrumentation.HTTP)
 	}
 
+	if instrumentation.DB.SanitizeQueryText {
+		cfg.EBPF.SanitizeDBQueryText = true
+	}
+
 	if !zeroValue(instrumentation.SQL) {
 		if instrumentation.SQL.HeuristicDetect {
 			cfg.EBPF.HeuristicSQLDetect = true
-		}
-		if instrumentation.SQL.SanitizeQueryText {
-			cfg.Attributes.SanitizeSQLQueryText = true
 		}
 		if instrumentation.SQL.MySQL.BufferSize != 0 {
 			cfg.EBPF.BufferSizes.MySQL = instrumentation.SQL.MySQL.BufferSize
@@ -1368,6 +1390,25 @@ func applyPartialV2Instrumentation(cfg *obi.Config, instrumentation schema.Instr
 	if !zeroValue(instrumentation.GPU.EnabledMode) {
 		cfg.EBPF.InstrumentCuda = instrumentation.GPU.EnabledMode
 	}
+}
+
+func applyV2HTTPQueryParameters(cfg *obi.Config, params schema.HTTPQueryParameters) {
+	if params.Redaction == nil {
+		return
+	}
+	redaction := &cfg.Attributes.SensitiveQueryParams
+	redaction.Replacement = params.Redaction.Replacement
+	if params.Redaction.Names == nil {
+		return
+	}
+	redaction.Add = nil
+	redaction.Remove = nil
+	if slices.Equal(*params.Redaction.Names, attributes.DefaultSensitiveQueryParams) {
+		return
+	}
+	// Adapt a complete v2 selection to the existing runtime's default-relative list.
+	redaction.Remove = slices.Clone(attributes.DefaultSensitiveQueryParams)
+	redaction.Add = slices.Clone(*params.Redaction.Names)
 }
 
 func applyFullV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrumentation) {
@@ -1542,6 +1583,9 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 	http.GraphQL.Enabled = false
 	http.Elasticsearch.Enabled = false
 	http.AWS.Enabled = false
+	http.AWS.S3 = false
+	http.AWS.SQS = false
+	http.AWS.SNS = false
 	http.SQLPP.Enabled = false
 	http.GenAI.OpenAI.Enabled = false
 	http.GenAI.Anthropic.Enabled = false
@@ -1558,14 +1602,18 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 	http.JSONRPC.Enabled = false
 	http.Enrichment.Enabled = false
 
-	for _, extractor := range enabled {
+	for _, extractor := range expandV2HTTPPayloadExtractors(enabled) {
 		switch extractor {
 		case payloadExtractorGraphQL:
 			http.GraphQL.Enabled = true
 		case payloadExtractorElasticsearch:
 			http.Elasticsearch.Enabled = true
-		case payloadExtractorAWS:
-			http.AWS.Enabled = true
+		case payloadExtractorAWSS3:
+			http.AWS.S3 = true
+		case payloadExtractorAWSSQS:
+			http.AWS.SQS = true
+		case payloadExtractorAWSSNS:
+			http.AWS.SNS = true
 		case payloadExtractorSQLPP:
 			http.SQLPP.Enabled = true
 		case payloadExtractorOpenAI:
@@ -1598,6 +1646,18 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 			http.Enrichment.Enabled = true
 		}
 	}
+}
+
+func expandV2HTTPPayloadExtractors(enabled []string) []string {
+	expanded := make([]string, 0, len(enabled))
+	for _, extractor := range enabled {
+		if members, ok := payloadExtractorGroups[extractor]; ok {
+			expanded = append(expanded, members...)
+			continue
+		}
+		expanded = append(expanded, extractor)
+	}
+	return expanded
 }
 
 func applyFullV2HTTPEnrichment(http *obiconfig.HTTPConfig, enrichment schema.HTTPEnrichment) {
@@ -1919,6 +1979,10 @@ func applyV2Runtimes(cfg *obi.Config, runtimes schema.CaptureRuntimes, complete 
 		return
 	}
 
+	if enabled := runtimes.Go.ChannelLinks; enabled != nil {
+		cfg.EBPF.DisableGoChannelLinks = !*enabled
+	}
+
 	if complete || completeRuntimes(runtimes) {
 		applyFullV2Runtimes(cfg, runtimes)
 		return
@@ -2069,6 +2133,7 @@ func applyFullV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kubernetes
 	cfg.Attributes.Kubernetes.DropExternal = kubernetes.DropExternal
 	cfg.Attributes.Kubernetes.DisableInformers = cloneStrings(kubernetes.Informers.Disabled)
 	cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig(kubernetes.MetadataCache.TLS)
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = kubernetes.MetadataCache.SourceLabels.ServiceName
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = kubernetes.MetadataCache.SourceLabels.ServiceNamespace
@@ -2109,6 +2174,9 @@ func applyPartialV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kuberne
 	}
 	if kubernetes.MetadataCache.Address != "" {
 		cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
+	}
+	if !zeroValue(kubernetes.MetadataCache.TLS) {
+		cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig(kubernetes.MetadataCache.TLS)
 	}
 	if kubernetes.MetadataCache.RestrictLocalNode {
 		cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode

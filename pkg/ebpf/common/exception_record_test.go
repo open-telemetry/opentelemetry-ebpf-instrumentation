@@ -27,7 +27,7 @@ const testExceptionRuntime = BpfExceptionRuntimeK_exceptionRuntimeJava
 func registerTestExceptionDecoder(t *testing.T) {
 	t.Helper()
 	previous, registered := exceptionPayloadDecoders[testExceptionRuntime]
-	RegisterExceptionPayloadDecoder(testExceptionRuntime, func(_ *BpfExceptionEventHeaderT, payload []byte, event *exceptions.Event) error {
+	RegisterExceptionPayloadDecoder(testExceptionRuntime, func(payload []byte, event *exceptions.Event) error {
 		event.Type = string(payload)
 		return nil
 	})

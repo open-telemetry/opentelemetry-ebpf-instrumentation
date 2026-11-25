@@ -38,6 +38,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
@@ -591,6 +592,24 @@ func TestUnmarshalMapIgnoresGCESettings(t *testing.T) {
 	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
 }
 
+func TestConfigV1KeepsQueryRedactionReplacement(t *testing.T) {
+	t.Setenv("OTEL_EBPF_SENSITIVE_QUERY_PARAMS_REPLACEMENT", "hidden")
+	cfg, err := LoadConfig(bytes.NewBufferString(`attributes:
+  sensitive_query_params_replacement: hidden
+  sensitive_query_params:
+    add: [customer_secret]
+    replacement: hidden
+`))
+	require.NoError(t, err)
+	require.Nil(t, cfg.Attributes.SensitiveQueryParams.Replacement)
+	require.Contains(t, cfg.Attributes.SensitiveQueryParams.Effective(), "customer_secret")
+
+	cfg.Attributes.SensitiveQueryParams.Replacement = new("hidden")
+	data, err := yaml.Marshal(cfg.Attributes)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "replacement")
+}
+
 func TestConfig_ShutdownTimeout(t *testing.T) {
 	t.Setenv("OTEL_EBPF_SHUTDOWN_TIMEOUT", "1m")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
@@ -1102,6 +1121,25 @@ network:
 	cfg, err := LoadConfig(userConfig)
 	require.NoError(t, err)
 	require.NoError(t, cfg.Validate())
+}
+
+func TestConfigValidate_KubeMetaCacheTLS(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+attributes:
+  kubernetes:
+    enable: true
+    meta_cache_address: k8s-cache:50055
+network:
+  enable: true
+`))
+	require.NoError(t, err)
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{CAFile: "ca.pem"}
+	require.NoError(t, cfg.Validate())
+
+	cfg.Attributes.Kubernetes.MetaCacheTLS.CertFile = "client.pem"
+	require.ErrorContains(t, cfg.Validate(), "cert_file and key_file must be set together")
 }
 
 func TestConfigValidate_KubeReconnectInitialIntervalZero(t *testing.T) {
@@ -2062,13 +2100,13 @@ func TestConfigValidateRoute53HostedZones(t *testing.T) {
 		zones     []string
 		wantError bool
 	}{
-		{name: "enabled without zones", sources: []transform.Source{transform.SourceRoute53}},
-		{name: "enabled with empty list", sources: []transform.Source{transform.SourceRoute53}, zones: []string{}},
+		{name: "enabled without zones", sources: []transform.Source{transform.SourceRoute53}, wantError: true},
+		{name: "enabled with empty list", sources: []transform.Source{transform.SourceRoute53}, zones: []string{}, wantError: true},
 		{name: "blank ID", sources: []transform.Source{transform.SourceRoute53}, zones: []string{""}, wantError: true},
 		{name: "whitespace ID", sources: []transform.Source{transform.SourceRoute53}, zones: []string{" \t"}, wantError: true},
 		{name: "prefix without ID", sources: []transform.Source{transform.SourceRoute53}, zones: []string{" /hostedzone/ "}, wantError: true},
 		{name: "blank among valid IDs", sources: []transform.Source{transform.SourceRoute53}, zones: []string{"Z123", ""}, wantError: true},
-		{name: "case insensitive source", sources: []transform.Source{"Route53"}},
+		{name: "case insensitive source", sources: []transform.Source{"Route53"}, wantError: true},
 		{name: "valid IDs", sources: []transform.Source{transform.SourceRoute53}, zones: []string{"Z123", "/hostedzone/Z456"}},
 		{name: "disabled without zones", sources: []transform.Source{transform.SourceDNS}},
 		{name: "disabled with blank IDs", sources: []transform.Source{transform.SourceDNS}, zones: []string{""}},

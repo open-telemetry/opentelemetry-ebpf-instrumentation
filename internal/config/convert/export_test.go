@@ -27,6 +27,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -94,6 +95,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.ElementsMatch(t, []string{
 		string(protocolHTTP),
 		string(protocolGRPC),
+		"db",
 		string(protocolSQL),
 		string(protocolRedis),
 		string(protocolKafka),
@@ -192,6 +194,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.Attributes.Kubernetes.DropExternal = true
 	cfg.Attributes.Kubernetes.DisableInformers = []string{"node", "service"}
 	cfg.Attributes.Kubernetes.MetaCacheAddress = "kube-cache:8999"
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{CAFile: "/tls/ca.crt"}
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = true
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = "app.kubernetes.io/name"
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = "app.kubernetes.io/part-of"
@@ -237,6 +240,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.ContextPropagation = config.ContextPropagationAll
 	cfg.EBPF.OverrideBPFLoopEnabled = true
 	cfg.EBPF.DisableBlackBoxCP = true
+	cfg.EBPF.DisableGoChannelLinks = true
 	cfg.EBPF.PopulateTraceContext = true
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
@@ -253,7 +257,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.BufferSizes.TCP = 105
 	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
-	cfg.Attributes.SanitizeSQLQueryText = true
+	cfg.EBPF.SanitizeDBQueryText = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201
 	cfg.EBPF.MSSQLPreparedStatementsCacheSize = 202
@@ -305,7 +309,6 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.OTELMetrics.ReportersCacheLen = 915
 	cfg.OTELMetrics.TTL = 916 * time.Second
 	cfg.OTELMetrics.InsecureSkipVerify = true
-	cfg.OTELMetrics.ExtraSpanResourceLabels = []string{"deployment.environment", "service.version"}
 	cfg.OTELMetrics.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationHTTP,
 	}
@@ -313,7 +316,6 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.Prometheus.AllowServiceGraphSelfReferences = true
 	cfg.Prometheus.SpanMetricsServiceCacheSize = 918
 	cfg.Prometheus.ExtraResourceLabels = []string{"cloud.region"}
-	cfg.Prometheus.ExtraSpanResourceLabels = []string{"service.version", "k8s.cluster.name"}
 	cfg.Prometheus.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationRedis,
 		instrumentations.InstrumentationDNS,
@@ -389,13 +391,14 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, uint32(101), value(t, ext.Capture.Instrumentation, "sql", "mysql", "buffer_size"))
 	require.Equal(t, uint32(103), value(t, ext.Capture.Instrumentation, "sql", "mssql", "buffer_size"))
 	require.Equal(t, 202, value(t, ext.Capture.Instrumentation, "sql", "mssql", "prepared_statements_cache_size"))
-	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "sql", "sanitize_query_text"))
+	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "db", "sanitize_query_text"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "redis", "db_cache", "enabled"))
 	require.Equal(t, 204, value(t, ext.Capture.Instrumentation, "kafka", "topic_uuid_cache_size"))
 	require.Equal(t, uint32(106), value(t, ext.Capture.Instrumentation, "aerospike", "buffer_size"))
 	require.Equal(t, config.CudaModeOn, value(t, ext.Capture.Instrumentation, "gpu", "enabled_mode"))
 
 	require.Equal(t, false, value(t, ext.Capture.Runtimes, "go", "enabled"))
+	require.Equal(t, false, value(t, ext.Capture.Runtimes, "go", "channel_links"))
 	require.Equal(t, false, value(t, ext.Capture.Runtimes, "nodejs", "enabled"))
 	require.Equal(t, false, value(t, ext.Capture.Runtimes, "java", "enabled"))
 	require.Equal(t, true, value(t, ext.Capture.Runtimes, "java", "debug", "bytecode_instrumentation"))
@@ -429,6 +432,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, schema.ResourceLabels(cfg.Attributes.Kubernetes.ResourceLabels), value(t, ext.Enrich, "enrichers", "kubernetes", "resource_labels"))
 	require.Equal(t, "kube-cache:8999", value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "address"))
 	require.Equal(t, true, value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "restrict_local_node"))
+	require.Equal(t, "/tls/ca.crt", value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "tls", "ca_file"))
 	require.Equal(t, "app.kubernetes.io/name", value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "source_labels", "service_name"))
 	require.Equal(t, "{{ .Meta.Name }}", value(t, ext.Enrich, "enrichers", "kubernetes", "service_name_template"))
 	require.Equal(t, []transform.Source{transform.SourceDNS, transform.SourceK8s}, value(t, ext.Enrich, "service_name", "sources"))
@@ -468,7 +472,6 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, true, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "allow_service_graph_self_references"))
 	require.Equal(t, 918, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "span_metrics_service_cache_size"))
 	require.Equal(t, []string{"cloud.region"}, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "extra_resource_attributes"))
-	require.Equal(t, []string{"service.version", "k8s.cluster.name", "deployment.environment"}, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "extra_span_resource_attributes"))
 }
 
 func TestRuntimeToV2NormalizesLogFormat(t *testing.T) {
@@ -687,7 +690,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.Equal(t, schema.AttributeFilter{GreaterThan: &srtt}, value(t, ext.Capture.Network, "stats", "filters", "metrics", "srtt"))
 
 	require.ElementsMatch(t, []string{
-		"graphql", "elasticsearch", "aws", "sqlpp", "openai", "anthropic", "gemini",
+		"graphql", "elasticsearch", "aws_s3", "aws_sqs", "aws_sns", "sqlpp", "openai", "anthropic", "gemini",
 		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "cohere", "jsonrpc", "enrichment",
 	}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enabled"))
 	require.Equal(t, []string{"/query", "/analytics"}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "endpoint_patterns"))

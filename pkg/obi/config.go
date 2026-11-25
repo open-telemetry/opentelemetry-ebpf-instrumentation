@@ -731,8 +731,7 @@ type Attributes struct {
 	// SensitiveQueryParams controls which query-parameter keys are redacted in url.full and url.query.
 	SensitiveQueryParams attributes.SensitiveQueryParamsConfig `yaml:"sensitive_query_params"`
 
-	SanitizeSQLQueryText bool `yaml:"-" env:"-" json:"-"`
-	UseV2Selection       bool `yaml:"-" env:"-" json:"-"`
+	UseV2Selection bool `yaml:"-" env:"-" json:"-"`
 }
 
 type HostIDConfig struct {
@@ -956,6 +955,10 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	if err := c.PeerMetadata.Validate(); err != nil {
+		return ConfigError(err.Error())
+	}
+
+	if err := c.Attributes.Kubernetes.MetaCacheTLS.Validate(); err != nil {
 		return ConfigError(err.Error())
 	}
 

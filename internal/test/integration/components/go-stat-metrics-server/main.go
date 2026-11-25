@@ -9,12 +9,14 @@ import (
 	"io"
 	"net"
 	"os"
+	"time"
 )
 
 func main() {
 	go serve(":8081", handleConnection)
 	go serve(":8082", resetConnection)
 	go serve(":8083", handleShutdownConnection)
+	go serve(":8084", readShutdownConnection)
 	serve(":8080", handleConnection)
 }
 
@@ -73,4 +75,19 @@ func resetConnection(conn net.Conn) {
 		_ = tcpConn.SetLinger(0)
 	}
 	conn.Close()
+}
+
+// readShutdownConnection shuts down reading and writing but keeps the socket open,
+// so data the client sends afterwards makes the kernel abort the connection.
+func readShutdownConnection(conn net.Conn) {
+	defer conn.Close()
+
+	message, _ := bufio.NewReader(conn).ReadString('\n')
+	fmt.Printf("Received (will shut down): %s", message)
+
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		_ = tcpConn.CloseRead()
+		_ = tcpConn.CloseWrite()
+	}
+	time.Sleep(3 * time.Second)
 }

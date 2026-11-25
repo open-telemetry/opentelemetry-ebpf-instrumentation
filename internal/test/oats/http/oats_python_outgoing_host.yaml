@@ -13,6 +13,8 @@ fixture:
     timeout: 3m
 input:
 - path: /with_name
+  headers:
+    X-Forwarded-Host: public.example
   retry:
     # Each request can block for 10s in the handler; allow enough requests for the counter assertion.
     timeout: 90s
@@ -23,6 +25,14 @@ expected:
   - traceql: '{kind=client && name="GET /" && span.service.peer.name="www.google.com"}'
     match_spans:
     - name: GET /
+  # server.address comes from the Host header, not X-Forwarded-Host.
+  - traceql: '{kind=server && span.url.path="/with_name"}'
+    match_spans:
+    - match_type: regexp
+      name: ^GET
+      attributes:
+      - key: server.address
+        value: localhost
   metrics:
   - promql: traces_service_graph_request_client_seconds_count{client="testserver",
       server="www.google.com"}
