@@ -302,7 +302,7 @@ The `capture` grouping was introduced for two reasons:
 
 - `policy`: global rule evaluation behavior (default action, match order, timing).
 - `rules`: ordered workload selection rules (include/exclude by process identity, Kubernetes metadata, etc.).
-- `instrumentation`: protocol-specific capture controls (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU, Aerospike).
+- `instrumentation`: protocol-specific capture controls (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU, Aerospike, ISO 8583).
 - `exceptions`: runtime exception capture enablement; records use the logs pipeline.
   For Go, `exceptions.go.panics` defaults to `true` and
   `exceptions.go.formatted_errors` defaults to `false`. Formatted-error capture
@@ -542,9 +542,11 @@ tracked in
 The `capture.instrumentation` section defines protocol-specific instrumentation controls, including enablement and filtering for traces and metrics.
 
 All protocols (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU,
-Aerospike) have a consistent base structure for trace and metric enablement.
+Aerospike, ISO 8583) have a consistent base structure for trace and metric enablement.
 Each protocol can also have specific subsections; for example, SQL has `mysql`
 and `postgres`, while HTTP has `routes.discovery`.
+
+For ISO 8583, `iso8583.transmission_timezone` sets the IANA timezone used to interpret field 7 when estimating response time. It defaults to UTC. See [ISO 8583 over TCP](../../protocols/tcp/iso8583.md).
 
 Filter fields are schema-modelled but only a compatibility subset is imported.
 The target adapter compares every application protocol's trace and metric maps
