@@ -25,19 +25,18 @@ func TestScanAiohttp(t *testing.T) {
 				`app.router.add_get("/users/{user_id}", user)`,
 				`app.router.add_post(r'/orders', create_order)`,
 				`router.add_view(u"/items", ItemView)`,
-				`app.router.add_delete(handler=remove, path="/items/{item_id}")`,
+				`self.app.router.add_delete("/items/{item_id}", remove)`,
 				`app.router.add_route("GET", "/health", health)`,
 				`app.router.add_route(hdrs.METH_PUT, '/ready', ready)`,
-				`app.router.add_route(method="*", path="/any", handler=anything)`,
 			},
-			want: []string{"/any", "/health", "/items", "/items/{item_id}", "/orders", "/ready", "/users/{user_id}"},
+			want: []string{"/health", "/items", "/items/{item_id}", "/orders", "/ready", "/users/{user_id}"},
 		},
 		{
 			name: "route definitions",
 			lines: []string{
-				`import aiohttp`,
+				`from aiohttp import hdrs, web`,
 				`app.add_routes([web.get("/users/{user_id}", user), web.post('/orders', create_order)])`,
-				`app.add_routes([aiohttp.web.view(path="/items", handler=ItemView)])`,
+				`app.add_routes([aiohttp.web.view("/items", ItemView)])`,
 				`app.add_routes([web.route("PATCH", "/items/{item_id}", update)])`,
 			},
 			want: []string{"/items", "/items/{item_id}", "/orders", "/users/{user_id}"},
@@ -48,7 +47,7 @@ func TestScanAiohttp(t *testing.T) {
 				`from aiohttp import web`,
 				`routes = web.RouteTableDef()`,
 				`@routes.get("/users/{user_id}")`,
-				`@routes.post(path='/orders')`,
+				`@routes.post('/orders')`,
 				`@routes.view("/items")`,
 				`@routes.route("DELETE", "/items/{item_id}")`,
 			},
@@ -61,6 +60,7 @@ func TestScanAiohttp(t *testing.T) {
 				`app.router.add_get(r"/users/{user_id:\d+}", user)`,
 				`app.router.add_get(r"/archive/{year:\d{4}}/{slug:[a-z-]+}", archive)`,
 				`app.router.add_get("/files/{tail:.*}", files)`,
+				`app.router.add_get("/files/{tail:.*}/download", download)`,
 			},
 			want: []string{"/archive/{year}/{slug}", "/files/{tail:path}", "/users/{user_id}"},
 		},
@@ -69,6 +69,33 @@ func TestScanAiohttp(t *testing.T) {
 			lines: []string{
 				`app.router.add_get("/users/{user_id}", user)`,
 				`app.add_routes([web.get("/orders", orders)])`,
+			},
+		},
+		{
+			name: "keyword and nested paths",
+			lines: []string{
+				`from aiohttp import web`,
+				`app.router.add_get("/download", functools.partial(download, path="/srv/data"))`,
+				`app.router.add_delete(handler=remove, path="/items/{item_id}")`,
+				`app.add_routes([web.get(path="/orders", handler=orders)])`,
+			},
+			want: []string{"/download"},
+		},
+		{
+			name: "other libraries",
+			lines: []string{
+				`import aiohttp`,
+				`resp = await web.get("/api/users/1")`,
+				`app.add_route(handler, "/sanic/route")`,
+				`admin.add_view("/reports", ReportView)`,
+				`my_router.add_get("/other", other)`,
+			},
+		},
+		{
+			name: "web attribute",
+			lines: []string{
+				`from aiohttp import web`,
+				`resp = await self.web.get("/api/users/1")`,
 			},
 		},
 		{
@@ -108,6 +135,8 @@ func TestScanAiohttpOwnsOnlyRouteTableDecorators(t *testing.T) {
 	}
 
 	assert.True(t, aiohttp.scan(`@routes.get(r"/users/{user_id:\d+}")`, routes))
+	assert.True(t, aiohttp.scan(`@routes.get("/files/{tail:.*}/download")`, routes))
+	assert.Equal(t, []string{"/users/{user_id}"}, routeKeys(routes))
 	assert.False(t, aiohttp.scan(`@routes.route("/flask")`, routes))
 	assert.False(t, aiohttp.scan(`@app.route("/flask")`, routes))
 	assert.False(t, aiohttp.scan(`app.router.add_get("/orders", orders)`, routes))
@@ -187,7 +216,7 @@ func TestDependsOnAiohttp(t *testing.T) {
 		{name: "pyproject dependencies", file: "pyproject.toml", contents: "[project]\ndependencies = [\"aiohttp>=3.9\"]\n", want: true},
 		{name: "poetry dependencies", file: "pyproject.toml", contents: "[tool.poetry.dependencies]\naiohttp = \"^3.9\"\n", want: true},
 		{name: "pipfile", file: "Pipfile", contents: "[packages]\naiohttp = \"*\"\n", want: true},
-		{name: "poetry lock", file: "poetry.lock", contents: "[[package]]\nname = \"aiohttp\"\nversion = \"3.9.5\"\n", want: true},
+		{name: "poetry lock ignored", file: "poetry.lock", contents: "[[package]]\nname = \"aiohttp\"\nversion = \"3.9.5\"\n"},
 		{name: "aiohttp plugin only", file: "requirements.txt", contents: "aiohttp-jinja2==1.6\naiohttp_cors\n"},
 		{name: "other framework", file: "requirements.txt", contents: "flask==3.0\n"},
 		{name: "not a manifest", file: "notes.txt", contents: "aiohttp\n"},
@@ -353,4 +382,29 @@ app.router.add_get(r"/static/{rest:.+}", static)
 	matcher := RouteMatcherFromResult(*result)
 	assert.Equal(t, "/files/{tail:path}", matcher.Find("/files/a/report.txt"))
 	assert.Equal(t, "/static/{rest:path}", matcher.Find("/static/css/site.css"))
+}
+
+// aiohttp is also a common HTTP client: depending on it does not make client
+// calls or other libraries' methods routes.
+func TestExtractPythonAiohttpClientOnly(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("aiohttp==3.9.5\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "client.py"), []byte(`
+import aiohttp
+
+
+async def fetch(web):
+    async with aiohttp.ClientSession() as session:
+        await session.get("/api/users/1")
+    await web.get("/api/orders/1")
+    await web.post(path="/api/orders", json={})
+
+
+admin.add_view("/reports", ReportView)
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Routes)
 }
