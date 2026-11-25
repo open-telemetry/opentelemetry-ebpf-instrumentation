@@ -51,6 +51,8 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/generate-bpf
+        with:
+          artifact-name: lint-bpf-generated-${{ github.run_id }}
 
   lint-linux:
     name: Lint on linux (${{ matrix.platform.arch }})
@@ -87,7 +89,7 @@ jobs:
       - name: Download generated BPF files
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: bpf-generated-${{ github.run_id }}
+          name: lint-bpf-generated-${{ github.run_id }}
 
       - name: Lint
         run: make lint
@@ -120,7 +122,7 @@ jobs:
       - name: Download generated BPF files
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: bpf-generated-${{ github.run_id }}
+          name: lint-bpf-generated-${{ github.run_id }}
 
       - name: Lint OBI semantic-convention registry
         run: make lint-schema
@@ -164,7 +166,7 @@ jobs:
       - name: Download generated BPF files
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: bpf-generated-${{ github.run_id }}
+          name: lint-bpf-generated-${{ github.run_id }}
 
       - name: Lint
         run: make lint

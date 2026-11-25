@@ -8,9 +8,8 @@ description: |
 
 inputs:
   artifact-name:
-    description: 'Artifact name to upload BPF files under. Default keys on github.run_id.'
-    required: false
-    default: bpf-generated-${{ github.run_id }}
+    description: 'Artifact name to upload BPF files under. Must be unique in the run: release.yml calls several workflows that each upload one.'
+    required: true
 
 runs:
   using: composite
