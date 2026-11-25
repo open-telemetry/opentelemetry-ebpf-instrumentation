@@ -444,26 +444,6 @@ app.router.add_get(r"/static/{rest:.+}", static)
 	assert.Equal(t, "/static/{rest:path}", matcher.Find("/static/css/site.css"))
 }
 
-func TestExtractPythonAiohttpRootTailRoute(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
-from aiohttp import web
-
-app = web.Application()
-app.router.add_get("/{name}", hello)
-app.router.add_get("/{tail:.*}", index)
-`), 0o644))
-
-	result, err := extractPythonRoutes(t.Context(), dir, dir)
-
-	require.NoError(t, err)
-	assert.Equal(t, []string{"/{name}", "/{tail:path}"}, result.Routes)
-
-	matcher := RouteMatcherFromResult(*result)
-	assert.Equal(t, "/{tail:path}", matcher.Find("/a/b.txt"))
-	assert.Contains(t, result.Routes, matcher.Find("/a"))
-}
-
 func TestExtractPythonAiohttpClientOnly(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("aiohttp==3.9.5\n"), 0o644))

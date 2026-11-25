@@ -320,11 +320,6 @@ func TestDeduplicateSingleParamRoutes(t *testing.T) {
 			expected: []string{"/api/health", "/{id}"},
 		},
 		{
-			name:     "catch-all routes are not deduplicated",
-			input:    []string{"/{tail:path}", "/{name}", "/{slug}", "/{*rest}"},
-			expected: []string{"/{tail:path}", "/{*rest}", "/{id}"},
-		},
-		{
 			name:     "edge case - routes that look similar but aren't single params",
 			input:    []string{"/{id}", "/users/{id}/posts", "/{category}/{id}", "/api/{version}"},
 			expected: []string{"/{id}", "/users/{id}/posts", "/{category}/{id}", "/api/{version}"},
@@ -475,12 +470,4 @@ func TestMatcherNonTerminalPathParam(t *testing.T) {
 
 	assert.Equal(t, routes[0], complete.Find("/files/a/b/metadata"))
 	assert.Empty(t, partial.Find("/files/a/b/metadata"))
-}
-
-func TestPartialRouteMatcherRootCatchAll(t *testing.T) {
-	m := NewPartialRouteMatcher([]string{"/{tail:path}", "/{user}/profile", "/{name}"})
-
-	assert.Equal(t, "/{user}/profile", m.Find("/alice/profile"))
-	assert.Equal(t, "/{tail:path}", m.Find("/a/b.txt"))
-	assert.Equal(t, "/{tail:path}", m.Find("/a"))
 }
