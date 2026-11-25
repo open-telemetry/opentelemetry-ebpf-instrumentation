@@ -103,6 +103,13 @@ func TestScanAiohttp(t *testing.T) {
 			},
 		},
 		{
+			name: "aliased web import",
+			lines: []string{
+				`from aiohttp import web as aioweb`,
+				`app.add_routes([web.get("/users/{user_id}", user)])`,
+			},
+		},
+		{
 			name: "web attribute",
 			lines: []string{
 				`from aiohttp import web`,
@@ -418,4 +425,28 @@ admin.add_view("/reports", ReportView)
 
 	require.NoError(t, err)
 	assert.Empty(t, result.Routes)
+}
+
+func TestExtractPythonAiohttpMultilineImport(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		imports string
+	}{
+		{name: "one name per line", imports: "from aiohttp import (\n    hdrs,\n    web,\n)"},
+		{name: "comment between names", imports: "from aiohttp import (\n    hdrs,  # headers\n    web,\n)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(tc.imports+`
+
+app = web.Application()
+app.add_routes([web.get("/users/{user_id}", user)])
+`), 0o644))
+
+			result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+			require.NoError(t, err)
+			assert.Equal(t, []string{"/users/{user_id}"}, result.Routes)
+		})
+	}
 }

@@ -36,9 +36,15 @@ var aiohttpDependencyPattern = regexp.MustCompile(`(?im)(?:^[ \t]*|["'])aiohttp[
 
 var aiohttpImportPattern = regexp.MustCompile(`^(?:from\s+aiohttp(?:\.web)?\s+import\b|import\s+aiohttp\b)`)
 
+// aiohttpImportStart matches the first line of a parenthesized aiohttp
+// import, which is buffered so the names on the following lines are seen.
+var aiohttpImportStart = regexp.MustCompile(`^from\s+aiohttp(?:\.web)?\s+import\s*\(`)
+
 // aiohttpWebImportPattern matches imports binding the name web to aiohttp's
-// web module, e.g. "from aiohttp import hdrs, web".
-var aiohttpWebImportPattern = regexp.MustCompile(`^(?:from\s+aiohttp\s+import\s+[^#]*\bweb\b|import\s+aiohttp\.web\s+as\s+web\b)`)
+// web module, e.g. "from aiohttp import hdrs, web". web must be an imported
+// name, so "web as aioweb" does not count, and a comment can sit between the
+// names of a buffered multi-line import.
+var aiohttpWebImportPattern = regexp.MustCompile(`^(?:from\s+aiohttp\s+import\b.*[\s(,]web\s*(?:[,)#]|$)|import\s+aiohttp\.web\s+as\s+web\b)`)
 
 // aiohttpTablePattern does not require the closing parenthesis, so the first
 // line of a multi-line RouteTableDef( call is enough.
@@ -205,6 +211,9 @@ func (f *aiohttpFile) isTableDecorator(stmt string) bool {
 }
 
 func (f *aiohttpFile) starts(line string) bool {
+	if aiohttpImportStart.MatchString(line) {
+		return true
+	}
 	return f.enabled && aiohttpStart.MatchString(line)
 }
 
