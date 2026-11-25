@@ -211,8 +211,11 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		line := strings.TrimSpace(scan.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+		// Comments are removed before statements are joined, so code in a
+		// trailing comment is not scanned and a comment after an opening
+		// parenthesis does not hide the lines that follow.
+		line := stripHashComment(strings.TrimSpace(scan.Text()))
+		if line == "" {
 			continue
 		}
 

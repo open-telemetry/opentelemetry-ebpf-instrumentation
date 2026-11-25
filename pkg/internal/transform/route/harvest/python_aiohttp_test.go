@@ -103,6 +103,24 @@ func TestScanAiohttp(t *testing.T) {
 			},
 		},
 		{
+			name: "partial path expressions",
+			lines: []string{
+				`from aiohttp import web`,
+				`app.router.add_get("/users/" + user_id, user)`,
+				`app.router.add_get("/users/{}".format(user_id), user)`,
+				`app.router.add_route("GET", "/users/%s" % user_id, user)`,
+				`app.add_routes([web.get("/items/" + item_id, item), web.post("/items", create)])`,
+			},
+			want: []string{"/items"},
+		},
+		{
+			name: "web bound to another aiohttp name",
+			lines: []string{
+				`from aiohttp import ClientSession as web`,
+				`resp = await web.get("/api/users/1")`,
+			},
+		},
+		{
 			name: "aliased web import",
 			lines: []string{
 				`from aiohttp import web as aioweb`,
@@ -155,7 +173,9 @@ func TestScanAiohttpOwnsOnlyRouteTableDecorators(t *testing.T) {
 	assert.True(t, aiohttp.scan(`@routes.get(r"/users/{user_id:\d+}")`, routes))
 	assert.True(t, aiohttp.scan(`@routes.get("/files/{tail:.*}/download")`, routes))
 	assert.Equal(t, []string{"/users/{user_id}"}, routeKeys(routes))
+	assert.True(t, aiohttp.scan(`@routes.route("GET", "/users/" + suffix)`, routes))
 	assert.False(t, aiohttp.scan(`@routes.route("/flask")`, routes))
+	assert.False(t, aiohttp.scan(`@routes.route("/flask", methods=["GET"])`, routes))
 	assert.False(t, aiohttp.scan(`@app.route("/flask")`, routes))
 	assert.False(t, aiohttp.scan(`app.router.add_get("/orders", orders)`, routes))
 
@@ -402,6 +422,28 @@ app.router.add_get(r"/static/{rest:.+}", static)
 	assert.Equal(t, "/static/{rest:path}", matcher.Find("/static/css/site.css"))
 }
 
+// A root catch-all next to another root parameter, as in a single page app
+// fallback, must not be folded into /{id}, which would report /{id}/{id}.
+func TestExtractPythonAiohttpRootTailRoute(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+from aiohttp import web
+
+app = web.Application()
+app.router.add_get("/{name}", hello)
+app.router.add_get("/{tail:.*}", index)
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/{name}", "/{tail:path}"}, result.Routes)
+
+	matcher := RouteMatcherFromResult(*result)
+	assert.Equal(t, "/{tail:path}", matcher.Find("/a/b.txt"))
+	assert.Contains(t, result.Routes, matcher.Find("/a"))
+}
+
 // aiohttp is also a common HTTP client: depending on it does not make client
 // calls or other libraries' methods routes.
 func TestExtractPythonAiohttpClientOnly(t *testing.T) {
@@ -449,4 +491,111 @@ app.add_routes([web.get("/users/{user_id}", user)])
 			assert.Equal(t, []string{"/users/{user_id}"}, result.Routes)
 		})
 	}
+}
+
+// A route table decorator with a partial path is not recorded by aiohttp, and
+// must not fall through to the FastAPI patterns either.
+func TestExtractPythonAiohttpPartialPathDecorator(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+from aiohttp import web
+
+routes = web.RouteTableDef()
+
+
+@routes.get("/users/" + SUFFIX)
+async def user(request):
+    return web.Response(text="ok")
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Routes)
+}
+
+func TestExtractPythonAiohttpComments(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{
+			name: "trailing comment on a router call",
+			src:  `app.router.add_get("/real", real)  # app.router.add_get("/disabled", old)`,
+			want: []string{"/real"},
+		},
+		{
+			name: "trailing comment on a route definition",
+			src:  `app.add_routes([web.get("/real", real)])  # web.get("/disabled", old)`,
+			want: []string{"/real"},
+		},
+		{
+			name: "trailing comment on a decorator",
+			src:  "routes = web.RouteTableDef()\n@routes.get(\"/real\")  # @routes.get(\"/disabled\")\nasync def real(request):\n    pass",
+			want: []string{"/real"},
+		},
+		{
+			name: "comment after the opening parenthesis of a router call",
+			src:  "app.router.add_get(  # users\n    \"/users/{user_id}\",\n    user,\n)",
+			want: []string{"/users/{user_id}"},
+		},
+		{
+			name: "comment after the opening parenthesis of a route definition",
+			src:  "app.add_routes([\n    web.get(  # items\n        \"/items\", items),\n])",
+			want: []string{"/items"},
+		},
+		{
+			name: "comment after the opening parenthesis of a decorator",
+			src:  "routes = web.RouteTableDef()\n@routes.get(  # users\n    r\"/users/{user_id:\\d+}\"\n)\nasync def user(request):\n    pass",
+			want: []string{"/users/{user_id}"},
+		},
+		{
+			name: "hash inside a path",
+			src:  `app.router.add_get("/tags/#{tag}", tag)  # tags`,
+			want: []string{"/tags/#{tag}"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte("from aiohttp import web\n\n"+tc.src+"\n"), 0o644))
+
+			result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, result.Routes)
+		})
+	}
+}
+
+// A function-scoped route table can reuse the name of a module-level Flask
+// object: only aiohttp-shaped decorators are claimed, so the Flask route stays.
+func TestExtractPythonAiohttpTableNameReusedByFlask(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+from aiohttp import web
+from flask import Flask
+
+routes = Flask(__name__)
+
+
+def make_aiohttp():
+    routes = web.RouteTableDef()
+
+    @routes.get("/aio")
+    async def aio(request):
+        pass
+
+    return routes
+
+
+@routes.route("/flask")
+def flask_view():
+    return "ok"
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/aio", "/flask"}, result.Routes)
 }

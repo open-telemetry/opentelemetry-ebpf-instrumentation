@@ -23,8 +23,13 @@ const (
 	// assignment, e.g. "routes: web.RouteTableDef = ...".
 	aiohttpAnnotation = `(?:\s*:[^=]+)?`
 	// aiohttpMethodArg matches the method argument of route()/add_route(),
-	// e.g. "GET" or hdrs.METH_GET.
-	aiohttpMethodArg = `[^,()]+,\s*`
+	// e.g. "GET", "*" or hdrs.METH_GET. It cannot be a path, so Flask's
+	// route("/path", ...) is not taken for aiohttp's route(method, path).
+	aiohttpMethodArg = `(?:[rRuU]?(?:"[^"/]*"|'[^'/]*')|[A-Za-z_][\w.]*)\s*,\s*`
+	// aiohttpPathArg matches a path literal that is a whole argument, so a
+	// partial path such as "/users/" + user_id or "/users/%s" % user_id is
+	// not recorded as a route.
+	aiohttpPathArg = pyLit + `\s*[,)]`
 	// aiohttpTailConverter ends the parameters that match the rest of the path.
 	aiohttpTailConverter = ":path}"
 )
@@ -42,9 +47,9 @@ var aiohttpImportStart = regexp.MustCompile(`^from\s+aiohttp(?:\.web)?\s+import\
 
 // aiohttpWebImportPattern matches imports binding the name web to aiohttp's
 // web module, e.g. "from aiohttp import hdrs, web". web must be an imported
-// name, so "web as aioweb" does not count, and a comment can sit between the
-// names of a buffered multi-line import.
-var aiohttpWebImportPattern = regexp.MustCompile(`^(?:from\s+aiohttp\s+import\b.*[\s(,]web\s*(?:[,)#]|$)|import\s+aiohttp\.web\s+as\s+web\b)`)
+// name itself: "web as aioweb" does not bind web, and "ClientSession as web"
+// binds it to something else.
+var aiohttpWebImportPattern = regexp.MustCompile(`^(?:from\s+aiohttp\s+import\s*(?:\(?\s*|.*[(,]\s*)web\s*(?:[,)]|$)|import\s+aiohttp\.web\s+as\s+web\b)`)
 
 // aiohttpTablePattern does not require the closing parenthesis, so the first
 // line of a multi-line RouteTableDef( call is enough.
@@ -52,7 +57,10 @@ var aiohttpTablePattern = regexp.MustCompile(`^` + aiohttpName + aiohttpAnnotati
 
 var aiohttpAssignmentPattern = regexp.MustCompile(`^` + aiohttpName + aiohttpAnnotation + `\s*=[^=]`)
 
-var aiohttpDecoratorPattern = regexp.MustCompile(`^@` + aiohttpName + `\.`)
+// aiohttpDecoratorPattern matches decorators shaped like a route table's,
+// @routes.get( or @routes.route(method, ...). Flask's @routes.route("/path")
+// on a reused name is left to the Flask scanner.
+var aiohttpDecoratorPattern = regexp.MustCompile(`^@` + aiohttpName + `\.(?:` + aiohttpMethods + `\s*\(|route\s*\(\s*` + aiohttpMethodArg + `)`)
 
 // The patterns below only read the path from the first positional argument
 // (or the second, after the method). Keyword paths are left out: a path=
@@ -63,8 +71,8 @@ var aiohttpDecoratorPattern = regexp.MustCompile(`^@` + aiohttpName + `\.`)
 // receiver must be a router, since other libraries also have add_view or
 // add_route methods.
 var aiohttpRouterPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`\brouter\.add_` + aiohttpMethods + `\s*\(\s*` + pyLit),
-	regexp.MustCompile(`\brouter\.add_route\s*\(\s*` + aiohttpMethodArg + pyLit),
+	regexp.MustCompile(`\brouter\.add_` + aiohttpMethods + `\s*\(\s*` + aiohttpPathArg),
+	regexp.MustCompile(`\brouter\.add_route\s*\(\s*` + aiohttpMethodArg + aiohttpPathArg),
 }
 
 // aiohttpModulePatterns cover route definitions through the module path
@@ -79,14 +87,14 @@ var aiohttpWebPatterns = aiohttpDefinitionPatterns(`(?:^|[^.\w])web\.`)
 // aiohttpDecoratorPatterns cover route table decorators (@routes.get). They
 // only apply to names assigned from RouteTableDef.
 var aiohttpDecoratorPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`^@` + aiohttpName + `\.` + aiohttpMethods + `\s*\(\s*` + pyLit),
-	regexp.MustCompile(`^@` + aiohttpName + `\.route\s*\(\s*` + aiohttpMethodArg + pyLit),
+	regexp.MustCompile(`^@` + aiohttpName + `\.` + aiohttpMethods + `\s*\(\s*` + aiohttpPathArg),
+	regexp.MustCompile(`^@` + aiohttpName + `\.route\s*\(\s*` + aiohttpMethodArg + aiohttpPathArg),
 }
 
 func aiohttpDefinitionPatterns(receiver string) []*regexp.Regexp {
 	return []*regexp.Regexp{
-		regexp.MustCompile(receiver + aiohttpMethods + `\s*\(\s*` + pyLit),
-		regexp.MustCompile(receiver + `route\s*\(\s*` + aiohttpMethodArg + pyLit),
+		regexp.MustCompile(receiver + aiohttpMethods + `\s*\(\s*` + aiohttpPathArg),
+		regexp.MustCompile(receiver + `route\s*\(\s*` + aiohttpMethodArg + aiohttpPathArg),
 	}
 }
 
@@ -165,8 +173,9 @@ type aiohttpFile struct {
 }
 
 // scan records the aiohttp routes declared by stmt. It returns true when stmt
-// is a route table decorator declaring a route, which other Python scanners
-// must not handle.
+// is an aiohttp decorator of a route table, which other Python scanners must
+// not handle even when no route is recorded: they would keep a partial path
+// such as "/users/" + suffix.
 func (f *aiohttpFile) scan(stmt string, routes map[string]struct{}) bool {
 	if aiohttpWebImportPattern.MatchString(stmt) {
 		f.webImported = true
@@ -191,7 +200,8 @@ func (f *aiohttpFile) scan(stmt string, routes map[string]struct{}) bool {
 	}
 
 	if f.isTableDecorator(stmt) {
-		return addAiohttpRoutes(routes, aiohttpDecoratorPatterns, stmt)
+		addAiohttpRoutes(routes, aiohttpDecoratorPatterns, stmt)
+		return true
 	}
 	addAiohttpRoutes(routes, aiohttpRouterPatterns, stmt)
 	addAiohttpRoutes(routes, aiohttpModulePatterns, stmt)
@@ -218,17 +228,14 @@ func (f *aiohttpFile) starts(line string) bool {
 }
 
 // addAiohttpRoutes adds every route matched by patterns, since a single
-// add_routes statement can declare several routes. It reports whether stmt
-// declares any route, including the ones left out by aiohttpTemplate.
-func addAiohttpRoutes(routes map[string]struct{}, patterns []*regexp.Regexp, stmt string) bool {
-	declared := false
+// add_routes statement can declare several routes.
+func addAiohttpRoutes(routes map[string]struct{}, patterns []*regexp.Regexp, stmt string) {
 	for _, re := range patterns {
 		for _, match := range re.FindAllStringSubmatch(stmt, -1) {
 			for _, group := range match[1:] {
 				if !strings.HasPrefix(group, "/") {
 					continue
 				}
-				declared = true
 				if route, ok := aiohttpTemplate(group); ok {
 					routes[route] = struct{}{}
 				}
@@ -236,7 +243,6 @@ func addAiohttpRoutes(routes map[string]struct{}, patterns []*regexp.Regexp, stm
 			}
 		}
 	}
-	return declared
 }
 
 // aiohttpTemplate drops the regex of {name:regex} parameters, like aiohttp's

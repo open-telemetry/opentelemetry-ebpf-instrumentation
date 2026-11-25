@@ -130,15 +130,29 @@ func deduplicateSingleParamRoutes(routes []string) []string {
 	singleParamPattern := regexp.MustCompile(`^/\{[^/}]+\}$`)
 	var singleParamRoutes []string
 	var otherRoutes []string
+	var tailRoutes []string
 
 	// Separate single parameter routes from others
 	for _, route := range routes {
-		if singleParamPattern.MatchString(route) {
-			singleParamRoutes = append(singleParamRoutes, route)
-		} else {
+		if !singleParamPattern.MatchString(route) {
 			otherRoutes = append(otherRoutes, route)
+			continue
 		}
+		// A catch-all such as /{tail:path} matches several segments: folding it
+		// into /{id} would chain single segments into a route that does not
+		// exist, like /{id}/{id}.
+		if tail, _ := routeParam(route[1:]); tail {
+			tailRoutes = append(tailRoutes, route)
+			continue
+		}
+		singleParamRoutes = append(singleParamRoutes, route)
 	}
+
+	// Roots are tried in order. Catch-alls go after the multi-segment routes,
+	// which are more specific, and before the single parameter routes, which
+	// would otherwise chain into a route that does not exist, like
+	// /{name}/{name}.
+	otherRoutes = append(otherRoutes, tailRoutes...)
 
 	// If we have more than one single parameter route, replace them all with /{id}
 	if len(singleParamRoutes) > 1 {

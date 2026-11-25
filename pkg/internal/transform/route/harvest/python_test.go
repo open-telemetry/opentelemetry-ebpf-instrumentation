@@ -274,3 +274,27 @@ func routeKeys(routes map[string]struct{}) []string {
 	}
 	return keys
 }
+
+func TestExtractPythonRoutesComments(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+from fastapi import FastAPI
+
+app = FastAPI()
+
+
+@app.get(  # users
+    "/users/{user_id}"
+)
+def user(user_id: int):
+    return {}
+
+
+app.add_api_route("/real", real)  # app.add_api_route("/disabled", old)
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/real", "/users/{user_id}"}, result.Routes)
+}
