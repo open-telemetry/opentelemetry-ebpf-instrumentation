@@ -793,6 +793,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			name:  "all instrumentations",
 			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 			expected: []string{
+				"iso8583_request_duration_seconds",
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
 				"rpc_server_call_duration_seconds",
@@ -964,6 +965,21 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			},
 		},
 		{
+			name:  "ISO 8583 only",
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationISO8583},
+			expected: []string{
+				"# TYPE iso8583_request_duration_seconds histogram",
+				`mti="0200"`,
+				`auth_outcome="approved"`,
+				`auth_outcome="declined"`,
+				`duration_source="field_7"`,
+				`duration_source="capture"`,
+				`request_type="client"`,
+				`request_type="server"`,
+			},
+			unexpected: []string{"obi_iso8583_", "span_kind=", "iso8583_mti=", "iso8583_duration_source=", "iso8583_kind="},
+		},
+		{
 			name:  "sunrpc only",
 			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationSunRPC},
 			expected: []string{
@@ -1092,6 +1108,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCClient, Path: "portmapper", Route: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCServer, Path: "portmapper", Route: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeISO8583Client, Method: "0200", ISO8583Field7Timing: true, ISO8583Outcome: request.ISO8583Approved, RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeISO8583Server, Method: "0200", ISO8583Outcome: request.ISO8583Declined, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},

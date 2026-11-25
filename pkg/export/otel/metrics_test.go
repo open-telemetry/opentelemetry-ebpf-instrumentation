@@ -311,6 +311,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 			extraColl: 4,
 			expected: []string{
+				"iso8583.request.duration", // client
+				"iso8583.request.duration", // server
 				"http.server.request.duration",
 				"http.client.request.duration",
 				"rpc.server.call.duration",
@@ -429,6 +431,11 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			},
 		},
 		{
+			name:     "ISO 8583 only",
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationISO8583},
+			expected: []string{"iso8583.request.duration", "iso8583.request.duration"},
+		},
+		{
 			name:      "sunrpc only",
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationSunRPC},
 			extraColl: 0,
@@ -529,6 +536,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCClient, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCServer, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeISO8583Client, Method: "0200", ISO8583Field7Timing: true, ISO8583Outcome: request.ISO8583Approved, RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeISO8583Server, Method: "0200", ISO8583Outcome: request.ISO8583Declined, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
@@ -547,8 +556,18 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			assert.Len(t, m, len(tt.expected))
 
 			operations := make([]string, 0, len(m))
+			iso8583SourcesByType := map[string]string{}
 			for _, record := range m {
 				operations = append(operations, record.Attributes["db.operation.name"])
+				if record.Name == "iso8583.request.duration" {
+					assert.Equal(t, "0200", record.Attributes["mti"])
+					iso8583SourcesByType[record.Attributes["request.type"]] = record.Attributes["duration.source"]
+					assert.Equal(t, map[string]string{"client": "approved", "server": "declined"}[record.Attributes["request.type"]], record.Attributes["auth.outcome"])
+					assert.NotContains(t, record.Attributes, "span.kind")
+				}
+			}
+			if slices.Contains(tt.instr, instrumentations.InstrumentationISO8583) {
+				assert.Equal(t, map[string]string{"client": "field_7", "server": "capture"}, iso8583SourcesByType)
 			}
 			for _, operation := range tt.expectedOperations {
 				assert.Contains(t, operations, operation)
