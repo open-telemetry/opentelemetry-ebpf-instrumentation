@@ -31,6 +31,9 @@ func TestScanPyramid(t *testing.T) {
 		{stmt: `config.add_route("user", u"/users/{user_id}")`, route: "/users/{user_id}"},
 		{stmt: `config.add_route("user", R'/users/{user_id:\d+}')`, route: "/users/{user_id}"},
 		{stmt: `config.add_route("page", "/page/{action}", static=False)`, route: "/page/{action}"},
+		{stmt: `config.add_route("u", "/users/{id:\d+}")`, route: "/users/{id}"},
+		{stmt: `config.add_route("f", r"/files/{path:[\\w]+}")`, route: "/files/{path}"},
+		{stmt: `x = "#"; config.add_route("u", "/users/{id}")`, route: "/users/{id}"},
 		{stmt: `config.add_route(name="user", pattern="/prefix/pattern='/fake',")`, route: "/prefix/pattern='/fake',"},
 	} {
 		routes := map[string]struct{}{}
@@ -59,6 +62,11 @@ func TestScanPyramidSkipsUnsupportedForms(t *testing.T) {
 		`config.add_route("user", pattern == "/users")`,
 		`config.add_route("user")`,
 		`config.add_route("page", "/page/{action}", static=True)`,
+		`config.add_route("f", "/files/{path:[\\x2f]+}")`,
+		`config.add_route("u", "/users/{id:\\d+}")`,
+		`config.add_route("u", "/users\u002f{id}")`,
+		`example = 'config.add_route("user", "/users/{id}")'`,
+		`setup()  # config.add_route("old", "/old/{id}")`,
 		`config.add_route("youtube", "https://youtube.com/watch/{video_id}")`,
 		`config.add_route( "user",  # old pattern="/old", pattern=USER_PATTERN, )`,
 	} {
@@ -116,6 +124,9 @@ func TestPyramidRoute(t *testing.T) {
 		{pattern: "/{foo:[^/]+}", route: "/{foo}", ok: true},
 		{pattern: "foo/*fizzle", route: "/foo/*", ok: true},
 		{pattern: "a/b/c/*foo", route: "/a/b/c/*", ok: true},
+		{pattern: "/*traverse", ok: false},
+		{pattern: "*subpath", ok: false},
+		{pattern: "/*", ok: false},
 		{pattern: `/{year:\d+}/{month:\d+}/{day:\d+}`, route: "/{year}/{month}/{day}", ok: true},
 		{pattern: "/{0a}", ok: false},
 		{pattern: "foo/{name}.html", ok: false},

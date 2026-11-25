@@ -208,6 +208,20 @@ def includeme(config):
 	}
 }
 
+func TestExtractPythonPyramidCatchAllDoesNotShadowRoutes(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+config.add_route("user", "/users/{id}")
+config.add_route("home", "/*traverse")
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/users/{id}"}, result.Routes)
+	assert.Equal(t, "/users/{id}", RouteMatcherFromResult(*result).Find("/users/7"))
+}
+
 func TestExtractPythonRoutesSkipsLargeFiles(t *testing.T) {
 	dir := t.TempDir()
 	data := strings.Repeat("# filler\n", int(maxPythonFileBytes/9)+1) + `@app.get("/large")`

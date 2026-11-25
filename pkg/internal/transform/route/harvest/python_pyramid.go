@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const pyramidCatchAll = "/*"
+
 // Pyramid's signature is add_route(name, pattern=None, ...).
 const pyramidPatternPosition = 2
 
@@ -19,8 +21,10 @@ var (
 	pyramidRemainderPattern = regexp.MustCompile(`^\*\w*$`)
 	// RFC 3986 path characters except ':', which the route matcher reads as a placeholder.
 	pyramidLiteralSegment = regexp.MustCompile(`^[A-Za-z0-9._~%!$&'()+,;=@-]*$`)
-	pyFullLiteral         = regexp.MustCompile(`^` + pyLit + `$`)
-	pyKeywordArgPattern   = regexp.MustCompile(`^([A-Za-z_]\w*)\s*=(.*)$`)
+	pyFullLiteral         = regexp.MustCompile(`^([rRuU]?)(?:"([^"\r\n]*)"|'([^'\r\n]*)')$`)
+	// Escapes Python decodes in non-raw strings; others such as \d are kept as written.
+	pyDecodedEscape     = regexp.MustCompile(`\\[\\'"abfnrtvxNuU0-7]`)
+	pyKeywordArgPattern = regexp.MustCompile(`^([A-Za-z_]\w*)\s*=(.*)$`)
 )
 
 func startsPyramid(line string) bool {
@@ -29,6 +33,9 @@ func startsPyramid(line string) bool {
 
 func scanPyramid(stmt string, routes map[string]struct{}) {
 	for _, call := range pyramidStart.FindAllStringIndex(stmt, -1) {
+		if !pyInCode(stmt, call[0]) {
+			continue
+		}
 		open := call[1] - 1
 		end := pyDelimitedEnd(stmt, open)
 		if end < 0 {
@@ -46,6 +53,29 @@ func scanPyramid(stmt string, routes map[string]struct{}) {
 			routes[route] = struct{}{}
 		}
 	}
+}
+
+// pyInCode reports whether pos is outside quoted text and comments.
+func pyInCode(stmt string, pos int) bool {
+	var quote byte
+	for i := 0; i < pos; i++ {
+		if quote != 0 {
+			switch stmt[i] {
+			case '\\':
+				i++
+			case quote:
+				quote = 0
+			}
+			continue
+		}
+		switch stmt[i] {
+		case '\'', '"':
+			quote = stmt[i]
+		case '#':
+			return false
+		}
+	}
+	return quote == 0
 }
 
 // pyramidPattern returns the pattern argument only when it is a single string literal.
@@ -110,7 +140,11 @@ func pyramidRoute(pattern string) (string, bool) {
 		}
 		segments[i] = "{" + name + "}"
 	}
-	return strings.Join(segments, "/"), true
+	route := strings.Join(segments, "/")
+	if route == pyramidCatchAll {
+		return "", false
+	}
+	return route, true
 }
 
 // pyramidSegments splits a pattern at '/' outside placeholders, so {name:[^/]+} stays whole.
@@ -193,7 +227,13 @@ func pyStringLiteral(arg string) (string, bool) {
 	if match == nil {
 		return "", false
 	}
-	return match[1] + match[2], true
+	value := match[2] + match[3]
+	// The source text differs from the runtime value when Python decodes an escape.
+	raw := strings.EqualFold(match[1], "r")
+	if !raw && pyDecodedEscape.MatchString(value) {
+		return "", false
+	}
+	return value, true
 }
 
 // pyKeywordArg splits a name=value argument; comparisons such as a == b are not keywords.
