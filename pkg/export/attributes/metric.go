@@ -254,6 +254,12 @@ var (
 		Unit:    "s",
 		Type:    InstrumentHistogram,
 	})
+	ISO8583RequestDuration = metric(Name{
+		Section: "iso8583.request.duration",
+		OTEL:    "iso8583.request.duration",
+		Unit:    "s",
+		Type:    InstrumentHistogram,
+	})
 	GenAIClientInputTokenUsage = metric(Name{
 		Section: "gen_ai.client.token.usage.input",
 		OTEL:    "gen_ai.client.token.usage",
