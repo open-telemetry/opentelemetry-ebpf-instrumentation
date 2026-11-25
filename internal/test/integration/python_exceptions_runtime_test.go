@@ -93,7 +93,7 @@ func TestPythonExceptions(t *testing.T) {
 			}
 
 			if framework == "http" {
-				for mode, wantType := range map[string]string{"caught": "ValueError", "reraise": "LookupError"} {
+				for mode, wantType := range map[string]string{"caught": "ValueError", "reraise": "LookupError", "cleanup": "ValueError"} {
 					t.Run("saved-error/"+mode, func(t *testing.T) {
 						token := "http-saved-" + mode
 						traceID := fixture.get("/saved-error/"+mode+"/"+token, http.StatusInternalServerError)

@@ -21,7 +21,7 @@
 #include <pid/pid_helpers.h>
 
 enum {
-    k_python_exception_pending_max = 1024,
+    k_python_exception_pending_max = 512,
     // Frames walked per raise, including C-stack shim frames that are skipped.
     k_python_exception_max_walk = 32,
     // Traceback entries walked; the innermost frames are kept.
@@ -126,8 +126,6 @@ typedef struct python_exception_pending {
     python_exception_candidate_t latest;
     python_exception_candidate_t kept;
     python_exception_candidate_t replacement;
-    u8 replacement_requires_handler;
-    u8 _pad[7];
 } python_exception_pending_t;
 
 struct {
@@ -395,9 +393,18 @@ static __always_inline void python_exception_keep(const python_exception_proc_t 
     }
 
     python_exception_candidate_t *replacement = &pending->replacement;
+    const u64 replaced =
+        replacement->capture_ns ? python_exception_handled(proc, tstate, replacement, 0) : 0;
     // A replacement caught while the kept exception is still handled never left the handler.
-    if (held && replacement->capture_ns &&
-        !python_exception_handled(proc, tstate, replacement, 0)) {
+    if (held && !replaced) {
+        replacement->capture_ns = 0;
+    }
+    // One still handled after leaving the kept exception's handler replaced it.
+    if (replaced && python_exception_propagated(proc, replaced, replacement->payload.type) &&
+        !python_exception_swallowed(proc, replaced, kept)) {
+        python_exception_copy(kept, replacement);
+        kept->exception = replaced;
+        kept->propagated = true;
         replacement->capture_ns = 0;
     }
 
@@ -416,7 +423,6 @@ static __always_inline void python_exception_keep(const python_exception_proc_t 
         if (!replacement->capture_ns ||
             !python_exception_in_context_of(proc, handled, replacement->exception)) {
             python_exception_copy(replacement, latest);
-            pending->replacement_requires_handler = false;
         }
         return;
     }
@@ -424,7 +430,6 @@ static __always_inline void python_exception_keep(const python_exception_proc_t 
         // The newer exception can still escape. Keep the observed fallback
         // until the response can confirm the newer one propagated.
         python_exception_copy(replacement, latest);
-        pending->replacement_requires_handler = true;
         return;
     }
     python_exception_copy(kept, latest);
@@ -742,16 +747,10 @@ python_exception_choose(const python_exception_proc_t *proc,
 
     const u64 held = responding ? python_exception_live(proc, kept, 0) : 0;
     const python_exception_candidate_t *replacement = &pending->replacement;
-    if (replacement->capture_ns) {
-        const u64 replaced = responding ? python_exception_live(proc, replacement, 0) : 0;
-        if (replaced && !python_exception_swallowed(proc, replaced, kept)) {
-            *live_exception = replaced;
-            return replacement;
-        }
-        // Once no longer handled, it left the handler unless the kept exception still is.
-        if (!pending->replacement_requires_handler && !replaced && !held) {
-            return replacement;
-        }
+    const u64 replaced = responding ? python_exception_live(proc, replacement, 0) : 0;
+    if (replaced && !python_exception_swallowed(proc, replaced, kept)) {
+        *live_exception = replaced;
+        return replacement;
     }
 
     if (!kept->capture_ns) {

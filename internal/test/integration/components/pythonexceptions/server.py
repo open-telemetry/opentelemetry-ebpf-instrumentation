@@ -221,6 +221,15 @@ def local_errors(token, reraise):
             raise
 
 
+def cleanup_errors(token):
+    """Re-raises the original error after its cleanup catches two others."""
+    try:
+        outer("ascii", token)
+    except ValueError:
+        evict(token, nested=True)
+        raise
+
+
 def reuse_freed_first(token, respond):
     """Answers 500 after the caught exception is freed."""
     reuse_waiting.wait(5)
@@ -395,10 +404,15 @@ def http_app(port):
                 return
             if parts[1] == "saved-error":
                 try:
-                    local_errors(parts[3], reraise=parts[2] == "reraise")
+                    if parts[2] == "cleanup":
+                        cleanup_errors(parts[3])
+                    else:
+                        local_errors(parts[3], reraise=parts[2] == "reraise")
                 except LookupError:
                     self.respond(500, "error")
                     return
+                except ValueError:
+                    pass
                 self.respond(500, "error")
                 return
             if parts[1] == "reuse":

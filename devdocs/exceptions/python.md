@@ -44,7 +44,9 @@ exceptions that escape handlers:
   frame handling that one, as when a 500 handler fails to load its error
   template. The earlier candidate is selected instead.
 - An exception still being handled when another one is raised, as by a
-  `finally` block that runs cleanup code, remains a candidate.
+  `finally` block that runs cleanup code, remains a candidate. It is selected
+  over the earlier candidate once it is seen being handled outside the frame
+  handling that one, at the response or when another exception is raised.
 - A raise from C code, such as `None + 1`, is matched with the instance CPython
   creates for it by type and by the frame and instruction that raised it.
   CPython raises and clears exceptions internally, as `open()` does with a
