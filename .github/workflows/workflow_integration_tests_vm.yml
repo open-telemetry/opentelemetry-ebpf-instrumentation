@@ -10,6 +10,7 @@ on:
     paths:
       - ".github/workflows/workflow_integration_tests_vm.yml"
       - ".github/actions/free-disk/**"
+      - ".github/actions/generate-bpf/**"
       - ".github/actions/setup-lvh-kernel/**"
       - ".dockerignore"
       - "go.mod"
@@ -93,7 +94,7 @@ jobs:
       - name: Build test matrix
         id: build-matrix
         env:
-          PARTITIONS: 2
+          PARTITIONS: 3
         run: |
           echo -n "matrix=" >> $GITHUB_OUTPUT
           make multiprocess-integration-test-matrix-json >> $GITHUB_OUTPUT
@@ -110,9 +111,71 @@ jobs:
             bash scripts/kernel-matrix-json.sh --kind=integration >> "$GITHUB_OUTPUT"
           fi
 
+  generate-bpf:
+    name: Generate BPF
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - uses: $/.github/actions/generate-bpf
+
+  # the only test image built from OBI's sources, so it is rebuilt on every run while the fixtures stay cached
+  build-obi-image:
+    name: Build OBI test image
+    needs: generate-bpf
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Check for Docker Hub token
+        id: check-docker-token
+        run: |
+          if [ "${ALLOW_DOCKER_TOKEN}" = "true" ] && [ -n "${DOCKER_TOKEN}" ]; then
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          DOCKER_TOKEN: ${{ (github.event_name != 'workflow_dispatch' || !inputs.ref) && secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION || '' }}
+          ALLOW_DOCKER_TOKEN: ${{ github.event_name != 'workflow_dispatch' || !inputs.ref }}
+
+      - name: Log in to Docker Hub
+        if: steps.check-docker-token.outputs.has_token == 'true'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ (github.event_name != 'workflow_dispatch' || !inputs.ref) && secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION || '' }}
+
+      - name: Download generated BPF files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bpf-generated-${{ github.run_id }}
+
+      - name: Build and save OBI test image
+        run: |
+          docker build -t hatest-obi -f internal/test/integration/components/obi/Dockerfile .
+          docker save hatest-obi -o /tmp/obi-image.tar
+
+      - name: Upload OBI test image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vm-obi-image-${{ github.run_id }}
+          path: /tmp/obi-image.tar
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
   prep:
     name: Prep test artifacts
-    needs: vm-test-matrix
+    needs: [vm-test-matrix, generate-bpf]
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
@@ -164,8 +227,13 @@ jobs:
           path: schemas/obi/.deps
           key: semconv-deps-${{ hashFiles('schemas/obi/manifest.yaml') }}
 
-      - name: Generate BPF + build test tools
-        run: make prereqs docker-generate
+      - name: Download generated BPF files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bpf-generated-${{ github.run_id }}
+
+      - name: Build test tools
+        run: make prereqs
 
       - name: Pre-compile Go integration tests and gotestsum
         run: |
@@ -179,8 +247,8 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] keyed on hash of compose+Dockerfile+source inputs
         with:
           path: compiled-tests/docker-images.tar
-          # Hash every discovered build input so source changes cannot reuse stale images.
-          key: vm-docker-images-${{ hashFiles('internal/test/integration/**', 'internal/config/**', 'Makefile', '.dockerignore', 'scripts/discover-integration-images.sh', 'bpf/**', 'cmd/**', 'pkg/**', 'go.mod', 'go.sum') }}
+          # Every path the fixture Dockerfiles copy; the OBI image comes from build-obi-image.
+          key: vm-fixture-images-${{ hashFiles('internal/test/**', '.dockerignore', 'scripts/discover-integration-images.sh', 'go.mod', 'go.sum') }}
 
       - name: Compute base-image cache key
         id: cache-key
@@ -218,7 +286,7 @@ jobs:
       - name: Pre-build Docker images
         if: steps.docker-images-cache.outputs.cache-hit != 'true'
         run: |
-          mapfile -t ENTRIES < <(bash scripts/discover-integration-images.sh --build-targets)
+          mapfile -t ENTRIES < <(bash scripts/discover-integration-images.sh --build-targets | grep -v '^hatest-obi=')
           echo "Discovered ${#ENTRIES[@]} Docker images to pre-build"
           # -P 4 keeps disk + buildkit pressure manageable on a 4-core runner.
           printf '%s\n' "${ENTRIES[@]}" | xargs -P 4 -I {} bash -c '
@@ -296,7 +364,7 @@ jobs:
 
   test:
     name: "Kernel ${{ matrix.kernel.id }} / ${{ matrix.test.description }}"
-    needs: [vm-test-matrix, prep]
+    needs: [vm-test-matrix, prep, build-obi-image]
     permissions:
       checks: write
       pull-requests: write
@@ -321,6 +389,12 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: vm-prep-${{ github.run_id }}
+          path: compiled-tests
+
+      - name: Download OBI test image
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: vm-obi-image-${{ github.run_id }}
           path: compiled-tests
 
       - name: Install QEMU

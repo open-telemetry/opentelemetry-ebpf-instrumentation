@@ -267,6 +267,11 @@ if [ -n "$target" ]; then
         export SKIP_DOCKER_BUILD=1
     fi
 
+    if [ -f "/precompiled-tests/obi-image.tar" ]; then
+        echo "Loading pre-built OBI image..."
+        docker load -i /precompiled-tests/obi-image.tar
+    fi
+
     # Pre-pulled base images for services that still auto-build in the VM.
     if [ -f "/precompiled-tests/base-images.tar" ]; then
         echo "Loading pre-pulled base images..."

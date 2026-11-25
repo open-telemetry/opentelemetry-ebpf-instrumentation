@@ -137,7 +137,8 @@ fmt:
 
 .PHONY: clang-tidy
 clang-tidy:
-	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" ! -path "./tests/*" | xargs $(CLANG_TIDY)
+	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" ! -path "./tests/*" | \
+		xargs -n 8 -P "$$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc)" $(CLANG_TIDY)
 
 .PHONY: docker-clang-tidy
 docker-clang-tidy:

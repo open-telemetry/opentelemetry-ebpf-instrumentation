@@ -60,6 +60,10 @@ func testSelectiveExports(t *testing.T) {
 	}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		// processes are attached one at a time, so service-c and service-d can be traced later than service-b
+		ti.DoHTTPGet(ct, "http://localhost:5000/a", 200)
+		ti.DoHTTPGet(ct, "http://localhost:5001/b", 200)
+
 		aTraces := getTraces("service-a", "/a")
 		bTraces := getTraces("service-b", "/b")
 		cTraces := getTraces("service-c", "/c")
@@ -82,17 +86,14 @@ func testSelectiveExports(t *testing.T) {
 		return results
 	}
 
+	// every service exports on its own timer, so visible service-a metrics say nothing about the others
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		require.NotEmpty(ct, getMetrics("service-a"))
+		require.NotEmpty(ct, getMetrics("service-b"))
+		require.NotEmpty(ct, getMetrics("service-d"))
 	}, 10*time.Second, 100*time.Millisecond)
 
-	bMetrics := getMetrics("service-b")
-	cMetrics := getMetrics("service-c")
-	dMetrics := getMetrics("service-d")
-
-	require.NotEmpty(t, bMetrics)
-	require.Empty(t, cMetrics)
-	require.NotEmpty(t, dMetrics)
+	require.Empty(t, getMetrics("service-c"))
 }
 
 func TestDiscoverySection(t *testing.T) {

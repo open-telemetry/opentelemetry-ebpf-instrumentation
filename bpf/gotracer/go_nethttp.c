@@ -1415,10 +1415,8 @@ int GUARDED_PROG(obi_uprobe_http2ResponseWriterStateWriteHeader, struct pt_regs 
 }
 
 // HTTP 2.0 server support
-SEC("uprobe/http2serverConn_runHandler")
-int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
-    bpf_dbg_printk("=== uprobe/http2serverConn_runHandler ===");
-
+static __always_inline void http2_server_conn_run_handler(struct pt_regs *ctx,
+                                                          go_offset_const off_sc_conn_pos) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
@@ -1431,7 +1429,8 @@ int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
 
     if (sc) {
         http_server_connection_t server = {0};
-        read_server_conn_info(sc + go_offset_of(ot, (go_offset){.v = _sc_conn_pos}), &server.conn);
+        read_server_conn_info(sc + go_offset_of(ot, (go_offset){.v = off_sc_conn_pos}),
+                              &server.conn);
         bpf_map_update_elem(&ongoing_server_connections, &g_key, &server, BPF_ANY);
 
         go_addr_key_t rw_key = {};
@@ -1453,7 +1452,23 @@ int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
             }
         }
     }
+}
 
+// x/net's server and the one vendored in net/http before Go 1.27
+SEC("uprobe/http2serverConn_runHandler")
+int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
+    bpf_dbg_printk("=== uprobe/http2serverConn_runHandler ===");
+
+    http2_server_conn_run_handler(ctx, _sc_conn_pos);
+    return 0;
+}
+
+// Go 1.27's net/http/internal/http2 server, whose connection field has its own offset
+SEC("uprobe/http2serverConn_runHandlerInternal")
+int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler_internal, struct pt_regs *, ctx) {
+    bpf_dbg_printk("=== uprobe/http2serverConn_runHandlerInternal ===");
+
+    http2_server_conn_run_handler(ctx, _sc_conn_internal_pos);
     return 0;
 }
 
