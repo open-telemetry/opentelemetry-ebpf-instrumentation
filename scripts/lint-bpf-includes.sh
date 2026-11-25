@@ -61,35 +61,69 @@ check_file() {
                 tracers[arr[i]] = 1
             }
             in_block_comment = 0
+            quote = ""
         }
         {
             raw = $0
+            sub(/\r$/, "", raw)
+            len = length(raw)
             code = ""
-            while (length(raw) > 0) {
+            continued = 0
+            i = 1
+            while (i <= len) {
+                c = substr(raw, i, 1)
+                next_c = (i < len) ? substr(raw, i + 1, 1) : ""
+
                 if (in_block_comment) {
-                    pos = index(raw, "*/")
-                    if (pos == 0) {
-                        raw = ""
-                        break
+                    if (c == "*" && next_c == "/") {
+                        in_block_comment = 0
+                        code = code " "
+                        i += 2
+                    } else {
+                        i++
                     }
-                    raw = substr(raw, pos + 2)
-                    in_block_comment = 0
                     continue
                 }
-                sl = index(raw, "//")
-                bl = index(raw, "/*")
-                if (sl > 0 && (bl == 0 || sl < bl)) {
-                    code = code substr(raw, 1, sl - 1)
+
+                if (quote != "") {
+                    code = code c
+                    if (c == "\\") {
+                        if (i < len) {
+                            code = code next_c
+                            i += 2
+                        } else {
+                            continued = 1
+                            i++
+                        }
+                        continue
+                    }
+                    if (c == quote) {
+                        quote = ""
+                    }
+                    i++
+                    continue
+                }
+
+                if (c == "/" && next_c == "/") {
                     break
                 }
-                if (bl > 0) {
-                    code = code substr(raw, 1, bl - 1)
-                    raw = substr(raw, bl + 2)
+                if (c == "/" && next_c == "*") {
                     in_block_comment = 1
+                    i += 2
                     continue
                 }
-                code = code raw
-                break
+                if (c == "\"" || c == "\047") {
+                    quote = c
+                    code = code c
+                    i++
+                    continue
+                }
+
+                code = code c
+                i++
+            }
+            if (!continued) {
+                quote = ""
             }
 
             if (code !~ /^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"][^">]+[">]/) {

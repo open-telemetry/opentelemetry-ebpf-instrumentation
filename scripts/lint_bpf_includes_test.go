@@ -31,10 +31,11 @@ func TestLintBPFIncludesRepo(t *testing.T) {
 
 func TestLintBPFIncludesFixtures(t *testing.T) {
 	cases := []struct {
-		name        string
-		files       map[string]string
-		wantErr     bool
-		wantContain []string
+		name           string
+		files          map[string]string
+		wantErr        bool
+		wantContain    []string
+		wantNotContain []string
 	}{
 		{
 			name: "allows shared and infra includes",
@@ -123,6 +124,47 @@ func TestLintBPFIncludesFixtures(t *testing.T) {
 			wantContain: []string{"bpf/common/block_comment_slashes.h:1:", "gotracer/go_common.h"},
 		},
 		{
+			name: "does not let comment markers inside string literals mask later include",
+			files: map[string]string{
+				"bpf/common/string_literal.h": strings.Join([]string{
+					`#define HTTP_ACCEPT "*/*"`,
+					`#define ESCAPED_QUOTE "\"/*"`,
+					"#include <gotracer/go_common.h>",
+				}, "\n"),
+			},
+			wantErr:     true,
+			wantContain: []string{"bpf/common/string_literal.h:3:", "gotracer/go_common.h"},
+		},
+		{
+			name: "handles escaped backslash before closing quote and char literals",
+			files: map[string]string{
+				"bpf/common/escapes_and_chars.h": strings.Join([]string{
+					`#define DIR "foo\\" /*`,
+					"#include <gotracer/go_common.h>",
+					"*/",
+					`const char dq = '"';`,
+					`const char sq = '\'';`,
+					`#define CHAR_SLASH '/*'`,
+					"#include <generictracer/k_tracer_defs.h>",
+				}, "\n"),
+			},
+			wantErr:        true,
+			wantContain:    []string{"bpf/common/escapes_and_chars.h:7:", "generictracer/k_tracer_defs.h"},
+			wantNotContain: []string{"gotracer/go_common.h"},
+		},
+		{
+			name: "handles backslash-continued multiline string literal with comment markers",
+			files: map[string]string{
+				"bpf/common/multiline_string.h": strings.Join([]string{
+					`const char *s = "hello \`,
+					`/* still inside string */";`,
+					"#include <gotracer/go_common.h>",
+				}, "\n"),
+			},
+			wantErr:     true,
+			wantContain: []string{"bpf/common/multiline_string.h:3:", "gotracer/go_common.h"},
+		},
+		{
 			name: "flags tracer includes in pid and logger directories",
 			files: map[string]string{
 				"bpf/pid/bad.h":    "#include <gotracer/go_common.h>\n",
@@ -173,6 +215,11 @@ func TestLintBPFIncludesFixtures(t *testing.T) {
 			for _, sub := range tc.wantContain {
 				if !strings.Contains(out, sub) {
 					t.Errorf("expected output to contain %q, got:\n%s", sub, out)
+				}
+			}
+			for _, sub := range tc.wantNotContain {
+				if strings.Contains(out, sub) {
+					t.Errorf("expected output NOT to contain %q, got:\n%s", sub, out)
 				}
 			}
 		})
