@@ -77,6 +77,8 @@ const (
 	EventTypeSunRPCServer
 	EventTypeAerospikeClient
 	EventTypeAerospikeServer
+	EventTypeISO8583Client
+	EventTypeISO8583Server
 )
 
 const (
@@ -154,6 +156,10 @@ func IsGenAISubtype(subtype int) bool {
 //nolint:cyclop
 func (t EventType) String() string {
 	switch t {
+	case EventTypeISO8583Client:
+		return "ISO8583Client"
+	case EventTypeISO8583Server:
+		return "ISO8583Server"
 	case EventTypeProcessAlive:
 		return "ProcessAlive"
 	case EventTypeHTTP:
@@ -1599,6 +1605,9 @@ type Span struct {
 	// duration is a measurement is recorded separately, by ignoreDurations.
 	ResponseObservation ResponseObservation `json:"-"`
 
+	ISO8583Field7Timing bool               `json:"-"`
+	ISO8583Outcome      ISO8583AuthOutcome `json:"-"`
+
 	// RequestHeaders stores extracted HTTP request headers based on enrichment rules.
 	// Keys are canonical header names, values are all header values (possibly obfuscated).
 	RequestHeaders map[string][]string `json:"requestHeaders,omitempty"`
@@ -1816,6 +1825,13 @@ func spanAttributes(s *Span) SpanAttributes {
 			"clientId":   s.Statement,
 			"subject":    s.Path,
 		}
+	case EventTypeISO8583Client, EventTypeISO8583Server:
+		return SpanAttributes{
+			"serverAddr":                      SpanHost(s),
+			"serverPort":                      strconv.Itoa(s.HostPort),
+			attr.ISO8583MTI.Prom():            s.Method,
+			attr.ISO8583DurationSource.Prom(): s.ISO8583DurationSource(),
+		}
 	case EventTypeSunRPCServer, EventTypeSunRPCClient:
 		attrs := SpanAttributes{
 			"serverAddr":                  SpanHost(s),
@@ -1999,7 +2015,7 @@ func (s *Span) IsClientSpan() bool {
 	}
 
 	switch s.Type {
-	case EventTypeGRPCClient, EventTypeDNS, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient, EventTypeSunRPCClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeAerospikeClient:
+	case EventTypeGRPCClient, EventTypeDNS, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient, EventTypeSunRPCClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeAerospikeClient, EventTypeISO8583Client:
 		return true
 	}
 
@@ -2179,9 +2195,9 @@ func (s *Span) ServiceGraphKind() string {
 	}
 
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer, EventTypeISO8583Server:
 		return "SPAN_KIND_SERVER"
-	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient, EventTypeAerospikeClient:
+	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient, EventTypeAerospikeClient, EventTypeISO8583Client:
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient, EventTypeKafkaServer,
 		EventTypeMQTTClient, EventTypeMQTTServer,
@@ -2339,6 +2355,8 @@ func (s *Span) TraceName() string {
 			return s.Method
 		}
 		return s.Method + " " + s.Path
+	case EventTypeISO8583Client, EventTypeISO8583Server:
+		return "ISO 8583 " + s.Method
 	case EventTypeSunRPCClient, EventTypeSunRPCServer:
 		if method := s.SunRPCMethodForExport(); method != "" {
 			return method

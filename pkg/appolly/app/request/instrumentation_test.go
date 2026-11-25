@@ -13,6 +13,7 @@ import (
 
 func TestEventTypeInstrumentation(t *testing.T) {
 	tests := map[instrumentations.Instrumentation][]EventType{
+		instrumentations.InstrumentationISO8583:   {EventTypeISO8583Client, EventTypeISO8583Server},
 		instrumentations.InstrumentationHTTP:      {EventTypeHTTP, EventTypeHTTPClient},
 		instrumentations.InstrumentationGRPC:      {EventTypeGRPC, EventTypeGRPCClient},
 		instrumentations.InstrumentationSQL:       {EventTypeSQLClient, EventTypeSQLServer},
@@ -47,4 +48,17 @@ func TestEventTypeInstrumentation(t *testing.T) {
 		_, ok := eventType.Instrumentation()
 		assert.False(t, ok, eventType)
 	}
+}
+
+func TestISO8583MetricSelection(t *testing.T) {
+	iso := instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationISO8583})
+	http := instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP})
+	for _, event := range []EventType{EventTypeISO8583Client, EventTypeISO8583Server} {
+		span := &Span{Type: event}
+		assert.False(t, IgnoreMetricsFor(span, iso))
+		assert.True(t, IgnoreMetricsFor(span, http))
+		SetIgnoreMetrics(span)
+		assert.True(t, IgnoreMetricsFor(span, iso))
+	}
+	assert.False(t, IgnoreMetricsFor(&Span{Type: EventTypeHTTP}, iso))
 }
