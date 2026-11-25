@@ -38,7 +38,7 @@ Preprocessor and constants:
 Repository-specific eBPF rules:
 
 - Maps that are not explicitly pinned for external use must default to `OBI_PIN_INTERNAL`.
-- Code in `bpf/common/`, `bpf/maps/`, and `bpf/shared/` must not include headers from a tracer-specific directory such as `generictracer/`, `gotracer/`, or `tpinjector/`. Tracers include common code, never the reverse. If common code needs something from a tracer, move the shared piece into common. See the [eBPF / C guidelines](../../AGENTS.md#ebpf--c-guidelines) for the known exceptions.
+- Code in `bpf/common/`, `bpf/logger/`, `bpf/maps/`, `bpf/pid/`, and `bpf/shared/` must not include headers from a tracer-specific directory such as `generictracer/`, `gotracer/`, or `tpinjector/`. Tracers include common code, never the reverse. If common code needs something from a tracer, move the shared piece into common. Enforced by `make lint-bpf-includes` (`scripts/lint-bpf-includes.sh`).
 - Use `SCRATCH_MEM`, `SCRATCH_MEM_TYPED`, and `SCRATCH_MEM_SIZED` for scratch memory patterns instead of introducing ad hoc temporary buffers.
 - For tail calls, prefer `bpf_tail_call_static(...)`.
 - Define tail call program arrays in the eBPF C code unless there is a clear reason not to.
@@ -52,7 +52,7 @@ Verifier and kernel constraints:
 - Avoid patterns that increase verifier complexity or risk rejection.
 - Keep programs simple and predictable.
 
-When reviewing eBPF C changes, flag any new include of a tracer-specific header from `bpf/common/`, `bpf/maps/`, or `bpf/shared/`, and flag code that violates these rules and ask for a repository-specific rationale when a deviation appears intentional.
+When reviewing eBPF C changes, flag any new include of a tracer-specific header from `bpf/common/`, `bpf/logger/`, `bpf/maps/`, `bpf/pid/`, or `bpf/shared/`, and flag code that violates these rules and ask for a repository-specific rationale when a deviation appears intentional.
 
 Follow the [BPF debug logging rules](../../AGENTS.md#bpf-debug-logging).
 Check filtering and call frequency before adding diagnostics.

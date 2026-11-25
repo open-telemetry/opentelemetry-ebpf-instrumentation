@@ -8,6 +8,7 @@
 #include <bpfcore/utils.h>
 
 #include <common/event_defs.h>
+#include <common/go_goroutine.h>
 #include <common/http_trace_parent.h>
 #include <common/lw_thread.h>
 #include <common/python_task.h>
@@ -17,12 +18,11 @@
 
 #include <pid/pid_helpers.h>
 
-#include <gotracer/go_common.h>
-
 #include <maps/clone_map.h>
 #include <maps/cp_support_connect_info.h>
 #include <maps/fd_map.h>
 #include <maps/fd_to_connection.h>
+#include <maps/go_trace_map.h>
 #include <maps/java_tasks.h>
 #include <maps/java_vt_threads.h>
 #include <maps/nginx_upstream.h>
