@@ -1,0 +1,83 @@
+name: ISO 8583 financial and network management exchanges
+fixture:
+  compose:
+    files:
+      - docker-compose.yml
+      - ../weaver/docker-compose-weaver.yml
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+  - path: /echo
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+expected:
+  traces:
+    - traceql: '{ kind=server && span.url.path = "/echo" }'
+      match_spans:
+        - match_type: regexp
+          name: ^GET
+    - traceql: '{ kind=server && span.url.path = "/fcgi-overlap" }'
+      match_spans:
+        - match_type: regexp
+          name: ^GET
+    - traceql: '{ span.messaging.system = "mqtt" && span.messaging.destination.name = "payments" }'
+      match_spans:
+        - name: publish payments
+    - traceql: '{ span.mti =~ "0500|0600|0700" }'
+      absent: true
+    - traceql: '{ kind=client && span.mti = "0120" && span.duration.source = "field_7" && duration >= 5s }'
+      match_spans:
+        - name: ISO 8583 0120
+    - traceql: '{ kind=server && span.mti = "0420" && span.duration.source = "field_7" && duration >= 12s }'
+      match_spans:
+        - name: ISO 8583 0420
+    - traceql: '{ kind=client && span.mti = "0220" && span.duration.source = "field_7" && duration >= 8s }'
+      match_spans:
+        - name: ISO 8583 0220
+    - traceql: '{ kind=server && span.mti = "0320" && span.duration.source = "field_7" && duration >= 3s }'
+      match_spans:
+        - name: ISO 8583 0320
+    - traceql: '{ kind=client && span.mti = "0200" }'
+      match_spans:
+        - name: ISO 8583 0200
+    - traceql: '{ kind=server && span.mti = "0200" }'
+      match_spans:
+        - name: ISO 8583 0200
+    - traceql: '{ kind=client && span.mti = "0800" }'
+      match_spans:
+        - name: ISO 8583 0800
+          attributes:
+            - key: network.protocol.name
+              value: iso8583
+            - key: server.port
+              value: "8584"
+    - traceql: '{ kind=server && span.mti = "0800" }'
+      match_spans:
+        - name: ISO 8583 0800
+          attributes:
+            - key: server.port
+              value: "8584"
+  metrics:
+    - promql: sum(iso8583_request_duration_seconds_count{mti=~"0500|0600|0700"}) or vector(0)
+      value: '== 0'
+    - promql: iso8583_request_duration_seconds_sum{mti="0120",duration_source="field_7",request_type="client"} / iso8583_request_duration_seconds_count{mti="0120",duration_source="field_7",request_type="client"}
+      value: '>= 5'
+    - promql: iso8583_request_duration_seconds_sum{mti="0420",duration_source="field_7",request_type="server"} / iso8583_request_duration_seconds_count{mti="0420",duration_source="field_7",request_type="server"}
+      value: '>= 12'
+    - promql: iso8583_request_duration_seconds_count{mti="0100",request_type="client",auth_outcome="declined"}
+      value: '> 0'
+    - promql: iso8583_request_duration_seconds_count{mti="0100",request_type="client",auth_outcome="technical_error"}
+      value: '> 0'
+    - promql: iso8583_request_duration_seconds_count{mti="0200",request_type="client",auth_outcome="approved"}
+      value: '> 0'
+    - promql: iso8583_request_duration_seconds_count{mti="0200",request_type="server",auth_outcome="approved"}
+      value: '> 0'
+    - promql: iso8583_request_duration_seconds_count{mti="0800",duration_source="field_7",request_type="client",auth_outcome="not_applicable"}
+      value: '> 0'
+    - promql: iso8583_request_duration_seconds_count{mti="0800",request_type="server"}
+      value: '> 0'
