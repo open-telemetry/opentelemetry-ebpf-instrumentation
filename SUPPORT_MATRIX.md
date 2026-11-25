@@ -256,6 +256,7 @@ OBI currently documents the following asynchronous or runtime-specific context p
 | Java thread pool | Java | JDK `8+` | Parent lookup walks up to 3 thread-nesting levels | Stable |
 | Java virtual threads | Java | JDK `21+` | Log enrichment is skipped for requests handled on virtual threads | Stable |
 | Python asyncio | Python | GIL-enabled, 64-bit CPython `3.9` through `3.14` | Free-threaded builds are unsupported; `asyncio.start_server()` is not correlated under uvloop; mutated contexts and cancelled `to_thread` tasks may lose correlation | Stable |
+| Tokio tasks | Rust | rustc `1.97.x`–`1.100.x`; Tokio `1.51`–`1.54` | Requires retained task symbols. See [Rust runtime](devdocs/rust.md) | Experimental |
 
 ## Payload Capture
 

@@ -221,3 +221,4 @@ OBI has support for several asynchronous frameworks that allow it to propagate c
 | Java Thread pool    |   Java    |           JDK 8+ | Parent lookup walks up to 3 thread-nesting levels; `-Xrs` or `-XX:+DisableAttachMechanism` prevents agent attachment | Stable
 | Java Virtual Threads |  Java    |          JDK 21+ | Log enrichment is skipped on virtual threads; `-Xrs` or `-XX:+DisableAttachMechanism` prevents agent attachment | Stable
 | Python asyncio      |  Python   | GIL-enabled, 64-bit CPython 3.9 through 3.14 | Free-threaded builds are unsupported; `asyncio.start_server()` is not correlated under uvloop; mutated contexts and cancelled `to_thread` tasks may lose correlation | Stable
+| Tokio tasks | Rust | rustc `1.97.x`–`1.100.x`, Tokio `1.51`–`1.54` | Requires retained Tokio task symbols on Linux amd64 or arm64. Tracks up to 8 nested task polls. See [Rust runtime](rust.md). | Experimental

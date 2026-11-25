@@ -8,6 +8,7 @@ package generictracer
 import (
 	"bytes"
 	"encoding/binary"
+	"net/netip"
 	"os"
 	"runtime"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/sys/unix"
 
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kprobe"
 )
 
@@ -113,4 +115,50 @@ func TestFailedConnectDoesNotPublishPropagationContext(t *testing.T) {
 	conn.D_addr = [16]uint8{}
 	conn.D_port = 0
 	require.ErrorIs(t, objects.Traces.Lookup(BpfTraceMapKeyT{Conn: conn, Type: 2}, &leaked), ebpf.ErrKeyNotExist)
+}
+
+func TestFailedConnectAtCloseUsesConnectTimeParent(t *testing.T) {
+	objects := loadJavaHTTP1Reservations(t, true)
+	attachment, err := kprobe.Attach("tcp_close", objects.TCPClose, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, attachment.Close()) })
+	reader, err := ringbuf.NewReader(objects.Events)
+	require.NoError(t, err)
+	t.Cleanup(func() { reader.Close() })
+
+	// A bound socket that never connected reaches tcp_close without running sock_def_error_report.
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+	require.NoError(t, err)
+	socket := os.NewFile(uintptr(fd), "unconnected TCP socket")
+	t.Cleanup(func() { socket.Close() })
+	require.NoError(t, unix.Bind(fd, &unix.SockaddrInet4{}))
+	addr, err := unix.Getsockname(fd)
+	require.NoError(t, err)
+	anyIPv4 := netip.IPv4Unspecified().As16()
+	conn := BpfPidConnectionInfoT{
+		Pid:  uint32(os.Getpid()),
+		Conn: BpfConnectionInfoT{S_addr: anyIPv4, D_addr: anyIPv4, S_port: uint16(addr.(*unix.SockaddrInet4).Port)},
+	}
+
+	var now unix.Timespec
+	require.NoError(t, unix.ClockGettime(unix.CLOCK_MONOTONIC, &now))
+	// Only the saved connect key can reach this parent from the closing thread.
+	parent := BpfTpInfoT{TraceId: [16]byte{1}, SpanId: [8]byte{2}, Ts: uint64(now.Nano())}
+	saved := BpfCpSupportDataT{T_key: BpfTraceKeyT{ExtraId: 1, P_key: BpfPidKeyT{Pid: conn.Pid}}, Ts: parent.Ts + 1}
+	require.NoError(t, objects.Servers.Put(saved.T_key, BpfTpInfoPidT{Tp: parent, Valid: 1, Pid: conn.Pid}))
+	require.NoError(t, objects.ConnectInfo.Put(conn, saved))
+	require.NoError(t, objects.HTTP2Conns.Put(conn, BpfHttp2ConnInfoDataT{}))
+
+	require.NoError(t, socket.Close())
+	reader.SetDeadline(time.Now().Add(3 * time.Second))
+	record, err := reader.Read()
+	require.NoError(t, err)
+	var event BpfTcpReqT
+	require.NoError(t, binary.Read(bytes.NewReader(record.RawSample), binary.NativeEndian, &event))
+	require.Equal(t, ebpfcommon.EventTypeFailedConnect, event.Flags)
+	require.Equal(t, parent.TraceId, event.Tp.TraceId)
+	require.Equal(t, parent.SpanId, event.Tp.ParentId)
+	require.Equal(t, saved.Ts, event.StartMonotimeNs)
+	require.ErrorIs(t, objects.ConnectInfo.Lookup(conn, &saved), ebpf.ErrKeyNotExist)
+	require.ErrorIs(t, objects.HTTP2Conns.Lookup(conn, &BpfHttp2ConnInfoDataT{}), ebpf.ErrKeyNotExist)
 }

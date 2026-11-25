@@ -765,22 +765,3 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
     // fd pair correlation: /dev/null/obi/<fd1><fd2>
     return handle_fd_correlation(buf, pid_tgid);
 }
-
-// sys_exit only sees a thread calling exit(2): a process leaving through
-// exit_group(2), as Node's process.exit() does, or through a fatal signal never
-// enters it. Every exit path converges on do_exit, which fires this tracepoint
-// once per exiting thread, so neither an override shadow nor the thread's
-// traces_ctx_v1 entry can outlive its thread and be handed to whichever thread
-// next reuses the pid_tgid. No valid_pid() check: a thread can keep an entry
-// after it stops passing the filter, like a child whose parent has exited.
-SEC("tracepoint/sched/sched_process_exit")
-int GUARDED_PROG(obi_tp_sched_process_exit, void *, ctx) {
-    (void)ctx;
-
-    const u64 pid_tgid = bpf_get_current_pid_tgid();
-    bpf_map_delete_elem(&node_manual_ctx_shadow, &pid_tgid);
-    // not obi_ctx__del(): the manual span override writes the entry even when
-    // trace context population is off
-    bpf_map_delete_elem(&traces_ctx_v1, &pid_tgid);
-    return 0;
-}

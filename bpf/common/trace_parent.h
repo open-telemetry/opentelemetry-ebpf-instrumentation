@@ -12,6 +12,7 @@
 #include <common/lw_thread.h>
 #include <common/python_task.h>
 #include <common/runtime.h>
+#include <common/rust_task.h>
 #include <common/trace_helpers.h>
 
 #include <pid/pid_helpers.h>
@@ -342,8 +343,32 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
                                                         trace_key_t *t_key,
                                                         u16 orig_dport,
                                                         const tp_info_t *wire_tp) {
-    tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
+    const u32 rust_pid = obi_pid(pid_tgid);
+    const rust_capabilities_t *rust = rust_process_capabilities(rust_pid);
+    const rust_thread_state_t *rust_thread =
+        rust && rust->tokio_runtime ? rust_task_thread(pid_tgid) : NULL;
+    if (rust_thread) {
+        rust_task_key_t task = {};
+        const bool in_task = rust_innermost_task(rust_pid, rust_thread, &task);
+        if (in_task) {
+            tp_info_pid_t *parent = bpf_map_lookup_elem(&rust_task_context, &task);
+            if (parent_trace_matches(parent, wire_tp)) {
+                return parent;
+            }
+        }
 
+        if (wire_tp) {
+            return find_wire_server_parent(p_conn->pid, wire_tp);
+        }
+
+        // Hyper can write on a connection task that never received the caller's context.
+        // Keep generic correlation for that handoff. Between polls no task owns the write.
+        if (!in_task || rust->client_context) {
+            return NULL;
+        }
+    }
+
+    tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
     if (parent_trace_matches(node_tp, wire_tp)) {
         return node_tp;
     }
