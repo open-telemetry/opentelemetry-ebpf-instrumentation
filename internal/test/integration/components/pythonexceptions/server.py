@@ -69,10 +69,18 @@ def fail_replacement(token):
     raise RuntimeError(token)
 
 
-def error_page():
+def render(name):
+    """A template helper that re-raises the loader's error."""
+    try:
+        return lookup(name)
+    except LookupError as error:
+        raise error
+
+
+def error_page(reraise=False):
     """Falls back to text when the 500 template is missing, as Django does."""
     try:
-        return lookup("500.html")
+        return render("500.html") if reraise else lookup("500.html")
     except LookupError:
         return "Server Error (500)"
 
@@ -187,8 +195,8 @@ def escape(case, token):
         invoke(case, token)
     except BaseException as error:
         truths[token] = ground_truth(error)
-        if case == "error_page":
-            error_page()
+        if case in ("error_page", "error_page_reraise"):
+            error_page(reraise=case == "error_page_reraise")
         raise
 
 

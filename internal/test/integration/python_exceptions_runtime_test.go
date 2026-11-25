@@ -49,7 +49,7 @@ func TestPythonExceptions(t *testing.T) {
 	cases := []string{
 		"ascii", "empty", "unicode", "long", "key", "os", "custom", "multiarg",
 		"native", "native-int", "deep", "reraise", "raise_error", "latest", "chained",
-		"implicit_replacement", "nested_cleanup", "double_nested_cleanup", "with_traceback", "error_page", "cleanup", "finally", "open",
+		"implicit_replacement", "nested_cleanup", "double_nested_cleanup", "with_traceback", "error_page", "error_page_reraise", "cleanup", "finally", "open",
 	}
 	if pythonMinor(t) >= 11 {
 		cases = append(cases, "group")

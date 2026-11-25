@@ -116,7 +116,9 @@ typedef struct python_exception_candidate {
     u8 owner;
     // seen outside the frame that raised it
     u8 propagated;
-    u8 _pad[6];
+    // last seen caught without leaving the frame handling the kept candidate
+    u8 swallowed;
+    u8 _pad[5];
     python_exception_payload_t payload;
 } python_exception_candidate_t;
 
@@ -414,15 +416,17 @@ static __always_inline void python_exception_keep(const python_exception_proc_t 
         latest->exception = handled;
         latest->propagated =
             latest->propagated || python_exception_propagated(proc, handled, latest->payload.type);
+        latest->swallowed = python_exception_swallowed(proc, handled, kept);
     }
 
     if (!latest->propagated && !handled) {
         return;
     }
-    if (handled && python_exception_swallowed(proc, handled, kept)) {
+    // A re-raise keeps the latest candidate, so this can outlive its handler.
+    if (latest->swallowed) {
         // Cleanup can catch another error while the saved replacement is still unwinding.
-        if (!replacement->capture_ns ||
-            !python_exception_in_context_of(proc, handled, replacement->exception)) {
+        if (handled && (!replacement->capture_ns ||
+                        !python_exception_in_context_of(proc, handled, replacement->exception))) {
             python_exception_copy(replacement, latest);
         }
         return;
@@ -665,6 +669,7 @@ static __always_inline void python_exception_capture(const python_exception_proc
     candidate->tstate = tstate;
     candidate->exception = instance ? value : 0;
     candidate->propagated = 0;
+    candidate->swallowed = 0;
 
     python_exception_payload_t *payload = &candidate->payload;
     payload->type = type;
@@ -742,7 +747,7 @@ python_exception_choose(const python_exception_proc_t *proc,
         *live_exception = live;
         return latest;
     }
-    if (!live && latest->propagated) {
+    if (!live && latest->propagated && !latest->swallowed) {
         return latest;
     }
 
