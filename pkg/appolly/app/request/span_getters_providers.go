@@ -4,6 +4,8 @@
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
+	"strings"
+
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
@@ -90,9 +92,17 @@ func SpanPromGettersForDBClient(unresolved UnresolvedNames, explicitPort bool) a
 	}
 }
 
+// SpanOTELGettersForHTTP returns HTTP metric getters. The returned getters are
+// reporter-local and must be invoked serially.
 func SpanOTELGettersForHTTP(unresolved UnresolvedNames) attributes.NamedGetters[*Span, attribute.KeyValue] {
 	base := SpanOTELGetters(unresolved)
+	var schemes httpMetricSchemeCaches
 	return func(name attr.Name) (attributes.Getter[*Span, attribute.KeyValue], bool) {
+		if name == attr.HTTPURLScheme {
+			return func(span *Span) attribute.KeyValue {
+				return HTTPUrlScheme(schemes.normalize(span))
+			}, true
+		}
 		if name == attr.ErrorType {
 			return func(span *Span) attribute.KeyValue {
 				if errType := HTTPErrorType(span); errType != "" {
@@ -105,12 +115,69 @@ func SpanOTELGettersForHTTP(unresolved UnresolvedNames) attributes.NamedGetters[
 	}
 }
 
+// SpanPromGettersForHTTP returns HTTP metric getters. The returned getters are
+// reporter-local and must be invoked serially.
 func SpanPromGettersForHTTP(unresolved UnresolvedNames) attributes.NamedGetters[*Span, string] {
 	base := SpanPromGetters(unresolved)
+	var schemes httpMetricSchemeCaches
 	return func(name attr.Name) (attributes.Getter[*Span, string], bool) {
+		if name == attr.HTTPURLScheme {
+			return schemes.normalize, true
+		}
 		if name == attr.ErrorType {
 			return HTTPErrorType, true
 		}
 		return base(name)
 	}
+}
+
+const (
+	maxLearnedHTTPMetricSchemes = 7
+	httpMetricSchemeOther       = "other"
+)
+
+// Each direction has its own fixed-size budget within one metric reporter.
+type httpMetricSchemeCaches struct {
+	server httpMetricSchemeCache
+	client httpMetricSchemeCache
+}
+
+func (schemes *httpMetricSchemeCaches) normalize(span *Span) string {
+	scheme, _, found := strings.Cut(span.Statement, SchemeHostSeparator)
+	if !found {
+		scheme = ""
+	}
+	// Keep standard and empty values available without consuming either direction's budget.
+	switch scheme {
+	case "", "http", "https", httpMetricSchemeOther:
+		return scheme
+	}
+	switch span.Type {
+	case EventTypeHTTP:
+		return schemes.server.normalize(scheme)
+	case EventTypeHTTPClient:
+		return schemes.client.normalize(scheme)
+	default:
+		return scheme
+	}
+}
+
+// Reporter span processing invokes this cache serially, so it needs no lock.
+type httpMetricSchemeCache struct {
+	learned [maxLearnedHTTPMetricSchemes]string
+	count   int
+}
+
+func (schemes *httpMetricSchemeCache) normalize(scheme string) string {
+	for i := 0; i < schemes.count; i++ {
+		if schemes.learned[i] == scheme {
+			return schemes.learned[i]
+		}
+	}
+	if schemes.count == len(schemes.learned) {
+		return httpMetricSchemeOther
+	}
+	schemes.learned[schemes.count] = strings.Clone(scheme)
+	schemes.count++
+	return schemes.learned[schemes.count-1]
 }
