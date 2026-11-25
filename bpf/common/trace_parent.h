@@ -487,10 +487,8 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
 
         if (!should_be_in_same_transaction(&server_tp->tp, tp)) {
             bpf_dbg_printk("Parent and child are too far apart, discarding the parent trace");
-            bpf_dbg_printk("child_ts=%lld, parent_ts=%lld, max=%lld",
-                           tp->ts,
-                           server_tp->tp.ts,
-                           max_transaction_time);
+            bpf_dbg_printk(
+                "ts=%lld, parent=%lld, max=%lld", tp->ts, server_tp->tp.ts, max_transaction_time);
             if (parent_trace_is_stale(&server_tp->tp, tp)) {
                 server_tp->valid = 0;
             }
@@ -539,10 +537,8 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
 
         if (!should_be_in_same_transaction(&server_tp->tp, tp)) {
             bpf_dbg_printk("Parent and child are too far apart, discarding the parent trace");
-            bpf_dbg_printk("child_ts=%lld, parent_ts=%lld, max=%lld",
-                           tp->ts,
-                           server_tp->tp.ts,
-                           max_transaction_time);
+            bpf_dbg_printk(
+                "ts=%lld, parent=%lld, max=%lld", tp->ts, server_tp->tp.ts, max_transaction_time);
             if (parent_trace_is_stale(&server_tp->tp, tp)) {
                 server_tp->valid = 0;
             }
