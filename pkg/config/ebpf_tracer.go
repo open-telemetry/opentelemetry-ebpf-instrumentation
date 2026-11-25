@@ -43,6 +43,9 @@ type MapsConfig struct {
 
 // EBPFTracer configuration for eBPF programs
 type EBPFTracer struct {
+	// ISO8583TransmissionLocation interprets field 7. A nil location uses UTC.
+	ISO8583TransmissionLocation *time.Location `yaml:"-" json:"-" env:"-"`
+
 	// Enables logging of eBPF program events
 	BpfDebug bool `yaml:"bpf_debug" env:"OTEL_EBPF_BPF_DEBUG" validate:"boolean"`
 
