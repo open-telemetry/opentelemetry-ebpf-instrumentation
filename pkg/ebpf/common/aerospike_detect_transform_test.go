@@ -170,7 +170,7 @@ func TestDispatchAerospikeReassembledError(t *testing.T) {
 	resp.AppendChunk(aerospikeErrorBody(5))
 
 	event := &TCPRequestInfo{ProtocolType: ProtocolTypeAerospike}
-	span, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
+	span, ignore, matched, err := dispatchKernelAssignedProtocol(nil, nil, event, req, resp)
 	require.NoError(t, err)
 	require.True(t, matched)
 	assert.False(t, ignore)
@@ -238,7 +238,7 @@ func TestDispatchAerospikeSpan(t *testing.T) {
 	resp := largebuf.NewLargeBufferFrom(mustHex(t, aerospikeWriteOKResp))
 
 	event := &TCPRequestInfo{ProtocolType: ProtocolTypeAerospike}
-	span, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
+	span, ignore, matched, err := dispatchKernelAssignedProtocol(nil, nil, event, req, resp)
 	require.NoError(t, err)
 	require.True(t, matched, "kernel-classified aerospike event must be handled")
 	assert.False(t, ignore)
@@ -255,7 +255,7 @@ func TestDispatchAerospikeIgnoresNoise(t *testing.T) {
 	infoFrame := append([]byte{2, 1, 0, 0, 0, 0, 0, 5}, []byte("node\n")...)
 
 	event := &TCPRequestInfo{ProtocolType: ProtocolTypeAerospike}
-	_, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event,
+	_, ignore, matched, err := dispatchKernelAssignedProtocol(nil, nil, event,
 		largebuf.NewLargeBufferFrom(infoFrame),
 		largebuf.NewLargeBufferFrom([]byte("node\tBB9146B478C3844\n")))
 	require.NoError(t, err)
@@ -270,7 +270,7 @@ func TestDispatchAerospikeServerSpan(t *testing.T) {
 	resp := largebuf.NewLargeBufferFrom(mustHex(t, aerospikeWriteOKResp))
 
 	event := &TCPRequestInfo{ProtocolType: ProtocolTypeAerospike, IsServer: true}
-	span, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
+	span, ignore, matched, err := dispatchKernelAssignedProtocol(nil, nil, event, req, resp)
 	require.NoError(t, err)
 	require.True(t, matched)
 	assert.False(t, ignore)
@@ -286,7 +286,7 @@ func TestDispatchAerospikeUnknownFallsThrough(t *testing.T) {
 	resp := largebuf.NewLargeBufferFrom(mustHex(t, aerospikeWriteOKResp))
 
 	event := &TCPRequestInfo{ProtocolType: ProtocolTypeUnknown}
-	_, _, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
+	_, _, matched, err := dispatchKernelAssignedProtocol(nil, nil, event, req, resp)
 	require.NoError(t, err)
 	assert.False(t, matched, "unknown protocol must fall through to the detection stages")
 }

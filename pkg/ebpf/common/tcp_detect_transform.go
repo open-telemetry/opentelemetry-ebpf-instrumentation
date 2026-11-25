@@ -55,11 +55,10 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 			"protocol", event.ProtocolType,
 			"reqLen", event.Len,
 			"respLen", event.RespLen)
-		fmt.Printf("[>] %v\n", requestBuffer.UnsafeView())
-		fmt.Printf("[<] %v\n", responseBuffer.UnsafeView())
+		logTCPBuffers("", event, requestBuffer, responseBuffer)
 	}
 
-	if span, ignore, matched, err := dispatchKernelAssignedProtocol(parseCtx, event, requestBuffer, responseBuffer); matched {
+	if span, ignore, matched, err := dispatchKernelAssignedProtocol(parseCtx, cfg, event, requestBuffer, responseBuffer); matched {
 		span.ParentConditional = event.ParentStatus == parentStatusConditional
 		return span, ignore, err
 	}
@@ -69,17 +68,20 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		return span, ignore, err
 	}
 
-	if span, ignore, matched, err := detectHeuristicProtocol(parseCtx, event, requestBuffer, responseBuffer); matched {
-		span.ParentConditional = event.ParentStatus == parentStatusConditional
+	if span, ignore, matched, err := detectTCPFallback(parseCtx, cfg, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, err
 	}
 
 	if cfg.ProtocolDebug {
-		fmt.Printf("![>] %v\n", requestBuffer.UnsafeView())
-		fmt.Printf("![<] %v\n", responseBuffer.UnsafeView())
+		logTCPBuffers("!", event, requestBuffer, responseBuffer)
 	}
 
 	return request.Span{}, true, nil // ignore if we couldn't parse it
+}
+
+func logTCPBuffers(prefix string, event *TCPRequestInfo, req, resp *largebuf.LargeBuffer) {
+	fmt.Printf("%s[>] %v\n", prefix, req.UnsafeView())
+	fmt.Printf("%s[<] %v\n", prefix, resp.UnsafeView())
 }
 
 func emitTCPExtraSpans(parseCtx *EBPFParseContext, event *TCPRequestInfo, spans ...request.Span) {
@@ -93,7 +95,7 @@ func emitTCPExtraSpans(parseCtx *EBPFParseContext, event *TCPRequestInfo, spans 
 
 // dispatchKernelAssignedProtocol handles events where the kernel has already classified the protocol.
 // returns matched=false for ProtocolTypeUnknown or when MySQL/Postgres fall back to generic detection.
-func dispatchKernelAssignedProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
+func dispatchKernelAssignedProtocol(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
 	switch event.ProtocolType {
 	case ProtocolTypeKafka:
 		return dispatchKafka(parseCtx, event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName)
@@ -109,6 +111,10 @@ func dispatchKernelAssignedProtocol(parseCtx *EBPFParseContext, event *TCPReques
 		return dispatchSunRPC(event, requestBuffer, responseBuffer)
 	case ProtocolTypeAerospike:
 		return dispatchAerospike(event, requestBuffer, responseBuffer)
+	case ProtocolTypeISO8583:
+		// The kernel emits a tentative copy. Consume it even if validation fails.
+		span, ok := detectISO8583(parseCtx, cfg, event, requestBuffer, responseBuffer)
+		return span, !ok, true, nil
 	}
 
 	return request.Span{}, false, false, nil
@@ -366,6 +372,16 @@ func matchMemcachedNoreply(parseCtx *EBPFParseContext, event *TCPRequestInfo, re
 		}
 	}
 	return request.Span{}, false, false, nil
+}
+
+func detectTCPFallback(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
+	span, ignore, matched, err := detectHeuristicProtocol(parseCtx, event, requestBuffer, responseBuffer)
+	if matched {
+		span.ParentConditional = event.ParentStatus == parentStatusConditional
+	} else if isPossibleISO8583Exchange(event, requestBuffer, responseBuffer) {
+		span, matched = detectISO8583(parseCtx, cfg, event, requestBuffer, responseBuffer)
+	}
+	return span, ignore, matched, err
 }
 
 // detectHeuristicProtocol runs heuristic-based protocol detection as a last resort:

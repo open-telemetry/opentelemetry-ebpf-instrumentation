@@ -124,6 +124,7 @@ const (
 	ProtocolTypeNATS      = BpfProtocolTypeK_protocolTypeNats // placeholder for future kernel-space detection
 	ProtocolTypeAMQP      = BpfProtocolTypeK_protocolTypeAmqp // placeholder for future kernel-space detection
 	ProtocolTypeAerospike = BpfProtocolTypeK_protocolTypeAerospike
+	ProtocolTypeISO8583   = BpfProtocolTypeK_protocolTypeIso8583
 )
 
 const (
