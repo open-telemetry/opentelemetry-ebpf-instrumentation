@@ -55,7 +55,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 			"protocol", event.ProtocolType,
 			"reqLen", event.Len,
 			"respLen", event.RespLen)
-		logTCPBuffers("", event, requestBuffer, responseBuffer)
+		logTCPBuffers("", requestBuffer, responseBuffer)
 	}
 
 	if span, ignore, matched, err := dispatchKernelAssignedProtocol(parseCtx, cfg, event, requestBuffer, responseBuffer); matched {
@@ -73,13 +73,13 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	}
 
 	if cfg.ProtocolDebug {
-		logTCPBuffers("!", event, requestBuffer, responseBuffer)
+		logTCPBuffers("!", requestBuffer, responseBuffer)
 	}
 
 	return request.Span{}, true, nil // ignore if we couldn't parse it
 }
 
-func logTCPBuffers(prefix string, event *TCPRequestInfo, req, resp *largebuf.LargeBuffer) {
+func logTCPBuffers(prefix string, req, resp *largebuf.LargeBuffer) {
 	fmt.Printf("%s[>] %v\n", prefix, req.UnsafeView())
 	fmt.Printf("%s[<] %v\n", prefix, resp.UnsafeView())
 }
