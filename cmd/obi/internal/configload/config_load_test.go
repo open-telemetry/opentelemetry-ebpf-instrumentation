@@ -203,3 +203,49 @@ log_format: json
 	require.ErrorContains(t, err, "b.yml")
 	require.ErrorContains(t, err, "buffer_length")
 }
+
+func TestLoadSourcesInheritsAnnotationMatch(t *testing.T) {
+	cfg, _, err := LoadSources(sources(v2Header+`
+    correlation:
+      log_trace_annotation:
+        match:
+          - process:
+              exe_path_glob: ["/usr/bin/checkout"]
+`, v2Header+`
+    correlation:
+      log_trace_annotation: {enabled: true}
+`))
+	require.NoError(t, err)
+	require.True(t, cfg.EBPF.LogEnricher.Enabled())
+	require.Len(t, cfg.EBPF.LogEnricher.Services, 1)
+}
+
+func TestLoadSourcesEnvironmentFollowsBase(t *testing.T) {
+	t.Setenv("OTEL_EBPF_CHANNEL_BUFFER_LEN", "999")
+	v2 := v2Header + "    capture: {channels: {buffer_len: 222}}"
+	v1 := "channel_buffer_len: 111"
+	for _, tc := range []struct {
+		files []Source
+		want  int
+	}{
+		{sources(v1, v2), 999},
+		{sources(v2, v1), 111},
+	} {
+		cfg, _, err := LoadSources(tc.files)
+		require.NoError(t, err)
+		require.Equal(t, tc.want, cfg.ChannelBufferLen)
+	}
+}
+
+func TestLoadSourcesIsolatesResourceLabels(t *testing.T) {
+	base := "attributes: {kubernetes: {resource_labels: {custom: [my-label]}}}"
+	first, _, err := LoadSources(sources(base))
+	require.NoError(t, err)
+	require.Contains(t, first.Attributes.Kubernetes.ResourceLabels, "custom")
+	require.NotContains(t, obi.DefaultConfig.Attributes.Kubernetes.ResourceLabels, "custom")
+	first.Attributes.Kubernetes.ResourceLabels["service.name"][0] = "changed"
+	require.NotEqual(t, "changed", obi.DefaultConfig.Attributes.Kubernetes.ResourceLabels["service.name"][0])
+	cfg, _, err := LoadSources(sources(base, "attributes: {kubernetes: {resource_labels: {}}}"))
+	require.NoError(t, err)
+	require.NotContains(t, cfg.Attributes.Kubernetes.ResourceLabels, "custom")
+}

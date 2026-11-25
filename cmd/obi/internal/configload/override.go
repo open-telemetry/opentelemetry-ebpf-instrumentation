@@ -4,6 +4,7 @@
 package configload // import "go.opentelemetry.io/obi/cmd/obi/internal/configload"
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -24,18 +25,26 @@ func LoadSources(sources []Source) (*obi.Config, string, error) {
 		return Load(nil)
 	}
 
-	var cfg *obi.Config
+	if len(sources) == 1 {
+		cfg, version, err := Load(sources[0].Data)
+		if err != nil {
+			return nil, "", fmt.Errorf("%s: %w", sources[0].Path, err)
+		}
+		return cfg, version, nil
+	}
+
 	var base string
+	var basePaths []string
 	document := map[string]any{}
-	pending := mixedOverrides{fields: map[string]func(*obi.Config){}}
+	pending := mixedOverrides{fields: map[string]func(*obi.Config, *obi.Config){}, document: map[string]any{}}
 	for i, source := range sources {
 		data := obicfg.ReplaceEnv(source.Data)
-		layer, version, err := loadExpanded(data)
-		if err != nil {
+		_, _, err := schema.ParseStandaloneYAML(data)
+		version := VersionV2
+		if _, ok := errors.AsType[*schema.NotV2Error](err); ok {
+			version = VersionV1
+		} else if err != nil {
 			return nil, "", fmt.Errorf("%s: %w", source.Path, err)
-		}
-		if len(sources) == 1 {
-			return layer, version, nil
 		}
 		if i == 0 {
 			base = version
@@ -45,7 +54,7 @@ func LoadSources(sources []Source) (*obi.Config, string, error) {
 			return nil, "", fmt.Errorf("%s: %w", source.Path, err)
 		}
 		if version != base {
-			if err := pending.add(base, version, values, layer, source.Path); err != nil {
+			if err := pending.add(base, version, values, source.Path); err != nil {
 				return nil, "", fmt.Errorf("%s: %w", source.Path, err)
 			}
 			continue
@@ -56,31 +65,63 @@ func LoadSources(sources []Source) (*obi.Config, string, error) {
 				delete(pending.fields, path)
 			}
 		}
-		if pending.tracer != nil && hasPath(values, "otel_traces_export") {
+		if pending.tracerSource != "" && hasPath(values, "otel_traces_export") {
 			return nil, "", fmt.Errorf("%s: otel_traces_export overlaps tracer_provider in %s", source.Path, pending.tracerSource)
 		}
 		mergeDocument(document, values)
-		if i == 0 {
-			cfg = layer
-			continue
-		}
-		merged, err := yaml.Marshal(document)
+		basePaths = append(basePaths, source.Path)
+	}
+	data, err := yaml.Marshal(document)
+	if err != nil {
+		return nil, "", err
+	}
+	var cfg *obi.Config
+	if base == VersionV1 {
+		cfg, err = obi.LoadConfigYAML(data, pending.apply)
+	} else {
+		cfg, err = loadV2Expanded(data)
 		if err == nil {
-			cfg, _, err = loadExpanded(merged)
-		}
-		if err != nil {
-			return nil, "", fmt.Errorf("%s: %w", source.Path, err)
+			err = pending.apply(cfg)
 		}
 	}
-	for _, apply := range pending.fields {
-		apply(cfg)
-	}
-	if pending.tracer != nil {
-		if err := convert.ApplyTracerProvider(cfg, pending.tracer.TracerProvider); err != nil {
-			return nil, "", fmt.Errorf("%s: tracer_provider: %w", pending.tracerSource, err)
-		}
+	if err != nil {
+		return nil, "", fmt.Errorf("%s: %w", strings.Join(basePaths, ", "), err)
 	}
 	return cfg, base, nil
+}
+
+func (p *mixedOverrides) apply(cfg *obi.Config) error {
+	if len(p.document) == 0 {
+		return nil
+	}
+	data, err := yaml.Marshal(p.document)
+	if err != nil {
+		return err
+	}
+	var layer obi.Config
+	if p.version == VersionV1 {
+		// A v2 base only inherits explicit legacy file settings.
+		if err := yaml.Unmarshal(data, &layer); err != nil {
+			return fmt.Errorf("%s: %w", strings.Join(p.paths, ", "), err)
+		}
+	} else {
+		doc, _, err := schema.ParseStandaloneYAML(data)
+		if err != nil {
+			return fmt.Errorf("%s: %w", strings.Join(p.paths, ", "), err)
+		}
+		v2, err := convert.DocumentToRuntime(doc)
+		if err != nil {
+			return fmt.Errorf("%s: %w", strings.Join(p.paths, ", "), err)
+		}
+		layer = *v2
+		if err := convert.ApplyTracerProvider(cfg, doc.TracerProvider); err != nil {
+			return fmt.Errorf("%s: tracer_provider: %w", p.tracerSource, err)
+		}
+	}
+	for _, apply := range p.fields {
+		apply(cfg, &layer)
+	}
+	return nil
 }
 
 // Keep YAML scalar tags and spelling until the version-specific loader decodes
@@ -178,39 +219,28 @@ var sharedSettings = []sharedSetting{
 }
 
 type mixedOverrides struct {
-	fields       map[string]func(*obi.Config)
-	tracer       *schema.Document
-	tracerYAML   map[string]any
+	fields       map[string]func(*obi.Config, *obi.Config)
+	document     map[string]any
+	version      string
+	paths        []string
 	tracerSource string
 }
 
-func (p *mixedOverrides) add(base, version string, values map[string]any, cfg *obi.Config, source string) error {
+func (p *mixedOverrides) add(base, version string, values map[string]any, source string) error {
+	p.version = version
+	p.paths = append(p.paths, source)
+	mergeDocument(p.document, values)
 	if version == VersionV2 {
 		delete(values, "file_format")
-		if provider, ok := values["tracer_provider"]; ok {
-			if p.tracerYAML == nil {
-				p.tracerYAML = map[string]any{
-					"file_format": schema.SupportedFileFormat,
-					"extensions":  map[string]any{"obi": map[string]any{"version": schema.SupportedVersion}},
-				}
-			}
-			mergeDocument(p.tracerYAML, map[string]any{"tracer_provider": provider})
-			data, err := yaml.Marshal(p.tracerYAML)
-			if err != nil {
-				return err
-			}
-			p.tracer, _, err = schema.ParseStandaloneYAML(data)
-			if err != nil {
-				return err
-			}
+		if _, ok := values["tracer_provider"]; ok {
 			p.tracerSource = source
 			delete(values, "tracer_provider")
 		}
 	}
-	return p.addFields(base, version, values, "", cfg)
+	return p.addFields(base, version, values, "")
 }
 
-func (p *mixedOverrides) addFields(base, version string, m map[string]any, prefix string, cfg *obi.Config) error {
+func (p *mixedOverrides) addFields(base, version string, m map[string]any, prefix string) error {
 	for _, key := range slices.Sorted(maps.Keys(m)) {
 		path := prefix + key
 		if version == VersionV2 && path == extension+"version" {
@@ -226,7 +256,7 @@ func (p *mixedOverrides) addFields(base, version string, m map[string]any, prefi
 			return fmt.Errorf("%s: a v1 base cannot apply this protocol switch to derived metrics", path)
 		}
 		if child, ok := m[key].(map[string]any); ok && len(child) != 0 {
-			if err := p.addFields(base, version, child, path+".", cfg); err != nil {
+			if err := p.addFields(base, version, child, path+"."); err != nil {
 				return err
 			}
 			continue
@@ -238,7 +268,7 @@ func (p *mixedOverrides) addFields(base, version string, m map[string]any, prefi
 				source, target = target, source
 			}
 			if path == source {
-				p.fields[target] = func(dst *obi.Config) { setting.copy(dst, cfg) }
+				p.fields[target] = setting.copy
 				found = true
 				break
 			}

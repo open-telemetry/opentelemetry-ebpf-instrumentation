@@ -1309,6 +1309,10 @@ a buffer length of `50` overrides an earlier `111`. Omitting the setting keeps
 the earlier value. Within one format, YAML mappings merge by key, sequences
 replace the previous sequence, and an empty mapping clears the earlier mapping.
 
+With a v1 base, legacy environment variables override the merged file settings.
+With a v2 base, those variables only affect file values that reference them
+explicitly through environment substitution.
+
 A file in the other format can override the log level, log format, shutdown
 timeout, channel buffer length, channel send timeout and panic-on-timeout
 setting. A v1 base can also accept a v2 `tracer_provider`. A subsequent v1

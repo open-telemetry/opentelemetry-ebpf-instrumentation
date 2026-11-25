@@ -58,7 +58,7 @@ func loadExpanded(data []byte) (*obi.Config, string, error) {
 		return nil, "", err
 	}
 
-	config, err = obi.LoadConfigYAML(data)
+	config, err = obi.LoadConfigYAML(data, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("loading config v1: %w", err)
 	}
