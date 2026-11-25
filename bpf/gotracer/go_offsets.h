@@ -50,6 +50,7 @@ typedef enum {
     _cc_tls_pos,
     _cc_tls_vendored_pos,
     _sc_conn_pos,
+    _sc_conn_internal_pos,
     _c_rwc_pos,
     _c_tls_pos,
     _text_reader_r_pos,

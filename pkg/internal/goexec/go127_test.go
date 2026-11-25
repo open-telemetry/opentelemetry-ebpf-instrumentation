@@ -49,7 +49,7 @@ func TestGo127HTTP2BinaryMetadata(t *testing.T) {
 		CcFramerVendoredPos,
 		FramerWPos,
 		MetaHeadersFrameFieldsPtrPos,
-		ScConnPos,
+		ScConnInternalPos,
 	} {
 		assert.Contains(t, offsets, field)
 	}
