@@ -1,0 +1,52 @@
+file_format: definition/2
+attribute_groups:
+  - id: attributes.obi.iso8583.common
+    visibility: internal
+    attributes:
+      - ref: mti
+        requirement_level: required
+      - ref: duration.source
+        requirement_level: required
+      - ref: network.protocol.name
+        requirement_level: required
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the server address is known
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the server port is known
+      - ref: network.peer.address
+        requirement_level:
+          recommended: if the remote socket address is known
+      - ref: network.peer.port
+        requirement_level:
+          recommended: if the remote socket port is known
+      - ref: span.metrics.skip
+        requirement_level: opt_in
+
+spans:
+  - type: obi.iso8583.client
+    annotations: &iso8583_span
+      obi:
+        upstream: none
+        upstream_reason: upstream defines no span for ISO 8583 exchanges
+    kind: client
+    name: &iso8583_name
+      templates: ["ISO 8583 {mti}"]
+    stability: development
+    requirement_level: recommended
+    brief: An ISO 8583 exchange timed at the endpoint receiving the response.
+    attributes:
+      - ref_group: attributes.obi.iso8583.common
+      - ref: service.peer.name
+        requirement_level: opt_in
+
+  - type: obi.iso8583.server
+    annotations: *iso8583_span
+    kind: server
+    name: *iso8583_name
+    stability: development
+    requirement_level: recommended
+    brief: An ISO 8583 exchange timed at the endpoint sending the response.
+    attributes:
+      - ref_group: attributes.obi.iso8583.common

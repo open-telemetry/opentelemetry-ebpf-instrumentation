@@ -161,6 +161,12 @@ when = 'kind == "server" && "rpc.system.name" in attributes && attributes["rpc.s
 signal = "obi.rpc.onc_rpc.server"
 
 [[live-check.matchers]]
+id = "match.span.iso8583.server"
+sample_type = "span"
+when = 'kind == "server" && "network.protocol.name" in attributes && attributes["network.protocol.name"] == "iso8583"'
+signal = "obi.iso8583.server"
+
+[[live-check.matchers]]
 id = "match.span.db.server"
 sample_type = "span"
 when = 'kind == "server" && "db.system.name" in attributes'
@@ -218,6 +224,12 @@ id = "match.span.rpc.onc_rpc.client"
 sample_type = "span"
 when = 'kind == "client" && "rpc.system.name" in attributes && attributes["rpc.system.name"] == "onc_rpc"'
 signal = "obi.rpc.onc_rpc.client"
+
+[[live-check.matchers]]
+id = "match.span.iso8583.client"
+sample_type = "span"
+when = 'kind == "client" && "network.protocol.name" in attributes && attributes["network.protocol.name"] == "iso8583"'
+signal = "obi.iso8583.client"
 
 [[live-check.matchers]]
 id = "match.span.jsonrpc.client"
