@@ -25,7 +25,7 @@ const (
 	aiohttpMethodArg = `(?:[rRuU]?(?:"[^"/]*"|'[^'/]*')|[A-Za-z_][\w.]*)\s*,\s*`
 	// A path must be a whole argument, so "/users/" + user_id is not a route.
 	// The string prefix is kept, since escapes are decoded in non-raw literals.
-	aiohttpPathArg       = `(?P<` + aiohttpPrefix + `>[rRuU]?)(?:"([^"\r\n]*)"|'([^'\r\n]*)')\s*[,)]`
+	aiohttpPathArg       = `(?:path\s*=\s*)?(?P<` + aiohttpPrefix + `>[rRuU]?)(?:"([^"\r\n]*)"|'([^'\r\n]*)')\s*[,)]`
 	aiohttpPrefix        = "prefix"
 	aiohttpTailConverter = ":path}"
 )
@@ -51,7 +51,7 @@ var aiohttpAssignmentPattern = regexp.MustCompile(`^` + aiohttpName + aiohttpAnn
 
 var aiohttpDecoratorPattern = regexp.MustCompile(`^@` + aiohttpName + `\.(?:` + aiohttpMethods + `\s*\(|route\s*\(\s*` + aiohttpMethodArg + `)`)
 
-// Keyword paths are not read: path= can belong to a nested call, such as a functools.partial handler.
+// path= is only read in the path's own position, never inside a nested call such as functools.partial.
 // Other libraries also have add_view or add_route methods, so the receiver must be a router.
 var aiohttpRouterPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\brouter\.add_` + aiohttpMethods + `\s*\(\s*` + aiohttpPathArg),

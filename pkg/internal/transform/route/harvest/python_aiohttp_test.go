@@ -114,9 +114,11 @@ func TestScanAiohttp(t *testing.T) {
 				`from aiohttp import web`,
 				`app.router.add_get("/download", functools.partial(download, path="/srv/data"))`,
 				`app.router.add_delete(handler=remove, path="/items/{item_id}")`,
+				`app.router.add_get(path="/first", handler=first)`,
+				`app.router.add_route("GET", path="/after-method", handler=after)`,
 				`app.add_routes([web.get(path="/orders", handler=orders)])`,
 			},
-			want: []string{"/download"},
+			want: []string{"/after-method", "/download", "/first", "/orders"},
 		},
 		{
 			name: "other libraries",
@@ -675,4 +677,25 @@ class Handlers:
 			assert.Equal(t, tc.want, result.Routes)
 		})
 	}
+}
+
+func TestExtractPythonAiohttpShadowedRouteTable(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+from aiohttp import web
+from fastapi import APIRouter
+
+routes = web.RouteTableDef()
+
+
+def setup(routes: APIRouter):
+    @routes.get(path="/fast")
+    async def handler():
+        pass
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/fast"}, result.Routes)
 }
