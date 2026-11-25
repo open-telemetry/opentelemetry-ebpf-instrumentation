@@ -94,6 +94,7 @@ through language-specific library instrumentation documented later in this file.
 | MQTT | `3.1.1/5.0` | `publish`, `subscribe` | No | No | Only the first topic filter is used for subscribe; payload not captured |
 | NATS | All | `publish`, `process` | No | No | Only `PUB`/`HPUB` and delivered `MSG`/`HMSG` frames are traced; control traffic is ignored; TLS is not parsed |
 | AMQP | `1.0` | `publish`, `process` | No | No | Userspace heuristic only; only transfer performatives create spans |
+| ISO 8583 | 1987, 1993, 2003 MTIs | Request/response and asynchronous response timing, authorization outcomes | Plaintext tested | No | ASCII and packed-BCD profiles with length prefixes. Field 7 enables timing of standalone responses. Field 39 supplies outcomes for the 1987 and 1993 profiles. See [ISO 8583](devdocs/protocols/tcp/iso8583.md). |
 | SunRPC (ONC RPC) | All | TCP CALL on common programs (portmapper, mount, nfs, …) | Yes | No | TCP only; kernel + userspace fallback; RPCSEC_GSS hides arguments; procedure names not mapped yet |
 | DNS | All | Lookups | No | No | Not enabled by default for traces; DNS-over-TLS/HTTPS is not parsed |
 | GraphQL | All | All | Yes | No | Requires HTTP payload capture and `ebpf.payload_extraction.http.graphql.enabled` |
