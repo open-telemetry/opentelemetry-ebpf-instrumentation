@@ -36,19 +36,6 @@
 
 #include <logger/bpf_dbg.h>
 
-static __always_inline tcp_req_t *tcp_req_scratch() {
-    int zero = 0;
-    return bpf_map_lookup_elem(&tcp_req_mem, &zero);
-}
-
-static __always_inline tcp_req_t *empty_tcp_req() {
-    tcp_req_t *value = tcp_req_scratch();
-    if (value) {
-        __builtin_memset(value, 0, sizeof(tcp_req_t));
-    }
-    return value;
-}
-
 static __always_inline void set_tcp_trace_info(u32 type,
                                                connection_info_t *conn,
                                                lw_thread_t lw_thread,
@@ -216,6 +203,7 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
         }
         return 0;
     case k_protocol_type_http:
+    case k_protocol_type_iso8583:
     case k_protocol_type_mqtt:
         break;
     case k_protocol_type_sunrpc:
@@ -329,8 +317,9 @@ static __always_inline void handle_unknown_tcp_connection(void *ctx,
             }
         }
 
-        tcp_req_t *req = empty_tcp_req();
+        tcp_req_t *req = tcp_req_mem();
         if (req) {
+            __builtin_memset(req, 0, sizeof(*req));
             req->is_server = is_server;
             int original_bytes_len = bytes_len;
             bpf_clamp_umax(bytes_len, k_tcp_max_len);
@@ -471,7 +460,7 @@ int GUARDED_PROG(obi_continue_protocol_tcp, void *, ctx) {
     }
 
     // obi_protocol_tcp staged the new request here
-    tcp_req_t *req = tcp_req_scratch();
+    tcp_req_t *req = tcp_req_mem();
     if (!req) {
         return 0;
     }
