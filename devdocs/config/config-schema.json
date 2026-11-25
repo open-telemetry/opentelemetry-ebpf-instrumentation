@@ -801,6 +801,18 @@
           ],
           "x-env-var": "OTEL_EBPF_BPF_GO_HTTP_CLIENT_BUFFER_TIMEOUT"
         },
+        "grpc_inflight_timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Is the age after which a gRPC server stream that has no response yet is reported once as an in-flight span. The stream is kept, so its real span is still sent when it ends. A zero value disables the scan.",
+          "default": "0s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_BPF_GRPC_INFLIGHT_TIMEOUT"
+        },
         "heuristic_sql_detect": {
           "type": "boolean",
           "description": "Enables the heuristic based detection of SQL requests. This can be used to detect talking to databases other than the ones we recognize in OBI, like Postgres and MySQL",

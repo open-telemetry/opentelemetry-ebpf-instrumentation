@@ -75,6 +75,7 @@ type HTTPInstrumentation struct {
 	Filters                   SignalFilters          `yaml:"filters"`
 	TrackRequestHeaders       bool                   `yaml:"track_request_headers"`
 	RequestTimeout            Duration               `yaml:"request_timeout"`
+	GRPCInflightTimeout       Duration               `yaml:"grpc_inflight_timeout"`
 	GoHTTPClientBufferTimeout Duration               `yaml:"go_http_client_buffer_timeout"`
 	BufferSize                uint32                 `yaml:"buffer_size"`
 	Routes                    HTTPRoutes             `yaml:"routes"`

@@ -78,6 +78,11 @@ type EBPFTracer struct {
 	// Must be at least 0
 	HTTPRequestTimeout time.Duration `yaml:"http_request_timeout" env:"OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT" validate:"gte=0"`
 
+	// GRPCInflightTimeout is the age after which a gRPC server stream that has no response yet is
+	// reported once as an in-flight span. The stream is kept, so its real span is still sent when
+	// it ends. A zero value disables the scan.
+	GRPCInflightTimeout time.Duration `yaml:"grpc_inflight_timeout" env:"OTEL_EBPF_BPF_GRPC_INFLIGHT_TIMEOUT" validate:"gte=0"`
+
 	// GoHTTPClientBufferTimeout is the inactivity period after which a pending Go HTTP client
 	// event is enriched with its captured buffers and emitted. A zero value disables deferral.
 	GoHTTPClientBufferTimeout time.Duration `yaml:"go_http_client_buffer_timeout" env:"OTEL_EBPF_BPF_GO_HTTP_CLIENT_BUFFER_TIMEOUT" validate:"gte=0"`

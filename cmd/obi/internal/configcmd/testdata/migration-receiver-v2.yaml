@@ -78,6 +78,7 @@ instrumentation:
                     not_match: OPTIONS
         track_request_headers: false
         request_timeout: 0s
+        grpc_inflight_timeout: 0s
         go_http_client_buffer_timeout: 1s
         buffer_size: 0
         routes:

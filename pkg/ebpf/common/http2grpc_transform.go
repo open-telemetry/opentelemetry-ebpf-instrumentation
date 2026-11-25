@@ -832,6 +832,8 @@ func ReadHTTP2HeaderEvent(parseContext *EBPFParseContext, record *ringbuf.Record
 	if !filter.ValidPID(app.PID(event.Pid.UserPid), event.Pid.Ns, PIDTypeKProbes) {
 		return nil
 	}
+	parseContext.h2mu.Lock()
+	defer parseContext.h2mu.Unlock()
 	return readHTTP2HeaderEvent(parseContext, event)
 }
 
@@ -845,6 +847,8 @@ func ReadHTTP2InfoIntoSpan(parseContext *EBPFParseContext, record *ringbuf.Recor
 		return request.Span{}, true, nil
 	}
 
+	parseContext.h2mu.Lock()
+	defer parseContext.h2mu.Unlock()
 	return http2FromBuffers(parseContext, event)
 }
 

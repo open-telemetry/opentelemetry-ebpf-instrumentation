@@ -1019,6 +1019,7 @@ Important mapping notes:
 | `ebpf.dns_request_timeout` | `extensions.obi.capture.instrumentation.dns.request_timeout` | Move |
 | `ebpf.force_bpf_map_reader` | `extensions.obi.capture.engine.traffic.force_map_reader` | Move + rename |
 | `ebpf.go_http_client_buffer_timeout` | `extensions.obi.capture.instrumentation.http.go_http_client_buffer_timeout` | Move |
+| `ebpf.grpc_inflight_timeout` | `extensions.obi.capture.instrumentation.http.grpc_inflight_timeout` | Move |
 | `ebpf.high_request_volume` | `extensions.obi.capture.engine.traffic.high_request_volume` | Move |
 | `ebpf.heuristic_sql_detect` | `extensions.obi.capture.instrumentation.sql.heuristic_detect` | Move + rename |
 | `ebpf.http_request_timeout` | `extensions.obi.capture.instrumentation.http.request_timeout` | Move |

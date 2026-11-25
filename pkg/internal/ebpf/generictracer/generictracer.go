@@ -1058,11 +1058,13 @@ func (p *Tracer) parseJVMMemoryPoolRecord(record *ringbuf.Record) ([]jvmruntime.
 
 //nolint:cyclop
 func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFParseContext, ticker *time.Ticker, eventsChan *msg.Queue[[]request.Span]) {
+	var reportedGRPC map[grpcInflightKey]struct{}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case t := <-ticker.C:
+			reportedGRPC = p.reportGRPCInflight(ctx, parseCtx, eventsChan, reportedGRPC)
 			if p.bpfObjects.OngoingHttp != nil {
 				i := p.bpfObjects.OngoingHttp.Iterate()
 				var k BpfPidConnectionInfoT
@@ -1104,6 +1106,55 @@ func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFP
 			}
 		}
 	}
+}
+
+type grpcInflightKey struct {
+	connID   uint64
+	streamID uint32
+}
+
+// reportGRPCInflight emits one in-flight span per gRPC server stream that has been open longer than
+// GRPCInflightTimeout without a response. The map entry is kept, so the real span is still sent if
+// the stream ends later. It returns the keys reported so far, pruned to the entries still in the map.
+func (p *Tracer) reportGRPCInflight(
+	ctx context.Context,
+	parseCtx *ebpfcommon.EBPFParseContext,
+	eventsChan *msg.Queue[[]request.Span],
+	reported map[grpcInflightKey]struct{},
+) map[grpcInflightKey]struct{} {
+	threshold := p.cfg.EBPF.GRPCInflightTimeout
+	if threshold <= 0 || p.bpfObjects.OngoingHttp2Grpc == nil {
+		return nil
+	}
+
+	now := timing.MonoTimeNow()
+	next := make(map[grpcInflightKey]struct{}, len(reported))
+	var spans []request.Span
+	var k BpfHttp2ConnStreamT
+	var v BpfHttp2GrpcRequestT
+	i := p.bpfObjects.OngoingHttp2Grpc.Iterate()
+	for i.Next(&k, &v) {
+		if v.EndMonotimeNs != 0 || now-time.Duration(v.StartMonotimeNs) < threshold {
+			continue
+		}
+		key := grpcInflightKey{connID: v.NewConnId, streamID: v.StreamId}
+		if _, done := reported[key]; done {
+			next[key] = struct{}{}
+			continue
+		}
+		// Same layout as ebpfcommon.BPFHTTP2Info, generated from a different ebpf2go output
+		if s, ok := ebpfcommon.GRPCInflightSpan(parseCtx, (*ebpfcommon.BPFHTTP2Info)(unsafe.Pointer(&v)), now); ok {
+			spans = append(spans, s)
+			next[key] = struct{}{}
+		}
+	}
+	if err := i.Err(); err != nil {
+		p.log.Debug("Error iterating ongoing gRPC streams", "error", err)
+	}
+	if len(spans) > 0 {
+		eventsChan.SendCtx(ctx, p.pidsFilter.Filter(spans))
+	}
+	return next
 }
 
 func (p *Tracer) watchForMisclassifedEvents(ctx context.Context) {

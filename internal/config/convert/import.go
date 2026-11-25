@@ -1414,6 +1414,7 @@ func applyV2HTTPQueryParameters(cfg *obi.Config, params schema.HTTPQueryParamete
 func applyFullV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrumentation) {
 	cfg.EBPF.TrackRequestHeaders = http.TrackRequestHeaders
 	cfg.EBPF.HTTPRequestTimeout = http.RequestTimeout.TimeDuration()
+	cfg.EBPF.GRPCInflightTimeout = http.GRPCInflightTimeout.TimeDuration()
 	cfg.EBPF.GoHTTPClientBufferTimeout = http.GoHTTPClientBufferTimeout.TimeDuration()
 	cfg.EBPF.BufferSizes.HTTP = http.BufferSize
 
@@ -1427,6 +1428,9 @@ func applyPartialV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrume
 	}
 	if !zeroValue(http.RequestTimeout) {
 		cfg.EBPF.HTTPRequestTimeout = http.RequestTimeout.TimeDuration()
+	}
+	if !zeroValue(http.GRPCInflightTimeout) {
+		cfg.EBPF.GRPCInflightTimeout = http.GRPCInflightTimeout.TimeDuration()
 	}
 	if !zeroValue(http.GoHTTPClientBufferTimeout) {
 		cfg.EBPF.GoHTTPClientBufferTimeout = http.GoHTTPClientBufferTimeout.TimeDuration()

@@ -113,6 +113,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		Filters:                   http.Filters,
 		TrackRequestHeaders:       cfg.EBPF.TrackRequestHeaders,
 		RequestTimeout:            schema.Duration(cfg.EBPF.HTTPRequestTimeout),
+		GRPCInflightTimeout:       schema.Duration(cfg.EBPF.GRPCInflightTimeout),
 		GoHTTPClientBufferTimeout: schema.Duration(cfg.EBPF.GoHTTPClientBufferTimeout),
 		BufferSize:                cfg.EBPF.BufferSizes.HTTP,
 		Routes:                    httpRoutes(cfg),

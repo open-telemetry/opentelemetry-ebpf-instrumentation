@@ -337,6 +337,7 @@ type pendingGoHTTPClientKey struct {
 type EBPFParseContext struct {
 	protocolDebug               bool
 	h2c                         *lru.Cache[uint64, *h2Connection]
+	h2mu                        sync.Mutex // guards h2c contents: the ring buffer reader and the gRPC in-flight scan share them
 	redisDBCache                *simplelru.LRU[BpfConnectionInfoT, int]
 	couchbaseBucketCache        *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
 	largeBuffers                *expirable.LRU[largeBufferKey, *largebuf.LargeBuffer]
