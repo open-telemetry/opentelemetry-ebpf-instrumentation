@@ -17,8 +17,8 @@ function runScenario(name) {
   return JSON.parse(out);
 }
 
-function runScript(file) {
-  const out = execFileSync(process.execPath, [path.join(__dirname, file)], { encoding: 'utf8' });
+function runScript(file, ...args) {
+  const out = execFileSync(process.execPath, [path.join(__dirname, file), ...args], { encoding: 'utf8' });
   return JSON.parse(out);
 }
 
@@ -151,6 +151,157 @@ test('bundled/unreachable api copy: bridge never blocks the app SDK registration
   const r = runScript('scenario_bundled.js');
   assert.ok(r.app.includes('bundled-after'), 'the app SDK registers and captures its spans (not blocked)');
   assert.deepStrictEqual(r.bridge, [], 'bundled spans are not captured — the accepted limitation');
+});
+
+test('dynamic function spans wrap already-loaded and late-loaded CommonJS exports', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'selected');
+  assert.deepStrictEqual(result.values, [2, 4]);
+  assert.strictEqual(result.promiseIdentityPreserved, true, 'a dynamic wrapper must return the original promise');
+  assert.strictEqual(result.promiseThenGetterReads, 0, 'promise-like properties must not be inspected');
+  assert.strictEqual(result.promiseSpanEndedAtReturn, true, 'the function span ends before promise settlement');
+  assert.strictEqual(result.clockValueType, 'bigint');
+  assert.strictEqual(result.bufferByteLength, 'instrumented'.length);
+  assert.strictEqual(result.bufferFrom, 'instrumented');
+  assert.strictEqual(result.thrown, 'expected failure', 'the original exception must propagate');
+  assert.strictEqual(result.late, 'late');
+  assert.strictEqual(result.entry, 'entry module', 'the already-loaded entry module is matched by filename');
+  assert.strictEqual(result.randomBytesLength, 7, 'crypto.randomBytes remains callable when instrumented');
+  assert.strictEqual(result.fileExists, true, 'the retained fs module object is instrumented');
+  assert.strictEqual(result.callableParent, 'callable parent');
+  assert.strictEqual(result.callable, 'callable nested');
+  assert.strictEqual(result.callableProxy, 'callable proxy target');
+  assert.strictEqual(result.callableProxyApplyCalls, 1);
+  assert.strictEqual(result.callableProxyPrototypeTraps, 0, 'reinjection must not inspect an application callable Proxy');
+  assert.strictEqual(result.proxyPrototype, 'proxy prototype target');
+  assert.strictEqual(result.callableMarkerPreserved, true, 'wrapping a callable export preserves its own properties');
+  assert.strictEqual(result.constructorValue, 'example:value');
+  assert.strictEqual(result.constructorUsesOriginalNewTarget, true, 'new.target remains the original constructor');
+  assert.strictEqual(result.constructorPrototypePreserved, true, 'instances retain the original prototype');
+  assert.strictEqual(result.constructorMarkerPreserved, true, 'wrapping a constructor preserves its own properties');
+  assert.deepStrictEqual(
+    result.spans.map((span) => span.name).sort(),
+    [
+      'dynamic.async',
+      'dynamic.buffer-from',
+      `dynamic.buffer-length.${'x'.repeat(140)}`.slice(0, 128),
+      'dynamic.callable-nested',
+      'dynamic.callable-parent',
+      'dynamic.callable-proxy',
+      'dynamic.clock',
+      'dynamic.constructor',
+      'dynamic.entry',
+      'dynamic.exists-sync',
+      'dynamic.fail',
+      'dynamic.late',
+      'dynamic.promise-return',
+      'dynamic.proxy-prototype',
+      'dynamic.random-bytes',
+      'dynamic.sync',
+    ],
+  );
+  assert.strictEqual(result.diagnostics.length, 0, 'unmatched and skipped proxy targets should not warn');
+  assert.strictEqual(result.proxyTrapCount, 0, 'discovery must not inspect Proxy traps');
+  assert.strictEqual(result.proxyPrototypeTrapCount, 0, 'discovery must skip Proxy objects in prototypes');
+  const failed = result.spans.find((span) => span.name === 'dynamic.fail');
+  assert.strictEqual(failed.status, 2, 'thrown errors must set the span error status');
+  assert.strictEqual(failed.attrs['exception.message'], 'expected failure');
+});
+
+test('dynamic spans do not enable application API span capture without ManualSpans', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'dynamic-only');
+  assert.ok(!result.spans.some((span) => span.name === 'manual.disabled'));
+  assert.ok(result.spans.some((span) => span.name === 'dynamic.sync'), 'private dynamic span capture remains active');
+});
+
+test('dynamic spans do not wire a late application API copy without ManualSpans', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'dynamic-only-late');
+  assert.ok(!result.spans.some((span) => span.name === 'manual.disabled'));
+  assert.ok(result.spans.some((span) => span.name === 'dynamic.sync'), 'private dynamic span capture remains active');
+});
+
+test('unselected Node.js process receives no dynamic function spans', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'unselected');
+  assert.deepStrictEqual(result.values, [2, 4]);
+  assert.strictEqual(result.thrown, 'expected failure');
+  assert.strictEqual(result.late, 'late');
+  assert.strictEqual(result.callable, 'callable nested');
+  assert.deepStrictEqual(result.spans, []);
+});
+
+test('dynamic function spans use an application SDK when one already owns the API', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'app-sdk');
+  assert.deepStrictEqual(result.spans, [], 'OBI manual transport must stay inert');
+  assert.deepStrictEqual(
+    result.appSpans.sort(),
+    [
+      'dynamic.async',
+      'dynamic.buffer-from',
+      `dynamic.buffer-length.${'x'.repeat(140)}`,
+      'dynamic.callable-nested',
+      'dynamic.callable-parent',
+      'dynamic.callable-proxy',
+      'dynamic.clock',
+      'dynamic.constructor',
+      'dynamic.entry',
+      'dynamic.exists-sync',
+      'dynamic.fail',
+      'dynamic.late',
+      'dynamic.promise-return',
+      'dynamic.proxy-prototype',
+      'dynamic.random-bytes',
+      'dynamic.sync',
+    ],
+  );
+});
+
+test('dynamic span injection is idempotent and can add rules on reinjection', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'reinject-dynamic');
+  const names = result.spans.map((span) => span.name);
+  assert.strictEqual(names.filter((name) => name === 'dynamic.sync').length, 1);
+  assert.strictEqual(names.filter((name) => name === 'dynamic.sync.additional').length, 1);
+  assert.strictEqual(result.callableProxyPrototypeTrapsAfterReinjection, 0);
+});
+
+test('explicit built-in selectors work when require.main is absent', () => {
+  const script = `
+    const vm = require('node:vm');
+    const fs = require('node:fs');
+    const dynamicCode = fs.readFileSync(${JSON.stringify(path.join(__dirname, '..', 'dynamic_spans.js'))}, 'utf8');
+    const isolatedRequire = (specifier) => require(specifier);
+    isolatedRequire.cache = require.cache;
+    const names = [];
+    const context = vm.createContext({ require: isolatedRequire, process, console, names });
+    context.__OBI_DYNAMIC_SPAN_RULES__ = ${JSON.stringify([
+      { name: 'builtin.exists', reference: 'node:fs:exports.existsSync' },
+    ])};
+    vm.runInContext('globalThis.__obiSpanBridge = { withSpan(name, fn, thisArg, args) { names.push(name); return Reflect.apply(fn, thisArg, args); } }', context);
+    vm.runInContext(dynamicCode.replace('__OBI_DYNAMIC_SPAN_RULES__', 'globalThis.__OBI_DYNAMIC_SPAN_RULES__'), context);
+    const exists = vm.runInContext("require('node:fs').existsSync('/dev/null')", context);
+    process.stdout.write(JSON.stringify({ exists, names, moduleType: vm.runInContext('typeof module', context), requireMain: isolatedRequire.main }));
+  `;
+  const output = execFileSync(process.execPath, ['-e', script], { encoding: 'utf8' });
+  assert.deepStrictEqual(JSON.parse(output), {
+    exists: true,
+    names: ['builtin.exists'],
+    moduleType: 'undefined',
+  });
+});
+
+test('dynamic spans use an SDK registered after a context manager but before invocation', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'context-late-provider');
+  assert.deepStrictEqual(result.spans, [], 'the OBI transport stays inert when an app API copy is reachable');
+  assert.strictEqual(result.appSpans.filter((name) => name === 'dynamic.sync').length, 1);
+  assert.ok(result.appSpans.includes('dynamic.promise-return'));
+});
+
+test('span end failures do not mask dynamic function results or errors', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'app-sdk-end-throws');
+  assert.deepStrictEqual(result.values, [2, 4]);
+  assert.strictEqual(result.thrown, 'expected failure');
+  assert.strictEqual(result.late, 'late');
+  assert.strictEqual(result.callable, 'callable nested');
+  assert.strictEqual(result.diagnostics.length, 0, 'unmatched selectors should not warn');
+  assert.ok(result.diagnostics.every((diagnostic) => diagnostic.code === 'OBI_DYNAMIC_SPAN_TARGET'));
 });
 
 test('mixed reachable + unreachable copies: registry-appearance drives the handoff', () => {

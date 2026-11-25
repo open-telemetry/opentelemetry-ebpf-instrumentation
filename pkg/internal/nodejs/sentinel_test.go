@@ -23,7 +23,7 @@ import (
 var (
 	throwingProbe = regexp.MustCompile(`\b(accessSync|statSync|lstatSync|realpathSync|opendirSync|readlinkSync)\s*\(`)
 	dynamicFS     = regexp.MustCompile(`\bfs\s*\[`)
-	sentinelEmit  = regexp.MustCompile(`fs\.([A-Za-z0-9_]+)\s*\(\s*(?:` + "`" + `/dev/null/obi|'/dev/null/obi|"/dev/null/obi|SENTINEL_PREFIX)`)
+	sentinelEmit  = regexp.MustCompile(`(?:fs\.([A-Za-z0-9_]+)|bridgeExistsSync)\s*\(\s*(?:` + "`" + `/dev/null/obi|'/dev/null/obi|"/dev/null/obi|SENTINEL_PREFIX)`)
 )
 
 func TestAgentScriptsUseNonThrowingSentinel(t *testing.T) {
@@ -35,8 +35,13 @@ func TestAgentScriptsUseNonThrowingSentinel(t *testing.T) {
 		require.NotEmpty(t, emits, "%s: no sentinel emit found at all", name)
 
 		for _, m := range emits {
-			require.Equal(t, "existsSync", m[1],
-				"%s: the sentinel is emitted with fs.%s, which throws", name, m[1])
+			if m[1] != "" {
+				require.Equal(t, "existsSync", m[1],
+					"%s: the sentinel is emitted with fs.%s, which throws", name, m[1])
+			}
+		}
+		if name == "spanbridge.js" {
+			require.Contains(t, code, "const bridgeExistsSync = fs.existsSync;")
 		}
 
 		require.NotRegexp(t, throwingProbe, code,

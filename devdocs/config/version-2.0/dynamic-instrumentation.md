@@ -22,6 +22,19 @@ unsupported target combinations before claiming support. Capture selectors
 continue to use the semantics of the corresponding Config v2 selector; they
 do not change the target-value syntax.
 
+Function selectors should be as simple as possible: start with the target
+information you know, then add qualifiers only when the selector matches more
+functions than intended. Discovery, globbing, and available qualifiers are
+runtime-specific; consult the runtime reference before relying on them.
+
+A `function` span measures one function invocation: it ends when the function
+returns or throws. If the function starts asynchronous work and returns before
+that work completes, the function span does not extend to the asynchronous
+completion. Instrumentation that owns the asynchronous operation, or the
+application itself, can create a separate span for that work. This policy
+applies to dynamic function spans; it does not define the lifecycle of
+application-created spans or protocol spans.
+
 Each `attributes` entry names a span attribute and has an `argument` object.
 `argument.index` selects the zero-based source argument (0 through 11), and
 optional `argument.type` describes that same argument using an OBI-defined
