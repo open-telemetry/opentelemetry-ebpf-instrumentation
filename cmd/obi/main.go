@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 
@@ -35,11 +34,8 @@ const (
 	configVersionV2 = configload.VersionV2
 )
 
-// configPathEnv holds a list of configuration files, separated like PATH, with higher priority
-// than the -config flags.
 const configPathEnv = "OTEL_EBPF_CONFIG_PATH"
 
-// configPaths collects the paths of the repeatable -config flag.
 type configPaths []string
 
 func (p *configPaths) String() string {
@@ -52,8 +48,15 @@ func (p *configPaths) Set(path string) error {
 }
 
 // configFilePaths returns the configuration files in increasing order of priority.
-func configFilePaths(flagPaths []string, envPaths string) []string {
-	paths := slices.Clone(flagPaths)
+func configFilePaths(base, envBase string, overrides []string, envPaths string) []string {
+	if envBase != "" {
+		base = envBase
+	}
+	var paths []string
+	if base != "" {
+		paths = append(paths, base)
+	}
+	paths = append(paths, overrides...)
 	for _, path := range filepath.SplitList(envPaths) {
 		if path != "" {
 			paths = append(paths, path)
@@ -92,11 +95,13 @@ func main() {
 	lvl := slog.LevelVar{}
 	lvl.Set(slog.LevelInfo)
 
-	var flagPaths configPaths
-	flag.Var(&flagPaths, "config", "path to a configuration file; repeat it to override the previous files")
+	base := flag.String("config", "", "path to the configuration file")
+	var overrides configPaths
+	flag.Var(&overrides, "config-override", "path to an override file (repeatable)")
 	flag.Parse()
 
-	config, configVersion, configSources := loadConfig(configFilePaths(flagPaths, os.Getenv(configPathEnv)))
+	paths := configFilePaths(*base, os.Getenv(configPathEnv), overrides, os.Getenv("OTEL_EBPF_CONFIG_PATHS"))
+	config, configVersion, configSources := loadConfig(paths)
 	if err := lvl.UnmarshalText([]byte(config.LogLevel)); err != nil {
 		slog.Error("unknown log level specified, choices are [DEBUG, INFO, WARN, ERROR]", "error", err)
 		os.Exit(-1)

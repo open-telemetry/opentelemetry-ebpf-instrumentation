@@ -152,16 +152,41 @@ extensions:
 	require.Equal(t, "trace-token", headers["authorization"])
 }
 
-func TestLoadSourcesCannotResetDefaults(t *testing.T) {
-	cfg, _, err := LoadSources(sources(`
-channel_buffer_len: 111
-`, `
-channel_buffer_len: 50
-`))
+func TestLoadSourcesExplicitDefaultWins(t *testing.T) {
+	v1Base := "channel_buffer_len: 111"
+	v2Base := v2Header + "    capture: {channels: {buffer_len: 111}}"
+	v1Reset := "channel_buffer_len: 50"
+	v2Reset := v2Header + "    capture: {channels: {buffer_len: 50}}"
+	for name, files := range map[string][]string{
+		"v1":          {v1Base, v1Reset},
+		"v2":          {v2Base, v2Reset},
+		"v1 over v2":  {v2Base, v1Reset},
+		"v2 over v1":  {v1Base, v2Reset},
+		"alternating": {v1Base, v2Base, v1Reset},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, _, err := LoadSources(sources(files...))
+			require.NoError(t, err)
+			require.Equal(t, obi.DefaultConfig.ChannelBufferLen, cfg.ChannelBufferLen)
+		})
+	}
+}
 
+func TestLoadSourcesPreservesOmittedScalar(t *testing.T) {
+	cfg, _, err := LoadSources(sources("service_name: 001", "log_level: DEBUG"))
 	require.NoError(t, err)
-	require.Equal(t, 50, obi.DefaultConfig.ChannelBufferLen, "the test sets the default value")
-	require.Equal(t, 111, cfg.ChannelBufferLen, "a value equal to the default does not override")
+	require.Equal(t, "001", cfg.ServiceName)
+}
+
+func TestLoadSourcesRejectsIncompatibleSetting(t *testing.T) {
+	for _, tc := range []struct{ base, overlay, path string }{
+		{"log_format: json", v2Header + "    capture: {instrumentation: {http: {enabled: {metrics: false}}}}", "extensions.obi.capture.instrumentation.http.enabled.metrics"},
+		{v2Header, "attributes: {select: {'*': {include: [http.route]}}}", "attributes.select"},
+	} {
+		cfg, _, err := LoadSources(sources(tc.base, tc.overlay))
+		require.Nil(t, cfg)
+		require.ErrorContains(t, err, "b.yml: "+tc.path)
+	}
 }
 
 func TestLoadSourcesReportsFailingSource(t *testing.T) {

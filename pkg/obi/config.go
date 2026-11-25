@@ -1136,6 +1136,19 @@ func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {
 // 2 - Contents of the provided file reader (nillable)
 // 3 - Environment variables
 func LoadConfig(file io.Reader) (*Config, error) {
+	if file == nil {
+		return LoadConfigYAML(nil)
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("reading YAML configuration: %w", err)
+	}
+	return LoadConfigYAML(config.ReplaceEnv(data))
+}
+
+// LoadConfigYAML loads legacy YAML whose environment references have already been expanded.
+// Legacy environment overrides still take precedence over the supplied document.
+func LoadConfigYAML(data []byte) (*Config, error) {
 	cfg := DefaultConfig
 	// Deep-copy pointer fields so YAML/env unmarshal cannot mutate DefaultConfig through shared pointers.
 	if cfg.Routes != nil {
@@ -1145,14 +1158,8 @@ func LoadConfig(file io.Reader) (*Config, error) {
 		nrCopy := *cfg.NameResolver
 		cfg.NameResolver = &nrCopy
 	}
-	if file != nil {
-		cfgBuf, err := io.ReadAll(file)
-		if err != nil {
-			return nil, fmt.Errorf("reading YAML configuration: %w", err)
-		}
-		// replaces environment variables in YAML file
-		cfgBuf = config.ReplaceEnv(cfgBuf)
-		if err := yaml.Unmarshal(cfgBuf, &cfg); err != nil {
+	if len(data) != 0 {
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return nil, fmt.Errorf("parsing YAML configuration: %w", err)
 		}
 	}

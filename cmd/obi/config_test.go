@@ -546,27 +546,12 @@ extensions:
 }
 
 func TestConfigFilePaths(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		flagPaths []string
-		envPaths  string
-		want      []string
-	}{
-		{name: "none"},
-		{name: "flags only", flagPaths: []string{"low.yml", "high.yml"}, want: []string{"low.yml", "high.yml"}},
-		{name: "env only", envPaths: "low.yml:high.yml", want: []string{"low.yml", "high.yml"}},
-		{name: "env keeps commas and spaces", envPaths: "/etc/obi/a,b.yml: c.yml", want: []string{"/etc/obi/a,b.yml", " c.yml"}},
-		{
-			name:      "env has higher priority than flags",
-			flagPaths: []string{"flag1.yml", "flag2.yml"},
-			envPaths:  "env1.yml::env2.yml:",
-			want:      []string{"flag1.yml", "flag2.yml", "env1.yml", "env2.yml"},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, configFilePaths(tc.flagPaths, tc.envPaths))
-		})
-	}
+	require.Empty(t, configFilePaths("", "", nil, ""))
+	require.Equal(t, []string{"base.yml"}, configFilePaths("base.yml", "", nil, ""))
+	require.Equal(t, []string{"prod:west.yml"}, configFilePaths("missing.yml", "prod:west.yml", nil, ""))
+	require.Equal(t, []string{"prod.yml", "a.yml", "b.yml", "team.yml", "local.yml"},
+		configFilePaths("missing.yml", "prod.yml", []string{"a.yml", "b.yml"}, "team.yml::local.yml:"))
+	require.Equal(t, []string{"team.yml"}, configFilePaths("", "", nil, "team.yml"))
 }
 
 func TestLoadConfigOverridesInOrder(t *testing.T) {

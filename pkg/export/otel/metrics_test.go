@@ -1594,12 +1594,12 @@ func TestSpanMetrics_V2AttributeSelection(t *testing.T) {
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:                50 * time.Millisecond,
-		MetricsProtocol:         otelcfg.ProtocolHTTPProtobuf,
-		TTL:                     30 * time.Minute,
-		ReportersCacheLen:       100,
-		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
-		MetricsExport:           testMetricsConsumer(metricRecords),
+		Interval:          50 * time.Millisecond,
+		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 100,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 	selection := attributes.Selection{
 		"traces.span.metrics.duration": {Include: []string{"deployment.environment"}},

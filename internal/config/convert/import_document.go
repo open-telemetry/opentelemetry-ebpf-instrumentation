@@ -48,7 +48,7 @@ func DocumentToRuntime(src *schema.Document) (*obi.Config, error) {
 	if err := applyV2Resource(cfg, src.Resource); err != nil {
 		return nil, err
 	}
-	if err := applyV2TracerProvider(cfg, src.TracerProvider); err != nil {
+	if err := ApplyTracerProvider(cfg, src.TracerProvider); err != nil {
 		return nil, err
 	}
 	if err := applyV2MeterProvider(cfg, src.MeterProvider); err != nil {
@@ -176,7 +176,8 @@ func applyV2Resource(cfg *obi.Config, resource *otelconfx.Resource) error {
 	return nil
 }
 
-func applyV2TracerProvider(cfg *obi.Config, provider *otelconfx.TracerProvider) error {
+// ApplyTracerProvider imports the explicitly configured standalone trace provider settings.
+func ApplyTracerProvider(cfg *obi.Config, provider *otelconfx.TracerProvider) error {
 	if provider == nil {
 		return nil
 	}
