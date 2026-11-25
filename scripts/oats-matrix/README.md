@@ -1,8 +1,8 @@
 # OATS test matrix
 
 `oats-matrix` builds the JSON matrix used by the OATS integration-test
-workflow. It splits selected suites into two shards while keeping cases that
-need the same fixture together, so each shard can run independently.
+workflow. It splits selected suites into several shards while keeping cases
+that need the same fixture together, so each shard can run independently.
 
 ## How sharding works
 
@@ -13,11 +13,11 @@ explicit fixture share OATS's implicit fixture. Relative fixture paths are
 scoped to the case directory, so equal relative paths in different directories
 are not treated as the same fixture.
 
-The `ai`, `http`, `kafka`, and `sql` suites are split into two shards when they
-have more than one distinct fixture group. Whole groups are assigned
-deterministically, largest first, to the shard with the fewest cases so far.
-Other suites, and suites with only one group, remain a single shard. Each case
-appears once in the resulting matrix.
+The `http` suite is split into three shards, and the `ai`, `kafka`, and `sql`
+suites into two, but never into more shards than they have distinct fixture
+groups. Whole groups are assigned deterministically, largest first, to the
+shard with the fewest cases so far. Other suites, and suites with only one
+group, remain a single shard. Each case appears once in the resulting matrix.
 
 ## Run it
 
