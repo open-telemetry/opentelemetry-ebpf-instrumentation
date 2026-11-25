@@ -6,13 +6,10 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
+#include <common/barrier.h>
 #include <common/pin_internal.h>
 #include <common/usdt_types.h>
 #include <pid/pid.h>
-
-#ifndef barrier_var
-#define barrier_var(var) asm volatile("" : "+r"(var))
-#endif
 
 #include <common/maps/obi_usdt_ip_to_spec_id.h>
 #include <common/maps/obi_usdt_specs.h>

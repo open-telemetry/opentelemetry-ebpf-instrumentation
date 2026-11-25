@@ -14,6 +14,7 @@
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/event_defs.h>
+#include <common/go_goroutine.h>
 #include <common/http_types.h>
 #include <common/http_trace_parent.h>
 #include <common/large_buffers.h>
@@ -43,6 +44,7 @@
 
 #include <maps/active_ssl_connections.h>
 #include <maps/connection_tracker.h>
+#include <maps/go_trace_map.h>
 #include <maps/ongoing_http.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tp_char_buf_mem.h>

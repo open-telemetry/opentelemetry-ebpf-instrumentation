@@ -9,11 +9,11 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
+#include <common/barrier.h>
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/large_buffers.h>
 #include <common/ringbuf.h>
-#include <common/usdt.h>
 
 #include <generictracer/maps/protocol_cache.h>
 #include <generictracer/protocol_common.h>

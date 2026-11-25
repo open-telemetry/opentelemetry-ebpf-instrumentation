@@ -7,18 +7,18 @@
 #include <bpfcore/utils.h>
 
 #include <common/event_defs.h>
+#include <common/go_goroutine.h>
 #include <common/runtime.h>
 #include <common/rust_task.h>
 #include <common/trace_key.h>
 #include <common/tracing.h>
 
 #include <maps/cp_support_connect_info.h>
+#include <maps/go_trace_map.h>
 #include <maps/incoming_trace_map.h>
 #include <maps/java_vt_threads.h>
 #include <maps/outgoing_trace_map.h>
 #include <maps/server_traces.h>
-
-#include <gotracer/go_common.h>
 
 #include <shared/obi_ctx.h>
 

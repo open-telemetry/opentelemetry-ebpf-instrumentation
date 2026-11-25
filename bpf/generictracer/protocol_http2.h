@@ -8,6 +8,7 @@
 
 #include <common/globals.h>
 #include <common/h2_defs.h>
+#include <common/http2_conn_info_data.h>
 #include <common/iov_iter.h>
 #include <common/preempt_guard.h>
 #include <common/scratch_mem.h>
@@ -23,7 +24,6 @@
 #include <generictracer/http2_grpc.h>
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>
-#include <generictracer/types/http2_conn_info_data.h>
 
 #include <generictracer/maps/grpc_frames_ctx_mem.h>
 #include <generictracer/maps/h2_cut_frames.h>
