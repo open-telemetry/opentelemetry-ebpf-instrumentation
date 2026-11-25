@@ -37,7 +37,7 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_read, void *ssl, const void *buf, int num)
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe SSL_read id=%d ssl=%llx ===", id, ssl);
+    bpf_dbg_printk("=== uprobe SSL_read id=%d, ssl=%llx ===", id, ssl);
 
     const pid_ptr_key_t ssl_key = pid_ptr_key(pid_from_pid_tgid(id), ssl);
     ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl_key);
@@ -93,7 +93,7 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_read_ex,
         return 0;
     }
 
-    bpf_dbg_printk("=== SSL_read_ex id=%d ssl=%llx ===", id, ssl);
+    bpf_dbg_printk("=== SSL_read_ex id=%d, ssl=%llx ===", id, ssl);
 
     const pid_ptr_key_t ssl_key = pid_ptr_key(pid_from_pid_tgid(id), ssl);
     ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl_key);
@@ -163,7 +163,7 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_write, void *ssl, const void *buf, int num
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe SSL_write id=%d ssl=%llx ===", id, ssl);
+    bpf_dbg_printk("=== uprobe SSL_write id=%d, ssl=%llx ===", id, ssl);
 
     ssl_args_t args = {};
     args.buf = (u64)buf;
@@ -185,7 +185,7 @@ int BPF_URETPROBE_GUARDED(obi_uretprobe_ssl_write, int ret) {
 
     ssl_args_t *args = bpf_map_lookup_elem(&active_ssl_write_args, &id);
 
-    bpf_dbg_printk("=== uretprobe SSL_write id=%d args %llx ===", id, args);
+    bpf_dbg_printk("=== uretprobe SSL_write id=%d, args=%llx ===", id, args);
 
     if (args) {
         ssl_args_t saved = {};
@@ -213,7 +213,7 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_write_ex,
         return 0;
     }
 
-    bpf_dbg_printk("=== SSL_write_ex id=%d ssl=%llx ===", id, ssl);
+    bpf_dbg_printk("=== SSL_write_ex id=%d, ssl=%llx ===", id, ssl);
 
     ssl_args_t args = {};
     args.buf = (u64)buf;
@@ -243,7 +243,7 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_write_ex2,
         return 0;
     }
 
-    bpf_dbg_printk("=== SSL_write_ex2 id=%d ssl=%llx ===", id, ssl);
+    bpf_dbg_printk("=== SSL_write_ex2 id=%d, ssl=%llx ===", id, ssl);
 
     ssl_args_t args = {};
     args.buf = (u64)buf;
@@ -266,7 +266,7 @@ int BPF_URETPROBE_GUARDED(obi_uretprobe_ssl_write_ex, int ret) {
 
     ssl_args_t *args = bpf_map_lookup_elem(&active_ssl_write_args, &id);
 
-    bpf_dbg_printk("=== uretprobe SSL_write_ex id=%d args %llx ===", id, args);
+    bpf_dbg_printk("=== uretprobe SSL_write_ex id=%d, args=%llx ===", id, args);
 
     if (ret != 1 || !args) {
         bpf_map_delete_elem(&active_ssl_write_args, &id);
@@ -295,7 +295,7 @@ int BPF_URETPROBE_GUARDED(obi_uretprobe_ssl_write_ex2, int ret) {
 
     ssl_args_t *args = bpf_map_lookup_elem(&active_ssl_write_args, &id);
 
-    bpf_dbg_printk("=== uretprobe SSL_write_ex2 id=%d args %llx ===", id, args);
+    bpf_dbg_printk("=== uretprobe SSL_write_ex2 id=%d, args=%llx ===", id, args);
 
     if (ret != 1 || !args) {
         bpf_map_delete_elem(&active_ssl_write_args, &id);
@@ -324,7 +324,7 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_shutdown, void *s) {
         return 0;
     }
 
-    bpf_dbg_printk("=== SSL_shutdown id=%d ssl=%llx ===", id, s);
+    bpf_dbg_printk("=== SSL_shutdown id=%d, ssl=%llx ===", id, s);
 
     ssl_release_connection_state(id, s);
     ssl_release_thread_state(id);
@@ -350,8 +350,8 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_set_bio, void *ssl, void *rbio, void *wbio
 
     // Split in two: bpf_trace_printk takes at most three arguments, and clang
     // silently switches to bpf_trace_vprintk beyond that, which needs 5.16.
-    bpf_dbg_printk("=== SSL_set_bio id=%d ssl=%llx ===", id, ssl);
-    bpf_dbg_printk("SSL_set_bio rbio=%llx wbio=%llx", rbio, wbio);
+    bpf_dbg_printk("=== SSL_set_bio id=%d, ssl=%llx ===", id, ssl);
+    bpf_dbg_printk("SSL_set_bio rbio=%llx, wbio=%llx", rbio, wbio);
 
     ssl_bios_track(pid_from_pid_tgid(id), ssl, rbio, wbio);
 
@@ -372,7 +372,7 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_free, void *ssl) {
         return 0;
     }
 
-    bpf_dbg_printk("=== SSL_free id=%d ssl=%llx ===", id, ssl);
+    bpf_dbg_printk("=== SSL_free id=%d, ssl=%llx ===", id, ssl);
 
     // Node can free an SSL without shutting it down first, so this is the
     // reliable release point. Only SSL-keyed state goes here: this thread may

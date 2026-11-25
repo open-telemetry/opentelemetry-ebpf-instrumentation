@@ -30,7 +30,8 @@ func TestDotnetExceptions(t *testing.T) {
 		Service: svc.Attrs{SDKLanguage: svc.InstrumentableDotnet, Features: export.FeatureApplicationRuntime},
 	}
 	publish := func(count uint64) {
-		snapshot.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{Exceptions: map[string]uint64{"Failure": count}}
+		snapshot.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+		snapshot.DotnetExceptions = map[string]uint64{"Failure": count, "Other": 2 * count}
 		recordRuntimeMetrics(t.Context(), &metrics, snapshot)
 	}
 	publish(2)
@@ -47,11 +48,14 @@ func TestDotnetExceptions(t *testing.T) {
 	snapshot.Removed = false
 	publish(2)
 	points := collectGoRuntimeInt64Points(t, reader, attributes.DotnetExceptions.OTEL)
-	require.Len(t, points, 1)
-	require.Equal(t, int64(12), points[0].Value)
-	label, ok := points[0].Attributes.Value(attribute.Key("error.type"))
-	require.True(t, ok)
-	require.Equal(t, "Failure", label.AsString())
+	require.Len(t, points, 2)
+	counts := map[string]int64{}
+	for _, point := range points {
+		label, ok := point.Attributes.Value(attribute.Key("error.type"))
+		require.True(t, ok)
+		counts[label.AsString()] = point.Value
+	}
+	require.Equal(t, map[string]int64{"Failure": 12, "Other": 24}, counts)
 }
 
 func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {

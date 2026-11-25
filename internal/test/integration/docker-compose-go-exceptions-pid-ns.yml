@@ -1,0 +1,5 @@
+# OBI joins the fixture's PID namespace, as on a node that is itself a
+# container: the PIDs it reads from /proc differ from the kernel's.
+services:
+  obi:
+    pid: "service:default"

@@ -622,6 +622,9 @@ extensions:
 
       metrics:
         features: [application]
+        # Export the target.info and traces.target.info metrics.
+        target_info:
+          enabled: true
 
       # telemetry tunes reporter caches and metric TTLs for OBI capture internals.
       telemetry:

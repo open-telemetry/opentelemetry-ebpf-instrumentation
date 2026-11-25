@@ -236,7 +236,7 @@ func detectGenericProtocol(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, e
 		return span, ignore, matched, err
 	}
 
-	if span, ignore, matched, err := matchCouchbase(parseCtx, event, requestBuffer, responseBuffer); matched {
+	if span, ignore, matched, err := matchCouchbase(parseCtx, cfg, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
 	}
 
@@ -267,8 +267,28 @@ func matchPostgresStartup(parseCtx *EBPFParseContext, event *TCPRequestInfo, req
 	return request.Span{}, false, false, nil
 }
 
+func matchMySQLConnState(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+	if parseCtx.mysqlConns == nil {
+		return request.Span{}, false, false, nil
+	}
+
+	if trackMySQLConnState(parseCtx, event.ConnInfo, requestBuffer, skipMySQLNoResponseCommands(requestBuffer, nil), responseBuffer) {
+		return request.Span{}, true, true, nil
+	}
+
+	if trackMySQLConnState(parseCtx, reverseTCPConnInfo(event.ConnInfo), responseBuffer, skipMySQLNoResponseCommands(responseBuffer, nil), requestBuffer) {
+		return request.Span{}, true, true, nil
+	}
+
+	return request.Span{}, false, false, nil
+}
+
 func matchSQL(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
 	if span, ignore, matched, err := matchPostgresStartup(parseCtx, event, requestBuffer, responseBuffer); matched {
+		return span, ignore, matched, err
+	}
+
+	if span, ignore, matched, err := matchMySQLConnState(parseCtx, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
 	}
 
@@ -276,8 +296,11 @@ func matchSQL(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequ
 
 	if validSQL(op, len(tables) > 0, kind) {
 		span := TCPToSQLToSpan(event, op, tables, sql, kind, "", nil)
-		if kind == request.DBPostgres {
+		switch kind {
+		case request.DBPostgres:
 			span.DBNamespace = postgresNamespaceForConn(parseCtx, event.ConnInfo)
+		case request.DBMySQL:
+			setMySQLConnAttributes(parseCtx, event.ConnInfo, &span)
 		}
 		return span, false, true, nil
 	}
@@ -287,8 +310,11 @@ func matchSQL(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequ
 	if validSQL(op, len(tables) > 0, kind) {
 		reverseTCPEvent(event)
 		span := TCPToSQLToSpan(event, op, tables, sql, kind, "", nil)
-		if kind == request.DBPostgres {
+		switch kind {
+		case request.DBPostgres:
 			span.DBNamespace = postgresNamespaceForConn(parseCtx, event.ConnInfo)
+		case request.DBMySQL:
+			setMySQLConnAttributes(parseCtx, event.ConnInfo, &span)
 		}
 		return span, false, true, nil
 	}
@@ -312,9 +338,9 @@ func matchMongo(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer
 	return request.Span{}, false, false, nil
 }
 
-func matchCouchbase(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+func matchCouchbase(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
 	// Check for Couchbase memcached binary protocol
-	cbInfo, ignore, err := ProcessPossibleCouchbaseEvent(event, requestBuffer, responseBuffer, parseCtx.couchbaseBucketCache)
+	cbInfo, ignore, err := processPossibleCouchbaseEvent(event, requestBuffer, responseBuffer, parseCtx.couchbaseBucketCache, cfg.SanitizeDBQueryText)
 
 	if err == nil {
 		if ignore {

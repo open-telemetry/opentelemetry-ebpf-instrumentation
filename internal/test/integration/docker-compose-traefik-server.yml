@@ -1,6 +1,6 @@
 services:
   traefik-validation:
-    image: traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
+    image: traefik:v3.8.0@sha256:cd3078e07dfe0c551b1df6fca2697c52f35da0a18c7bd81da4d3b1f012405098
     command:
       - --entrypoints.web.address=:8080
       - --entrypoints.websecure.address=:8443

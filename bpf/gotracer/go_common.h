@@ -92,6 +92,7 @@ struct {
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
     __type(value, connection_info_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_client_connections SEC(".maps");
 
 struct {
@@ -107,6 +108,7 @@ struct {
     __type(key, go_addr_key_t); // key: goroutine
     __type(value, void *);      // the transport *
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_grpc_operate_headers SEC(".maps");
 
 typedef struct grpc_transports {
@@ -122,6 +124,7 @@ struct {
     __type(key, void *); // key: pointer to the transport pointer
     __type(value, grpc_transports_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_grpc_transports SEC(".maps");
 
 #define SQL_CONN_TYPE_DATABASE_SQL 0 // database/sql (mysql, pq)
@@ -142,6 +145,7 @@ struct {
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
     __type(value, sql_func_invocation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_sql_queries SEC(".maps");
 
 typedef struct grpc_header_field {

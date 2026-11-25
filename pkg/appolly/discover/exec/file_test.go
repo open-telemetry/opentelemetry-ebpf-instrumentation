@@ -67,6 +67,26 @@ func TestApplyEnvVariables(t *testing.T) {
 			expectMeta: map[attr.Name]string{},
 		},
 		{
+			name:       "Percent-encoded dollar signs are literal values",
+			envVars:    map[string]string{"OTEL_RESOURCE_ATTRIBUTES": "service.name=%24payments,service.namespace=%24ns,team=%24core"},
+			expectName: "$payments",
+			expectNS:   "$ns",
+			expectMeta: map[attr.Name]string{"service.name": "$payments", "service.namespace": "$ns", "team": "$core"},
+		},
+		{
+			name:       "Percent-encoded substitution syntax is a literal value",
+			envVars:    map[string]string{"OTEL_RESOURCE_ATTRIBUTES": "service.name=%24%28payments%29,service.namespace=%24%7Bns%7D"},
+			expectName: "$(payments)",
+			expectNS:   "${ns}",
+			expectMeta: map[attr.Name]string{"service.name": "$(payments)", "service.namespace": "${ns}"},
+		},
+		{
+			name:       "Percent-encoded values are decoded",
+			envVars:    map[string]string{"OTEL_RESOURCE_ATTRIBUTES": "service.name=order%20api,team=payments%20core"},
+			expectName: "order api",
+			expectMeta: map[attr.Name]string{"service.name": "order api", "team": "payments core"},
+		},
+		{
 			name: "Pre-set metadata is preserved over env resource attributes",
 			envVars: map[string]string{
 				"OTEL_RESOURCE_ATTRIBUTES": "deployment.environment=prod,custom.attr=from-env",

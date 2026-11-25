@@ -77,10 +77,10 @@ func testSessionManagerExceptionStreamFailure(t *testing.T, metricsSessionID str
 			}()
 			totals := cumulativeSessionTotals{exceptions: map[string]uint64{"Failure": 10}}
 			base := totals
-			var snapshots []*runtimemetrics.DotnetRuntimeMetricSnapshot
+			var snapshots []*runtimeSnapshot
 			manager := NewSessionManager(t.Context(), time.Second, time.Second, nil)
 			err := manager.readSession(t.Context(), &eventPipeSession{id: 42, socketPath: path, stream: stream, metricsSessionID: metricsSessionID}, 15, &exceptionTypes{},
-				func(_ context.Context, snapshot *runtimemetrics.DotnetRuntimeMetricSnapshot) error {
+				func(_ context.Context, snapshot *runtimeSnapshot) error {
 					if err := totals.merge(base, snapshot); err != nil {
 						return err
 					}
@@ -102,7 +102,7 @@ func testSessionManagerExceptionStreamFailure(t *testing.T, metricsSessionID str
 				require.Len(t, snapshots, 1)
 				require.Equal(t, 10+delta, totals.exceptions["Failure"], "the unfinished interval must not advance retained totals")
 			}
-			require.Equal(t, 10+delta, snapshots[0].Exceptions["Failure"])
+			require.Equal(t, 10+delta, snapshots[0].exceptions["Failure"])
 			require.Equal(t, uint64(10), base.exceptions["Failure"])
 		})
 	}
@@ -172,18 +172,18 @@ func TestSessionManagerReadSessionFinalCollection(t *testing.T) {
 			if tc.cancel {
 				cancel()
 			}
-			queue := msg.NewQueue[*runtimemetrics.DotnetRuntimeMetricSnapshot](msg.ChannelBufferLen(1))
+			queue := msg.NewQueue[*runtimeSnapshot](msg.ChannelBufferLen(1))
 			delivered := queue.Subscribe(msg.SubscriberName("final-collection"))
 			if tc.blocked {
 				queue.Send(nil)
 			}
 			const cleanupTimeout = 100 * time.Millisecond
 			manager := NewSessionManager(t.Context(), time.Second, cleanupTimeout, nil)
-			var snapshots []*runtimemetrics.DotnetRuntimeMetricSnapshot
+			var snapshots []*runtimeSnapshot
 			var deliveryErr error
 			started := time.Now()
 			err := manager.readSession(ctx, &eventPipeSession{id: 42, socketPath: path, stream: stream}, 15, &exceptionTypes{},
-				func(publishCtx context.Context, snapshot *runtimemetrics.DotnetRuntimeMetricSnapshot) error {
+				func(publishCtx context.Context, snapshot *runtimeSnapshot) error {
 					snapshots = append(snapshots, snapshot)
 					queue.SendCtx(publishCtx, snapshot)
 					deliveryErr = publishCtx.Err()
@@ -249,7 +249,7 @@ func TestSessionManagerReadSessionCancellation(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- sessionManager.readSession(ctx, &eventPipeSession{id: sessionID, socketPath: path, stream: stream}, 1, &exceptionTypes{},
-			func(context.Context, *runtimemetrics.DotnetRuntimeMetricSnapshot) error {
+			func(context.Context, *runtimeSnapshot) error {
 				return errors.New("silent stream unexpectedly produced a snapshot")
 			})
 	}()

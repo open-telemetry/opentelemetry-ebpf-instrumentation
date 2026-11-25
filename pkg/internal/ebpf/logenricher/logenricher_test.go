@@ -69,13 +69,33 @@ func TestRingbufMetrics(t *testing.T) {
 	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["ringbuf_write_stats_storage"].Pinning)
 }
 
+func TestLogPipesMapUsesNoPrealloc(t *testing.T) {
+	const bpfFlagNoPrealloc uint32 = 1
+
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	m, ok := spec.Maps["log_pipes"]
+	require.True(t, ok)
+	assert.Equal(t, ebpf.Hash, m.Type)
+	assert.NotZero(t, m.Flags&bpfFlagNoPrealloc)
+}
+
 func TestRingbufMetricsConstant(t *testing.T) {
 	tracer := &Tracer{cfg: &obi.Config{}, metrics: imetrics.NoopReporter{}}
 	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
 
 	tracer.metrics = struct{ imetrics.NoopReporter }{}
+	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+
+	tracer.metrics = bpfMetricsReporter{}
 	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
 }
+
+// bpfMetricsReporter collects the BPF internal metrics, so it turns the ring buffer accounting on.
+type bpfMetricsReporter struct{ imetrics.NoopReporter }
+
+func (bpfMetricsReporter) BpfInternalMetricsScrapeInterval() time.Duration { return time.Second }
 
 func TestAllowPIDFollowsLogEnricherSelection(t *testing.T) {
 	tr := newTestTracer(t, false)

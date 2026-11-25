@@ -348,49 +348,49 @@ func TestSQLParseError(t *testing.T) {
 	}
 }
 
-func TestSQLParseStatementID(t *testing.T) {
+func TestSQLParseUseDatabase(t *testing.T) {
 	tests := []struct {
-		name     string
-		dbKind   request.SQLKind
-		buf      []byte
-		expected uint32
+		query    string
+		expected string
+		notUse   bool
 	}{
-		{
-			name:     "MySQL valid statement ID",
-			dbKind:   request.DBMySQL,
-			buf:      []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x1, 0x2, 0x3, 0x4},
-			expected: 0x4030201,
-		},
-		{
-			name:     "MySQL empty buffer",
-			dbKind:   request.DBMySQL,
-			buf:      []byte{},
-			expected: 0,
-		},
-		{
-			name:     "MySQL truncated packet (1 byte)",
-			dbKind:   request.DBMySQL,
-			buf:      []byte{0x01},
-			expected: 0,
-		},
-		{
-			name:     "MySQL truncated packet (5 bytes)",
-			dbKind:   request.DBMySQL,
-			buf:      []byte{0x01, 0x02, 0x03, 0x04, 0x05},
-			expected: 0,
-		},
-		{
-			name:     "MySQL truncated packet (7 bytes)",
-			dbKind:   request.DBMySQL,
-			buf:      []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07},
-			expected: 0,
-		},
+		{query: "USE orders", expected: "orders"},
+		{query: "use orders;", expected: "orders"},
+		{query: "  USE orders ;  \n", expected: "orders"},
+		{query: "/* app */ USE `my orders`;", expected: "my orders"},
+		{query: "USE status", expected: "status"},
+		{query: "use json;", expected: "json"},
+		{query: "USE date", expected: "date"},
+		{query: "USE values", expected: "values"},
+		{query: "USE `select`", expected: "select"},
+		{query: "USE Orders", expected: "Orders"},
+		{query: "USE données", expected: "données"},
+		{query: "USE données;", expected: "données"},
+		{query: "USE 日本", expected: "日本"},
+		{query: "USE /* c */ orders", expected: "orders"},
+		{query: "USE 1abc", expected: "1abc"},
+		{query: "USE a$b", expected: "a$b"},
+		{query: "USE `a``b`", expected: "a`b"},
+		{query: "USE a😀"},
+		{query: "USE a\xff"},
+		{query: "USE 'orders'"},
+		{query: "USE 123"},
+		{query: "USE ;"},
+		{query: "USE orders extra"},
+		{query: "USE a; USE b"},
+		{query: "USE a; SELECT * FROM t"},
+		{query: "USE orders;;"},
+		{query: "USE"},
+		{query: "SELECT * FROM orders", notUse: true},
+		{query: "/* USE orders */ SELECT 1", notUse: true},
+		{query: "", notUse: true},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := SQLParseStatementID(tt.dbKind, tt.buf)
-			assert.Equal(t, tt.expected, result)
+		t.Run(tt.query, func(t *testing.T) {
+			db, isUse := SQLParseUseDatabase(tt.query)
+			assert.Equal(t, tt.expected, db)
+			assert.Equal(t, !tt.notUse, isUse)
 		})
 	}
 }

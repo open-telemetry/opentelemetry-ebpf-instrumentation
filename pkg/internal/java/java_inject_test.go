@@ -1062,3 +1062,86 @@ func TestJavaInjector_HeaderPropagationRequiresAtomicOwnership(t *testing.T) {
 	injector.cfg.EBPF.ContextPropagation = config.ContextPropagationHeaders
 	require.Empty(t, injector.attachOpts(false), "Java must use the same atomic capability gate as eBPF")
 }
+
+func TestEnsureEmbeddedAgent_TrimmedPlaceholderAndValidBytes(t *testing.T) {
+	oldBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() { embeddedJavaAgentBytes = oldBytes })
+
+	for _, placeholder := range [][]byte{
+		[]byte(javaAgentEmbedPlaceholder),
+		[]byte("  \t" + javaAgentEmbedPlaceholder + "\r\n"),
+	} {
+		embeddedJavaAgentBytes = placeholder
+		err := ensureEmbeddedAgent()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
+	}
+
+	embeddedJavaAgentBytes = []byte("PK\x03\x04valid-jar-bytes")
+	require.NoError(t, ensureEmbeddedAgent())
+}
+
+func TestJavaInjector_LazyAgentVersionParsing(t *testing.T) {
+	t.Run("parses once on first verifyLoadedAgent and caches result", func(t *testing.T) {
+		oldBytes := embeddedJavaAgentBytes
+		t.Cleanup(func() { embeddedJavaAgentBytes = oldBytes })
+
+		embeddedJavaAgentBytes = agentJar(t, agentVersionResource, agentVersionProperty+"=7\n")
+		cfg := &obi.Config{}
+		cfg.Java.Enabled = true
+
+		injector, err := NewJavaInjector(cfg)
+		require.NoError(t, err)
+		require.NotNil(t, injector)
+		assert.Empty(t, injector.agentVersion, "JAR version should not be parsed during NewJavaInjector")
+
+		matching := &propertiesAttacher{response: agentVersionProperty + "=7\n"}
+		require.NoError(t, injector.verifyLoadedAgent(t.Context(), matching, nil, 42, false))
+		assert.Equal(t, 1, matching.calls)
+		assert.Equal(t, "7", injector.agentVersion)
+
+		// Mutating embeddedJavaAgentBytes after the first lookup proves sync.Once caching.
+		embeddedJavaAgentBytes = agentJar(t, agentVersionResource, agentVersionProperty+"=99\n")
+		mismatched := &propertiesAttacher{response: agentVersionProperty + "=6\n"}
+		require.ErrorContains(t, injector.verifyLoadedAgent(t.Context(), mismatched, nil, 42, false), "expected 7")
+		assert.Equal(t, 1, mismatched.calls)
+	})
+
+	t.Run("caches empty version when embedded JAR has no readable version", func(t *testing.T) {
+		oldBytes := embeddedJavaAgentBytes
+		t.Cleanup(func() { embeddedJavaAgentBytes = oldBytes })
+
+		embeddedJavaAgentBytes = agentJar(t, "unrelated.properties", "some.key=3\n")
+		cfg := &obi.Config{}
+		cfg.Java.Enabled = true
+
+		injector, err := NewJavaInjector(cfg)
+		require.NoError(t, err)
+		require.NotNil(t, injector)
+
+		attacher := &propertiesAttacher{response: agentVersionProperty + "=3\n"}
+		require.NoError(t, injector.verifyLoadedAgent(t.Context(), attacher, nil, 42, false))
+		assert.Zero(t, attacher.calls)
+
+		// Subsequent lookups remain cached as "" even if embedded bytes change.
+		embeddedJavaAgentBytes = agentJar(t, agentVersionResource, agentVersionProperty+"=7\n")
+		require.NoError(t, injector.verifyLoadedAgent(t.Context(), attacher, nil, 42, false))
+		assert.Zero(t, attacher.calls)
+	})
+}
+
+func BenchmarkNewJavaInjector(b *testing.B) {
+	cfg := &obi.Config{}
+	cfg.Java.Enabled = true
+
+	b.ReportAllocs()
+	for b.Loop() {
+		injector, err := NewJavaInjector(cfg)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if injector == nil {
+			b.Fatal("expected non-nil injector")
+		}
+	}
+}

@@ -634,6 +634,17 @@ static __always_inline tp_info_pid_t *http1_server_aux_trace(const call_protocol
     return NULL;
 }
 
+// The Tokio task reading the request stored its provisional trace. Hyper dispatches
+// the handler only after the headers, so no spawned task has copied it yet.
+static __always_inline tp_info_pid_t *http1_server_rust_trace(const http_info_t *info) {
+    tp_info_pid_t *context = rust_current_context(bpf_get_current_pid_tgid());
+    if (context && same_http1_span(context->tp.trace_id, context->tp.span_id, &info->tp)) {
+        return context;
+    }
+
+    return NULL;
+}
+
 static __always_inline tp_info_t *http1_server_goroutine_trace(const call_protocol_args_t *args,
                                                                const http_info_t *info) {
     if (args->lw_thread == k_lw_thread_none) {
@@ -699,8 +710,8 @@ static __always_inline void set_http1_connection_trace(const call_protocol_args_
     set_trace_info_for_connection(&args->pid_conn.conn, trace_type, &trace);
 }
 
-// The server's thread, aux and goroutine traces, and its index entry, still
-// carry the trace the request started with.
+// The server's thread, aux, goroutine and Rust task traces, and its index entry,
+// still carry the trace the request started with.
 static __always_inline void inherit_http1_server_traceparent(const call_protocol_args_t *args,
                                                              http_info_t *info,
                                                              unsigned char *header) {
@@ -708,6 +719,7 @@ static __always_inline void inherit_http1_server_traceparent(const call_protocol
     tp_info_pid_t *owner = http_server_thread_trace(info, &owner_key);
     tp_info_pid_t *aux = http1_server_aux_trace(args, info);
     tp_info_t *goroutine_tp = http1_server_goroutine_trace(args, info);
+    tp_info_pid_t *rust_task = http1_server_rust_trace(info);
     unsigned char previous_trace_id[TRACE_ID_SIZE_BYTES];
     __builtin_memcpy(previous_trace_id, info->tp.trace_id, sizeof(previous_trace_id));
 
@@ -727,6 +739,10 @@ static __always_inline void inherit_http1_server_traceparent(const call_protocol
 
     if (goroutine_tp) {
         *goroutine_tp = info->tp;
+    }
+
+    if (rust_task) {
+        rust_task->tp = info->tp;
     }
 
     if (http_server_index_enabled()) {

@@ -129,6 +129,10 @@ To add a new metric, follow these guidelines:
 
 12. Register the metric in the schema registry: add the metric to the `metrics:` list in [schemas/obi/groups/stats/metrics.yaml](../schemas/obi/groups/stats/metrics.yaml).
 
+### `obi_stat_tcp_io_bytes_total` transmit scope
+
+Transmit counts the bytes handed to TCP for sending, at `tcp_sendmsg_locked` and, before kernel 6.5, `do_tcp_sendpages`. These cover sockets in a sockmap with an `sk_msg` program, such as those context propagation tracks, which send through `tcp_bpf_sendmsg` and never reach `tcp_sendmsg`. Kernel TLS records are counted after encryption. Before 6.5 every sendpage path is counted too: `sendfile()`, splice, and in-kernel senders such as NFS, NVMe/TCP, iSCSI, Ceph and ESP-in-TCP, which often send from a kernel worker thread.
+
 ### Known limitations
 
 #### `src.port` of sockets that are already closed
@@ -155,14 +159,22 @@ The metric counts RST segments that the TCP stack sends (`tcp_send_reset`) or ac
 - Resets that abort an established connection with a socket error are counted by both metrics: a received reset, keepalive expiry and `tcp_abort()` also move the socket to `TCP_CLOSE` with an error, which `obi_stat_tcp_failed_connections_total` counts. Application aborts (`close()` with unread data, `SO_LINGER{0}`) leave no error and are counted only here. Do not add the two metrics together.
 - Only resets the stack accepts are counted as received: resets that fail sequence validation, and resets that reach a `TIME_WAIT` socket, are dropped before `tcp_reset()`.
 - Resets sent for ports with no listener are not counted on any kernel, because there is no socket to attribute them to: kernel 6.10 and newer fire `tcp_send_reset` without a socket, and older kernels do not fire it. Older kernels also do not trace resets sent from `TIME_WAIT`, which 6.10 and newer count.
-- When data arrives on a `FIN_WAIT1`/`FIN_WAIT2` socket whose application already shut down reading, the kernel calls `tcp_reset()` on itself and then sends a reset. This single abort is counted once as `receive` and once as `transmit`.
+- When data arrives on a closing socket whose application already shut down reading, the kernel calls `tcp_reset()` on itself and then sends a reset. A `kprobe` on `tcp_rcv_state_process()` records whether the segment carried an RST, so this abort is counted only as `transmit`. The kernel skips that kprobe while another kprobe handler, a `kprobe`, `uprobe`, `tracepoint` or `perf_event` eBPF program, or a `bpf()` map call runs on the same CPU. If it skips the segment of a real RST, and an earlier segment of that socket left a record without RST, that reset is not counted as `receive`. A `tcp_destroy_sock` raw tracepoint removes the record, so a new socket at the same address does not inherit it.
 - `network.tcp.reset.cause` is inferred only for sent resets, from the code path that sends them, not from what triggered it. An active reset on a socket already moved to `TCP_CLOSE` is `application`: `close()` with unread data, `SO_LINGER{0}`, `TCP_LINGER2 < 0`, or an orphan or memory limit hit inside `close()`. An active reset with the state unchanged is `timeout`: keepalive and user timeout, orphan timers, the same orphan or memory limit hit by the retransmit timer, and `tcp_abort()` (`ss -K`, `bpf_sock_destroy`), which no timer triggers. Resets answering an incoming segment, and all received resets, carry no cause: the attribute is omitted on OTLP and the Prometheus label is empty.
+
+##### Abort on data: alternatives considered
+
+The `tcp_rcv_state_process()` kprobe fixes every supported kernel without state in user space, at about three probe hits per connection on each side. Two alternatives were considered:
+
+- A `kprobe` on `tcp_reset()`. It fires only on resets and reads the RST bit from its `skb` argument, but `tcp_reset()` takes the `skb` only since kernel 5.11, so 5.8 to 5.10 would keep the false `receive`. Falling back to the `tcp_rcv_state_process()` kprobe on older kernels means two mechanisms to maintain and test.
+- Pairing the two tracepoints in user space. The abort is the only case where `tcp_send_reset` answers a segment on the same socket right after `tcp_receive_reset`, so a pipeline node could hold received resets of closing sockets and drop the ones followed by that reset. It adds no kernel hook and works from 5.8, but it delays those received resets by a hold window and adds a stateful node with a timer to the stats pipeline.
 
 ### Performance considerations
 
-Some stat metrics attach to kernel functions that are called very frequently (e.g. `tcp_sendmsg`, `tcp_cleanup_rbuf` for TCP IO). These probes add a small overhead on every call, so the aggregate cost is proportional to the rate of TCP sends/receives on the node. Consider:
+Some stat metrics attach to kernel functions that are called very frequently (e.g. `tcp_sendmsg_locked`, `tcp_cleanup_rbuf` for TCP IO). These probes add a small overhead on every call, so the aggregate cost is proportional to the rate of TCP sends/receives on the node. Consider:
 
-- If you need RTT, failed connections, or retransmits **without** TCP IO overhead, enable those individually (`stats_tcp_rtt`, `stats_tcp_failed_connections`, `stats_tcp_successful_connections`, `stats_tcp_retransmits`) instead of using the `stats` aggregate feature — `stats` includes `stats_tcp_io`, which fires on every `tcp_sendmsg` and `tcp_cleanup_rbuf` call.
+- If you need RTT, failed connections, or retransmits **without** TCP IO overhead, enable those individually (`stats_tcp_rtt`, `stats_tcp_failed_connections`, `stats_tcp_successful_connections`, `stats_tcp_retransmits`) instead of using the `stats` aggregate feature — `stats` includes `stats_tcp_io`, which fires on every `tcp_sendmsg_locked` (and `do_tcp_sendpages` before kernel 6.5) and `tcp_cleanup_rbuf` call.
+- `tcp_resets` attaches a `kprobe` to `tcp_rcv_state_process()`, which runs for every segment of a socket that is not `ESTABLISHED`: about three per connection on each side, during the handshake and the close. It writes its map only for segments that carry an RST, a FIN or data on a closing socket, and a `tcp_destroy_sock` raw tracepoint deletes the entry once per socket.
 - The `stats_events` ring buffer and the per-metric eBPF maps (e.g. `tcp_io_accum`) have default size limits; on nodes with a very large number of concurrent connections these can be resized via the `ebpf.*` configuration knobs if events start being dropped.
 
 ### Final notes
@@ -188,5 +200,7 @@ attributes:
         - host.type
         - k8s.pod.name
 ```
+
+To turn off the info metrics themselves, set the Config v2 option `capture.metrics.target_info.enabled: false`. The OTLP resources and the labels of other metrics, including runtime metrics, do not change. This is meant for pipelines that build `target_info` from the OTLP resource; keep the default when Prometheus scrapes OBI directly, because the info metrics are then the only series carrying the resource attributes.
 
 **Note**: a metric is defined using the `Name` type, which carries the metric's `Section`, its `OTEL` name, `Unit` and instrument `Type`, plus the `Prom` name derived from those. Subsequently, that metric can be a counter, gauge, or other type.

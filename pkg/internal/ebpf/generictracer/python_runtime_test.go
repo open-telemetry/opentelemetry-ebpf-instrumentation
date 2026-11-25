@@ -45,6 +45,8 @@ func TestPythonRuntimeBPFObjects(t *testing.T) {
 	assert.Equal(t, ebpf.Kprobe, program.Type)
 	assert.Equal(t, "uprobe/python_gc_done", program.SectionName)
 
+	const bpfFlagNoPrealloc uint32 = 1
+
 	for _, name := range []string{"python_runtime_metric_targets", "python_runtime_metric_snapshots"} {
 		metricMap, ok := spec.Maps[name]
 		require.True(t, ok)
@@ -52,6 +54,11 @@ func TestPythonRuntimeBPFObjects(t *testing.T) {
 		assert.Equal(t, ebpfconvenience.PinInternal, metricMap.Pinning)
 		assert.Positive(t, metricMap.MaxEntries)
 	}
+
+	assert.NotZero(t, spec.Maps["python_runtime_metric_targets"].Flags&bpfFlagNoPrealloc)
+	assert.Zero(t, spec.Maps["python_runtime_metric_snapshots"].Flags&bpfFlagNoPrealloc)
+	assert.NotZero(t, spec.Maps["python_exception_procs"].Flags&bpfFlagNoPrealloc)
+	assert.NotZero(t, spec.Maps["pid_samplers"].Flags&bpfFlagNoPrealloc)
 }
 
 func TestPythonRuntimeProbeAttachmentOptions(t *testing.T) {

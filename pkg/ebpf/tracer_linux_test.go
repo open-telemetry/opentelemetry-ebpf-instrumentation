@@ -349,3 +349,55 @@ func TestNewExecutableRejectedAfterShutdown(t *testing.T) {
 	}), errTracerStopped)
 	assert.Empty(t, pt.Instrumentables)
 }
+
+type rollbackRecorderTracer struct {
+	stubTracer
+	rollbacks []bool
+}
+
+func (r *rollbackRecorderTracer) RollbackUncommittedOffsets(_ *exec.FileInfo, keepExecutable bool) {
+	r.rollbacks = append(r.rollbacks, keepExecutable)
+}
+
+func TestAttachExecutableRollsBackUncommittedOffsetsOnFailure(t *testing.T) {
+	file, err := os.Open("/proc/self/exe")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = file.Close() })
+
+	var stat unix.Stat_t
+	require.NoError(t, unix.Fstat(int(file.Fd()), &stat))
+	key := ExecutableKey{Dev: stat.Dev, Ino: stat.Ino}
+
+	recorder := &rollbackRecorderTracer{
+		stubTracer: stubTracer{
+			goProbes: map[string][]*ebpfcommon.ProbeDesc{
+				"test.failingSymbol": {{Start: &cebpf.Program{}, Required: true}},
+			},
+		},
+	}
+	ie := &Instrumentable{
+		FileInfo: exec.New(exec.Init{
+			Pid:            app.PID(os.Getpid()),
+			CmdExePath:     "/proc/self/exe",
+			ProExeLinkPath: "/proc/self/exe",
+			Dev:            key.Dev,
+			Ino:            key.Ino,
+		}),
+		Offsets: &goexec.Offsets{
+			Funcs: map[string][]goexec.FuncOffsets{
+				"test.failingSymbol": {{Start: 0x1000}},
+			},
+		},
+	}
+
+	pt := NewProcessTracer(Go, []Tracer{recorder}, &obi.Config{}, imetrics.NoopReporter{})
+	t.Cleanup(func() { require.NoError(t, pt.Close()) })
+
+	require.Error(t, pt.NewExecutableFile(file, ie))
+	assert.Equal(t, []bool{false}, recorder.rollbacks)
+
+	// When an existing instrumenter already owns the key, rollback must keep executable-scoped offsets.
+	pt.Instrumentables[key] = &instrumenter{key: key, modules: map[uint64]struct{}{}}
+	require.Error(t, pt.NewExecutableFile(file, ie))
+	assert.Equal(t, []bool{false, true}, recorder.rollbacks)
+}

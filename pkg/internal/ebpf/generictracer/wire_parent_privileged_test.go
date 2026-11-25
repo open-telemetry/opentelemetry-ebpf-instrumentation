@@ -34,11 +34,16 @@ const wireParentH2ConnID = 77
 // Exercise the real plaintext HTTP parser and central resolver through the
 // existing ioctl test entry, with the network's native client identity intact.
 func TestWireParentResolution(t *testing.T) {
+	polling := &BpfRustThreadStateT{Depth: 1, PolledTask: 1}
+	polling.Tasks[0] = 1
+	betweenPolls := &BpfRustThreadStateT{PolledTask: 1}
 	for _, h2 := range []bool{false, true} {
 		for _, test := range []struct {
 			name                                         string
 			indexed, ambiguous, ended, future, forwarded bool
 			sameTrace, hasWire, invalidTrace             bool
+			tokioThread                                  *BpfRustThreadStateT
+			clientContext                                uint8
 			parent                                       wireParent
 		}{
 			{name: "unindexed_rejects_other_thread_trace", hasWire: true, parent: wireParentNone},
@@ -49,6 +54,10 @@ func TestWireParentResolution(t *testing.T) {
 			{name: "ended_falls_back_to_thread", indexed: true, ended: true, sameTrace: true, hasWire: true, parent: wireParentThread},
 			{name: "index_outside_transaction_falls_back_to_thread", indexed: true, future: true, sameTrace: true, hasWire: true, parent: wireParentThread},
 			{name: "forwarded_header_gets_new_span", indexed: true, forwarded: true, hasWire: true, parent: wireParentServer},
+			{name: "hyper_handoff_uses_thread", tokioThread: polling, parent: wireParentThread},
+			{name: "tokio_between_polls_rejects_thread", tokioThread: betweenPolls},
+			{name: "tokio_client_without_parent_rejects_thread", tokioThread: polling, clientContext: 1},
+			{name: "hyper_handoff_prefers_wire_parent", tokioThread: polling, indexed: true, hasWire: true, parent: wireParentServer},
 			{name: "no_wire_keeps_thread_lookup", indexed: true, parent: wireParentThread},
 			{name: "invalid_wire_clears_inferred_parent", indexed: true, sameTrace: true, hasWire: true, invalidTrace: true, parent: wireParentNone},
 		} {
@@ -110,6 +119,12 @@ func TestWireParentResolution(t *testing.T) {
 				}
 				key := BpfTraceKeyT{P_key: BpfPidKeyT{Pid: pid, Tid: uint32(unix.Gettid()), Ns: ns}}
 				require.NoError(t, objects.Servers.Update(key, thread, ebpf.UpdateAny))
+				if test.tokioThread != nil {
+					caps := BpfRustCapabilitiesT{TokioRuntime: 1, TaskContext: 1, ClientContext: test.clientContext}
+					require.NoError(t, objects.RustCaps.Update(pid, caps, ebpf.UpdateAny))
+					pidTgid := uint64(pid)<<32 | uint64(key.P_key.Tid)
+					require.NoError(t, objects.RustThreads.Update(pidTgid, test.tokioThread, ebpf.UpdateAny))
+				}
 				headers := "GET / HTTP/1.1\r\nHost: localhost\r\n"
 				wireTrace := tp.TraceId
 				if test.invalidTrace {
@@ -139,7 +154,11 @@ func TestWireParentResolution(t *testing.T) {
 				require.Equal(t, wantParent, client.Tp.ParentId)
 
 				if !test.hasWire {
-					require.Equal(t, thread.Tp.TraceId, client.Tp.TraceId)
+					if test.parent == wireParentNone {
+						require.NotEqual(t, thread.Tp.TraceId, client.Tp.TraceId)
+					} else {
+						require.Equal(t, thread.Tp.TraceId, client.Tp.TraceId)
+					}
 					return
 				}
 				require.Equal(t, wireTrace, client.Tp.TraceId)

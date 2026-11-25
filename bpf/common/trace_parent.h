@@ -12,6 +12,7 @@
 #include <common/lw_thread.h>
 #include <common/python_task.h>
 #include <common/runtime.h>
+#include <common/rust_task.h>
 #include <common/trace_helpers.h>
 
 #include <pid/pid_helpers.h>
@@ -199,7 +200,7 @@ resolve_python_current_task(const trace_key_t *t_key, u64 pid_tgid, python_task_
 
     if (thread_state->current_task) {
         if (resolve_python_task_ref(pid_tgid, thread_state->current_task, task_ref)) {
-            bpf_dbg_printk("resolve_python_current_task: resolved tid=%d task=%llx",
+            bpf_dbg_printk("resolve_python_current_task: resolved tid=%d, task=%llx",
                            t_key->p_key.tid,
                            thread_state->current_task);
             return PYTHON_TASK_RESOLVED;
@@ -216,7 +217,7 @@ resolve_python_current_task(const trace_key_t *t_key, u64 pid_tgid, python_task_
     const python_task_resolution_t resolution =
         resolve_python_task_from_context(pid_tgid, thread_state->current_context, task_ref);
     if (resolution == PYTHON_TASK_RESOLVED) {
-        bpf_dbg_printk("resolve_python_current_task: context fallback tid=%d ctx=%llx task=%llx",
+        bpf_dbg_printk("resolve_python_current_task: context fallback tid=%d, ctx=%llx, task=%llx",
                        t_key->p_key.tid,
                        thread_state->current_context,
                        task_ref->addr);
@@ -238,7 +239,7 @@ find_python_parent_trace(const trace_key_t *t_key, u64 pid_tgid, u8 *allow_paren
             *allow_parent_fallback = 0;
         }
         bpf_dbg_printk(
-            "python parent unresolved tid=%d status=%d", t_key->p_key.tid, task_resolution);
+            "python parent unresolved tid=%d, status=%d", t_key->p_key.tid, task_resolution);
         return NULL;
     }
 
@@ -250,9 +251,9 @@ find_python_parent_trace(const trace_key_t *t_key, u64 pid_tgid, u8 *allow_paren
     }
     if (server_tp) {
         bpf_dbg_printk(
-            "find_python_parent_trace: FOUND tid=%d task=%llx", t_key->p_key.tid, task_ref.addr);
+            "find_python_parent_trace: FOUND tid=%d, task=%llx", t_key->p_key.tid, task_ref.addr);
     } else {
-        bpf_dbg_printk("find_python_parent_trace: no owning trace for tid=%d task=%llx",
+        bpf_dbg_printk("find_python_parent_trace: no owning trace for tid=%d, task=%llx",
                        t_key->p_key.tid,
                        task_ref.addr);
     }
@@ -342,8 +343,32 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
                                                         trace_key_t *t_key,
                                                         u16 orig_dport,
                                                         const tp_info_t *wire_tp) {
-    tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
+    const u32 rust_pid = obi_pid(pid_tgid);
+    const rust_capabilities_t *rust = rust_process_capabilities(rust_pid);
+    const rust_thread_state_t *rust_thread =
+        rust && rust->tokio_runtime ? rust_task_thread(pid_tgid) : NULL;
+    if (rust_thread) {
+        rust_task_key_t task = {};
+        const bool in_task = rust_innermost_task(rust_pid, rust_thread, &task);
+        if (in_task) {
+            tp_info_pid_t *parent = bpf_map_lookup_elem(&rust_task_context, &task);
+            if (parent_trace_matches(parent, wire_tp)) {
+                return parent;
+            }
+        }
 
+        if (wire_tp) {
+            return find_wire_server_parent(p_conn->pid, wire_tp);
+        }
+
+        // Hyper can write on a connection task that never received the caller's context.
+        // Keep generic correlation for that handoff. Between polls no task owns the write.
+        if (!in_task || rust->client_context) {
+            return NULL;
+        }
+    }
+
+    tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
     if (parent_trace_matches(node_tp, wire_tp)) {
         return node_tp;
     }
@@ -462,8 +487,10 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
 
         if (!should_be_in_same_transaction(&server_tp->tp, tp)) {
             bpf_dbg_printk("Parent and child are too far apart, discarding the parent trace");
-            bpf_dbg_printk(
-                "%lld >>> %lld (max: %lld)", tp->ts, server_tp->tp.ts, max_transaction_time);
+            bpf_dbg_printk("child_ts=%lld, parent_ts=%lld, max=%lld",
+                           tp->ts,
+                           server_tp->tp.ts,
+                           max_transaction_time);
             if (parent_trace_is_stale(&server_tp->tp, tp)) {
                 server_tp->valid = 0;
             }
@@ -512,8 +539,10 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
 
         if (!should_be_in_same_transaction(&server_tp->tp, tp)) {
             bpf_dbg_printk("Parent and child are too far apart, discarding the parent trace");
-            bpf_dbg_printk(
-                "%lld >>> %lld (max: %lld)", tp->ts, server_tp->tp.ts, max_transaction_time);
+            bpf_dbg_printk("child_ts=%lld, parent_ts=%lld, max=%lld",
+                           tp->ts,
+                           server_tp->tp.ts,
+                           max_transaction_time);
             if (parent_trace_is_stale(&server_tp->tp, tp)) {
                 server_tp->valid = 0;
             }

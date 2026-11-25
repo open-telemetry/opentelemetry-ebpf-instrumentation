@@ -11,6 +11,7 @@
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/large_buffers.h>
+#include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/sql.h>
 
@@ -63,6 +64,7 @@ struct {
     __type(key, connection_info_t);
     __type(value, struct mysql_state_data);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } mysql_state SEC(".maps");
 
 // This function is used to store the MySQL header if it comes in split packets
@@ -211,20 +213,10 @@ static __always_inline u32 data_offset(struct mysql_hdr *hdr) {
                             : k_mysql_hdr_size;
 }
 
-static __always_inline u8 is_mysql(connection_info_t *conn_info,
-                                   const unsigned char *data,
-                                   u32 data_len,
-                                   enum protocol_type *protocol_type) {
-    if (*protocol_type != k_protocol_type_mysql && *protocol_type != k_protocol_type_unknown) {
-        // Already classified, not mysql.
-        return 0;
-    }
-
-    if (mysql_store_state_data(conn_info, data, (size_t)data_len) < 0) {
-        bpf_dbg_printk("is_mysql: 4 bytes packet, storing state data");
-        return 0;
-    }
-
+static __always_inline u8 mysql_classify(connection_info_t *conn_info,
+                                         const unsigned char *data,
+                                         u32 data_len,
+                                         enum protocol_type *protocol_type) {
     struct mysql_hdr hdr = {};
     if (mysql_parse_fixup_header(conn_info, &hdr, data, data_len) != 0) {
         bpf_dbg_printk("is_mysql: failed to parse mysql header");
@@ -237,7 +229,7 @@ static __always_inline u8 is_mysql(connection_info_t *conn_info,
         return 0;
     }
 
-    bpf_dbg_printk("is_mysql: payload_length=%d sequence_id=%d command_id=%d",
+    bpf_dbg_printk("is_mysql: payload_length=%d, sequence_id=%d, command_id=%d",
                    payload_len,
                    hdr.sequence_id,
                    hdr.command_id);
@@ -300,4 +292,28 @@ static __always_inline u8 is_mysql(connection_info_t *conn_info,
 
     bpf_dbg_printk("is_mysql: mysql! command_id=%d", hdr.command_id);
     return 1;
+}
+
+static __always_inline u8 is_mysql(connection_info_t *conn_info,
+                                   const unsigned char *data,
+                                   u32 data_len,
+                                   enum protocol_type *protocol_type) {
+    if (*protocol_type != k_protocol_type_mysql && *protocol_type != k_protocol_type_unknown) {
+        // Already classified, not mysql.
+        return 0;
+    }
+
+    if (mysql_store_state_data(conn_info, data, (size_t)data_len) < 0) {
+        bpf_dbg_printk("is_mysql: 4 bytes packet, storing state data");
+        return 0;
+    }
+
+    const u8 mysql = mysql_classify(conn_info, data, data_len, protocol_type);
+    if (!mysql && *protocol_type != k_protocol_type_mysql) {
+        // Only mysql_send_large_buffer consumes a stored header, and it never
+        // runs for this packet, so the header must not leak into a later one.
+        bpf_map_delete_elem(&mysql_state, conn_info);
+    }
+
+    return mysql;
 }

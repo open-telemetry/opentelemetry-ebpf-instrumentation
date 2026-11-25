@@ -13,6 +13,7 @@
 #include <common/large_buf_emit.h>
 #include <common/large_buffers.h>
 #include <common/map_sizing.h>
+#include <common/pin_internal.h>
 #include <common/ringbuf.h>
 
 #include <generictracer/maps/protocol_cache.h>
@@ -93,6 +94,7 @@ struct {
     __type(key, connection_info_t);
     __type(value, aerospike_state_data_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } aerospike_state SEC(".maps");
 
 static __always_inline u32 aerospike_emit_chunks(tcp_req_t *req,

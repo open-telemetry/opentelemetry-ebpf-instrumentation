@@ -16,6 +16,7 @@
 #include "python_exception.c"
 #include "protocol_handler.c"
 #include "ruby.c"
+#include "rust.c"
 #include "python_runtime.c"
 
 char __license[] SEC("license") = "Dual MIT/GPL";

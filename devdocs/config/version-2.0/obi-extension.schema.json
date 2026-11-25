@@ -1024,6 +1024,18 @@
               },
               "type": "array",
               "description": "Metric features using the same names as Config v1. An explicit list replaces the selection inferred from protocol and network switches; [] disables all metric features. When omitted, protocol and network enablement determines the features."
+            },
+            "target_info": {
+              "type": "object",
+              "description": "Controls the target.info and traces.target.info metrics, exported as target_info and traces_target_info by the Prometheus reader.",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Export the target.info and traces.target.info metrics.\nIf omitted, true is used.\n"
+                }
+              }
             }
           }
         },
@@ -1187,7 +1199,8 @@
                         "type": "string"
                       },
                       "default": [],
-                      "description": "Additional span resource attributes to include in OBI-generated Prometheus span metrics.\nIf omitted, no extra attributes are added.\n"
+                      "deprecated": true,
+                      "description": "Deprecated: select span metric dimensions with `capture.attributes.select`.\nAdditional span resource attributes to include in OBI-generated Prometheus span metrics, in addition to the selection.\nIf omitted, no extra attributes are added.\n"
                     }
                   }
                 }
@@ -1630,7 +1643,7 @@
         "sanitize_query_text": {
           "type": "boolean",
           "default": false,
-          "description": "Replace literal values in `db.query.text` with `?`: string, numeric, hexadecimal and boolean literals of SQL and SQL++ spans, and Redis argument values (keys are kept). Elasticsearch query bodies and Couchbase key-value spans are not sanitized. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
+          "description": "Replace literal values in `db.query.text` with `?`: string, numeric, hexadecimal and boolean literals of SQL and SQL++ spans, Redis argument values and Couchbase key-value document values (keys are kept). Elasticsearch query bodies are not sanitized. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
         }
       }
     },

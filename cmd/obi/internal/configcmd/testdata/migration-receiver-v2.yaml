@@ -375,6 +375,8 @@ network:
 metrics:
     features:
         - application
+    target_info:
+        enabled: true
 limits:
     network_packets: 5000
     metric_span_names: 100

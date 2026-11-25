@@ -12,6 +12,7 @@
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/large_buffers.h>
+#include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/maps/protocol_cache.h>
@@ -50,6 +51,7 @@ struct {
     __type(key, kafka_state_key_t);
     __type(value, kafka_state_data_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } kafka_state SEC(".maps");
 
 typedef struct kafka_correlation_data {
@@ -66,6 +68,7 @@ struct {
     __type(key, connection_info_t);
     __type(value, kafka_correlation_data_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } kafka_ongoing_requests SEC(".maps");
 
 enum {
@@ -160,8 +163,7 @@ static __always_inline int kafka_check_request_header_fields_without_message_siz
     bpf_probe_read(&hdr->request_api_key, k_kafka_hdr_request_api_key, (const void *)(data));
     hdr->request_api_key = bpf_ntohs(hdr->request_api_key);
     if (hdr->request_api_key != k_kafka_api_key_metadata) {
-        bpf_dbg_printk("request_api_key "
-                       "provided %d, is not metadata(%d)",
+        bpf_dbg_printk("not a metadata request, request_api_key=%d, expected=%d",
                        hdr->request_api_key,
                        k_kafka_api_key_metadata);
         return -1;
@@ -173,8 +175,7 @@ static __always_inline int kafka_check_request_header_fields_without_message_siz
     hdr->request_api_version = bpf_ntohs(hdr->request_api_version);
     if (hdr->request_api_version < k_kafka_min_metadata_api_version ||
         hdr->request_api_version > k_kafka_max_metadata_api_version) {
-        bpf_dbg_printk("provided "
-                       "api_version %d not supported for the provided request_api_key %d ",
+        bpf_dbg_printk("api_version not supported, api_version=%d, request_api_key=%d",
                        hdr->request_api_version,
                        hdr->request_api_key);
         return -1;
@@ -377,8 +378,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
         }
         const s32 correlation_id = kafka_read_response_correlation_id(state_data, u_buf, bytes_len);
         if (correlation_id != correlation_data->correlation_id) {
-            bpf_dbg_printk("request correlation_id != response "
-                           "correlation_id, %d != %d. Ignoring...",
+            bpf_dbg_printk("ignoring correlation_id mismatch, request=%d, response=%d",
                            correlation_data->correlation_id,
                            correlation_id);
             return 0;
@@ -399,7 +399,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
         if (message_size > 0) {
             response_total_bytes = message_size + k_kafka_hdr_message_size;
         }
-        bpf_dbg_printk("kafka response capture start, target=%d bytes_len=%d",
+        bpf_dbg_printk("kafka response capture start, target=%d, bytes_len=%d",
                        response_total_bytes,
                        bytes_len);
     }
@@ -477,7 +477,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
         if (correlation_data) {
             correlation_data->response_bytes_remaining = remaining;
         }
-        bpf_dbg_printk("kafka response incomplete, captured=%d remaining=%d, waiting for more",
+        bpf_dbg_printk("kafka response incomplete, captured=%d, remaining=%d, waiting for more",
                        req->lb_res_bytes,
                        remaining);
         return -1;
@@ -519,7 +519,7 @@ static __always_inline u8 is_kafka(connection_info_t *conn_info,
         kafka_correlation_data_t correlation_data = {};
         correlation_data.correlation_id = req_hdr.correlation_id;
         bpf_map_update_elem(&kafka_ongoing_requests, conn_info, &correlation_data, BPF_ANY);
-        bpf_dbg_printk("kafka! request_api_key %d, correlation_id=%d",
+        bpf_dbg_printk("kafka! request_api_key=%d, correlation_id=%d",
                        req_hdr.request_api_key,
                        req_hdr.correlation_id);
     } else {
@@ -537,14 +537,13 @@ static __always_inline u8 is_kafka(connection_info_t *conn_info,
         }
 
         if (res_hdr.correlation_id != correlation_data->correlation_id) {
-            bpf_dbg_printk("request correlation_id != response "
-                           "correlation_id, %d != %d. Ignoring...",
+            bpf_dbg_printk("ignoring correlation_id mismatch, request=%d, response=%d",
                            correlation_data->correlation_id,
                            res_hdr.correlation_id);
             return 0;
         }
 
-        bpf_dbg_printk("kafka! message_size %d, correlation_id=%d",
+        bpf_dbg_printk("kafka! message_size=%d, correlation_id=%d",
                        res_hdr.message_size,
                        res_hdr.correlation_id);
     }

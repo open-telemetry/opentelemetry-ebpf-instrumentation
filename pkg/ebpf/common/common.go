@@ -342,6 +342,7 @@ type EBPFParseContext struct {
 	largeBuffers                *expirable.LRU[largeBufferKey, *largebuf.LargeBuffer]
 	mongoRequestCache           PendingMongoDBRequests
 	mysqlPreparedStatements     *simplelru.LRU[mysqlPreparedStatementsKey, string]
+	mysqlConns                  *simplelru.LRU[BpfConnectionInfoT, mysqlConnInfo]
 	postgresPreparedStatements  *simplelru.LRU[postgresPreparedStatementsKey, postgresPreparedStatement]
 	postgresPortals             *simplelru.LRU[postgresPortalsKey, string]
 	postgresNamespaces          *simplelru.LRU[BpfConnectionInfoT, postgresNamespace]
@@ -452,6 +453,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 	h2c, _ := lru.New[uint64, *h2Connection](1024 * 10)
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largebuf.LargeBuffer](1024, nil, 5*time.Minute)
 	postgresNamespaces, _ := simplelru.NewLRU[BpfConnectionInfoT, postgresNamespace](4096, nil)
+	mysqlConns, _ := simplelru.NewLRU[BpfConnectionInfoT, mysqlConnInfo](4096, nil)
 
 	emitCtx, stopEmitting := context.WithCancel(context.Background())
 	if spansChan != nil {
@@ -538,6 +540,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		largeBuffers:               largeBuffers,
 		mongoRequestCache:          mongoRequestCache,
 		mysqlPreparedStatements:    mysqlPreparedStatements,
+		mysqlConns:                 mysqlConns,
 		postgresPreparedStatements: postgresPreparedStatements,
 		postgresPortals:            postgresPortals,
 		postgresNamespaces:         postgresNamespaces,
@@ -842,6 +845,8 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 		for _, name := range []string{
 			"obi_protocol_http", "obi_continue_protocol_http", "obi_handle_buf_with_args",
 			"obi_uprobe_writeSubset_returns",
+			"obi_protocol_http2_grpc_handle_start_frame_server",
+			"obi_protocol_http2_grpc_handle_start_frame_server_finalize",
 		} {
 			if legacy, ok := spec.Programs[name+"_legacy"]; ok {
 				spec.Programs[name] = legacy
@@ -887,6 +892,8 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 	for _, name := range []string{
 		"obi_protocol_http_legacy", "obi_continue_protocol_http_legacy", "obi_handle_buf_with_args_legacy",
 		"obi_uprobe_writeSubset_returns_legacy",
+		"obi_protocol_http2_grpc_handle_start_frame_server_legacy",
+		"obi_protocol_http2_grpc_handle_start_frame_server_finalize_legacy",
 	} {
 		if _, ok := spec.Programs[name]; ok {
 			spec.Programs[name] = dummy

@@ -63,7 +63,7 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
     if (args) {
         void *ssl = ((void *)args->ssl);
         const pid_ptr_key_t ssl_key = pid_ptr_key(pid_from_pid_tgid(id), ssl);
-        bpf_dbg_printk("SSL_buf id=%d ssl=%llx", id, ssl);
+        bpf_dbg_printk("SSL_buf id=%d, ssl=%llx", id, ssl);
         ssl_pid_connection_info_t *conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl_key);
 
         if (!conn) {

@@ -9,15 +9,19 @@ import (
 	"bytes"
 	"debug/elf"
 	"encoding/binary"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/internal/fastelf"
 )
@@ -219,14 +223,120 @@ func TestFindLanguageFromElf_NodeBinary(t *testing.T) {
 		t.Skip("this node links the runtime as libnode.so, which the shared-library pass types")
 	}
 
-	assert.Equal(t, svc.InstrumentableNodejs, findLanguageFromElf(resolved))
+	lang, err := findLanguageFromElf(resolved)
+	require.NoError(t, err)
+	assert.Equal(t, svc.InstrumentableNodejs, lang)
 }
 
 func TestFindLanguageFromElf_NonNodeExecutable(t *testing.T) {
 	self, err := os.Executable()
 	require.NoError(t, err)
 
-	assert.NotEqual(t, svc.InstrumentableNodejs, findLanguageFromElf(self))
+	lang, err := findLanguageFromElf(self)
+	require.NoError(t, err)
+	assert.NotEqual(t, svc.InstrumentableNodejs, lang)
+}
+
+func TestFindProcLanguageAfterExecutableReplacement(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "main.go")
+	path := filepath.Join(dir, "app")
+	require.NoError(t, os.WriteFile(source, []byte(`package main
+import (
+	"io"
+	"os"
+)
+func main() { _, _ = io.Copy(io.Discard, os.Stdin) }
+`), 0o600))
+	out, err := exec.Command("go", "build", "-o", path, source).CombinedOutput()
+	require.NoError(t, err, string(out))
+
+	cmd := exec.Command(path)
+	stdin, err := cmd.StdinPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		assert.NoError(t, cmd.Wait())
+	})
+
+	replacement := filepath.Join(dir, "replacement")
+	require.NoError(t, os.WriteFile(replacement, []byte("replacement"), 0o700))
+	require.NoError(t, os.Rename(replacement, path))
+
+	lang, err := FindProcLanguage(app.PID(cmd.Process.Pid))
+	require.NoError(t, err)
+	require.Equal(t, svc.InstrumentableGolang, lang)
+}
+
+func TestFindLanguageFromElfMissing(t *testing.T) {
+	lang, err := findLanguageFromElf(filepath.Join(t.TempDir(), "missing"))
+	require.Error(t, err)
+	require.Equal(t, svc.InstrumentableGeneric, lang)
+}
+
+func TestFindLanguageFromElfCache(t *testing.T) {
+	self, err := os.Executable()
+	require.NoError(t, err)
+	source, err := os.Open(self)
+	require.NoError(t, err)
+	defer source.Close()
+	path := filepath.Join(t.TempDir(), "app")
+	target, err := os.Create(path)
+	require.NoError(t, err)
+	_, err = io.Copy(target, source)
+	require.NoError(t, target.Close())
+	require.NoError(t, err)
+
+	key := elfCacheKeyForTest(t, path)
+	t.Cleanup(func() { elfLanguages.Remove(key) })
+	lang, err := findLanguageFromElf(path)
+	require.NoError(t, err)
+	require.Equal(t, svc.InstrumentableGolang, lang)
+	cached, ok := elfLanguages.Peek(key)
+	require.True(t, ok)
+	require.Equal(t, lang, cached)
+
+	// A distinct cached value makes a hit observable even if a fresh scan succeeds.
+	elfLanguages.Add(key, svc.InstrumentableRust)
+	lang, err = findLanguageFromElf(path)
+	require.NoError(t, err)
+	require.Equal(t, svc.InstrumentableRust, lang)
+
+	var changed elfLanguageKey
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		require.NoError(c, os.Chmod(path, 0o500))
+		changed = elfCacheKeyForTest(c, path)
+		require.NotEqual(c, key.changeTime, changed.changeTime)
+	}, time.Second, time.Millisecond)
+	require.Equal(t, key.device, changed.device)
+	require.Equal(t, key.inode, changed.inode)
+	t.Cleanup(func() { elfLanguages.Remove(changed) })
+
+	lang, err = findLanguageFromElf(path)
+	require.NoError(t, err)
+	require.Equal(t, svc.InstrumentableGolang, lang)
+	cached, ok = elfLanguages.Peek(changed)
+	require.True(t, ok)
+	require.Equal(t, lang, cached)
+}
+
+func TestFindLanguageFromElfDoesNotCacheParseFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "invalid-elf")
+	require.NoError(t, os.WriteFile(path, make([]byte, 64), 0o600))
+	key := elfCacheKeyForTest(t, path)
+	t.Cleanup(func() { elfLanguages.Remove(key) })
+
+	lang, err := findLanguageFromElf(path)
+	require.Error(t, err)
+	require.Equal(t, svc.InstrumentableGeneric, lang)
+	require.False(t, elfLanguages.Contains(key))
+}
+
+func elfCacheKeyForTest(t require.TestingT, path string) elfLanguageKey {
+	var stat unix.Stat_t
+	require.NoError(t, unix.Stat(path, &stat))
+	return elfLanguageKey{device: stat.Dev, inode: stat.Ino, changeTime: stat.Ctim.Nano()}
 }
 
 func isLauncherForSharedRuntime(t *testing.T, path string) bool {

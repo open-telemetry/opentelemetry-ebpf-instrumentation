@@ -575,6 +575,61 @@ func TestDynamicMatcher_ChildInheritsDynamicSelectorPID(t *testing.T) {
 	testutil.DrainUntilClosed(filteredProcesses)
 }
 
+func TestDynamicSelectorSetTraceSampler(t *testing.T) {
+	selector := NewDynamicSelector()
+	off := services.SamplerConfig{Name: services.SamplerAlwaysOff}
+	selector.SetTraceSampler(off)
+
+	original := processInfo
+	t.Cleanup(func() { processInfo = original })
+	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+		info := &services.ProcessInfo{Pid: p.pid}
+		if p.pid == 101 {
+			info.PPid = 100
+		}
+		return info, nil
+	}
+	in := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(1))
+	out := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(1))
+	matches := out.Subscribe()
+	run, err := dynamicMatcherProvider(in, out, selector.appSignals())(t.Context())
+	require.NoError(t, err)
+	go run(t.Context())
+	t.Cleanup(func() {
+		in.Close()
+		testutil.DrainUntilClosed(matches)
+	})
+
+	selector.AddPIDs(100)
+	in.Send([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 100}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 101}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 999}},
+	})
+	check := func(kind WatchEventType, sampler services.SamplerConfig, pids ...app.PID) {
+		t.Helper()
+		var got []app.PID
+		for _, event := range testutil.ReadChannel(t, matches, testTimeout) {
+			assert.Equal(t, kind, event.Type)
+			assert.Equal(t, &sampler, event.Obj.SamplerConfig)
+			got = append(got, event.Obj.Process.Pid)
+		}
+		assert.ElementsMatch(t, pids, got)
+	}
+	check(EventCreated, off, 100, 101)
+
+	ratio := services.SamplerConfig{Name: services.SamplerTraceIDRatio, Arg: "0.25"}
+	selector.SetTraceSampler(ratio)
+	check(EventUpdated, ratio, 100, 101)
+	selector.SetTraceSampler(ratio)
+	selector.AddPIDs(200)
+	in.Send([]Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 200}}})
+	check(EventCreated, ratio, 200)
+	ratio.Arg = "0.75"
+	selector.SetTraceSampler(ratio)
+	check(EventUpdated, ratio, 100, 101, 200)
+}
+
 func TestCriteriaMatcherContainersOnly(t *testing.T) {
 	pipeConfig := obi.Config{}
 	require.NoError(t, yaml.Unmarshal([]byte(`discovery:

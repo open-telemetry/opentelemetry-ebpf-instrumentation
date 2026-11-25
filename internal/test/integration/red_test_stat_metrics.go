@@ -122,6 +122,27 @@ func testStatMetricsTCPResetsGo(t *testing.T) {
 	}
 }
 
+func testStatMetricsTCPResetsAfterShutdownGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		// the server on 8084 shut down reading, so the client's data makes its kernel send a reset
+		sentResults, err := pq.Query(`obi_stat_tcp_resets_total{src_port="8084",network_io_direction="transmit"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, sentResults)
+		assert.Positive(ct, totalPromCount(ct, sentResults))
+
+		receivedResults, err := pq.Query(`obi_stat_tcp_resets_total{dst_port="8084",network_io_direction="receive"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, receivedResults)
+		assert.Positive(ct, totalPromCount(ct, receivedResults))
+	}, testTimeout, 100*time.Millisecond)
+
+	// the server's kernel aborts the connection itself: no reset arrived on the server side
+	results, err := pq.Query(`obi_stat_tcp_resets_total{src_port="8084",network_io_direction="receive"}`)
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
 func testStatMetricsTCPRetransmitsGo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {

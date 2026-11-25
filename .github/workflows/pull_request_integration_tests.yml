@@ -25,6 +25,9 @@ on:
         required: false
         type: string
     secrets:
+      CODECOV_TOKEN:
+        description: "Codecov upload token (optional)"
+        required: false
       DOCKER_TOKEN_EBPF_INSTRUMENTATION:
         description: "Docker Hub token for pulling images (optional)"
         required: false
@@ -735,3 +738,52 @@ jobs:
           name: bpf-metrics-aggregate-${{ github.run_number }}-${{ github.run_attempt }}
           path: /tmp/bpf-aggregate/
           retention-days: 30
+
+  rust-context-matrix:
+    name: Rust compiler matrix
+    runs-on: ubuntu-26.04
+    outputs:
+      toolchains: ${{ steps.matrix.outputs.toolchains }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - name: Read supported Rust compilers
+        id: matrix
+        run: echo "toolchains=$(jq -c '.toolchains' configs/offsets/rust_versions.json)" >> "$GITHUB_OUTPUT"
+
+  rust-context:
+    name: "Rust context (${{ matrix.rustc }}, ${{ matrix.platform.arch }})"
+    needs: [generate-bpf, rust-context-matrix]
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        rustc: ${{ fromJson(needs.rust-context-matrix.outputs.toolchains) }}
+        platform:
+          - runner: ubuntu-26.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    env:
+      OBI_RUST_TOOLCHAIN: ${{ matrix.rustc }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bpf-generated-${{ github.run_id }}
+      - name: Install Rust compiler
+        run: rustup toolchain install "$OBI_RUST_TOOLCHAIN" --profile minimal
+      - name: Check Tokio task inheritance
+        run: |
+          cargo +"$OBI_RUST_TOOLCHAIN" build --release --manifest-path internal/test/integration/components/rusttokio/Cargo.toml --target-dir "$RUNNER_TEMP/rust-tokio"
+          CGO_ENABLED=0 go test -c -tags=privileged_tests -o "$RUNNER_TEMP/tokio.test" ./pkg/internal/ebpf/generictracer
+          sudo env OBI_RUST_TOKIO_BINARY="$RUNNER_TEMP/rust-tokio/release/rusttokio" "$RUNNER_TEMP/tokio.test" -test.v -test.run='^TestRustTokioTaskInheritance$' -test.timeout=3m

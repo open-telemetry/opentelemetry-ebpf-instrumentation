@@ -51,11 +51,13 @@ func TestSocketFiltersAvoidCurrentPIDHelper(t *testing.T) {
 	}
 }
 
-func TestHTTP1LegacyProgramsAvoidBPFLoop(t *testing.T) {
+func TestLegacyProgramsAvoidBPFLoop(t *testing.T) {
 	spec, err := LoadBpf()
 	require.NoError(t, err)
 	for _, name := range []string{
 		"obi_protocol_http_legacy", "obi_continue_protocol_http_legacy", "obi_handle_buf_with_args_legacy",
+		"obi_protocol_http2_grpc_handle_start_frame_server_legacy",
+		"obi_protocol_http2_grpc_handle_start_frame_server_finalize_legacy",
 	} {
 		program := spec.Programs[name]
 		require.NotNil(t, program)
@@ -258,8 +260,16 @@ func TestRingbufMetricsConstant(t *testing.T) {
 	assert.Equal(t, false, tracer.constants(0)["ringbuf_metrics_enabled"])
 
 	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
+	assert.Equal(t, false, tracer.constants(0)["ringbuf_metrics_enabled"])
+
+	tracer = New(nil, &obi.Config{}, bpfMetricsReporter{})
 	assert.Equal(t, true, tracer.constants(0)["ringbuf_metrics_enabled"])
 }
+
+// bpfMetricsReporter collects the BPF internal metrics, so it turns the ring buffer accounting on.
+type bpfMetricsReporter struct{ imetrics.NoopReporter }
+
+func (bpfMetricsReporter) BpfInternalMetricsScrapeInterval() time.Duration { return time.Second }
 
 func TestWakeupDataBytesUsesScaledRingBufSize(t *testing.T) {
 	cfg := &obi.Config{}

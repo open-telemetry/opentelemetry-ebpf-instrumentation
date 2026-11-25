@@ -75,7 +75,8 @@ static __always_inline void *get_database_sql_conn_ptr(u64 driver_conn_ptr,
         return NULL;
     }
 
-    bpf_dbg_printk("validating sql conn type %llx with %llx", target_type_addr, ci_type_ptr);
+    bpf_dbg_printk(
+        "validating sql conn type expected=%llx, actual=%llx", target_type_addr, ci_type_ptr);
 
     void *conn_ptr = 0;
 

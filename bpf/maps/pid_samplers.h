@@ -20,5 +20,6 @@ struct {
     __uint(max_entries, k_max_pid_samplers);
     __type(key, pid_info_t);
     __type(value, sampler_t);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
     __uint(pinning, OBI_PIN_INTERNAL);
 } pid_samplers SEC(".maps");
