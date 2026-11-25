@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"regexp/syntax"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/internal/langtools"
@@ -129,7 +130,18 @@ func isPythonManifest(name string) bool {
 type aiohttpFile struct {
 	enabled     bool
 	webImported bool
-	tables      map[string]struct{}
+	indent      int
+	tables      map[string]int
+}
+
+// startStatement forgets the route tables of a scope the statement is outside of.
+func (f *aiohttpFile) startStatement(indent int) {
+	f.indent = indent
+	for name, tableIndent := range f.tables {
+		if indent < tableIndent {
+			delete(f.tables, name)
+		}
+	}
 }
 
 // scan returns true for route table decorators, which other Python scanners must skip.
@@ -147,9 +159,9 @@ func (f *aiohttpFile) scan(stmt string, routes map[string]struct{}) bool {
 
 	if match := aiohttpTablePattern.FindStringSubmatch(stmt); match != nil {
 		if f.tables == nil {
-			f.tables = map[string]struct{}{}
+			f.tables = map[string]int{}
 		}
-		f.tables[match[1]] = struct{}{}
+		f.tables[match[1]] = f.indent
 		return false
 	}
 	if match := aiohttpAssignmentPattern.FindStringSubmatch(stmt); match != nil {
@@ -206,16 +218,21 @@ func addAiohttpRoutes(routes map[string]struct{}, patterns []*regexp.Regexp, stm
 	}
 }
 
-// aiohttpTemplate returns false when a catch-all is not the last parameter: the partial matcher discards it.
+// aiohttpTemplate returns false when a parameter regex can span several segments,
+// other than a catch-all in the last parameter.
 func aiohttpTemplate(path string) (string, bool) {
+	segments := true
 	route := aiohttpRegexParam.ReplaceAllStringFunc(path, func(param string) string {
 		match := aiohttpRegexParam.FindStringSubmatch(param)
 		if _, ok := aiohttpTailRegexes[match[2]]; ok {
 			return "{" + match[1] + aiohttpTailConverter
 		}
+		if expr, err := syntax.Parse(match[2], syntax.Perl); err != nil || !pythonSegmentPattern(expr) {
+			segments = false
+		}
 		return "{" + match[1] + "}"
 	})
 
 	tail := strings.Index(route, aiohttpTailConverter)
-	return route, tail < 0 || tail == len(route)-len(aiohttpTailConverter)
+	return route, segments && (tail < 0 || tail == len(route)-len(aiohttpTailConverter))
 }

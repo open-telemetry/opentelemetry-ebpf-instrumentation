@@ -76,6 +76,19 @@ func TestScanAiohttp(t *testing.T) {
 			want: []string{"/archive/{year}/{slug}", "/files/{tail:path}", "/users/{user_id}"},
 		},
 		{
+			name: "regex parameters that can span segments",
+			lines: []string{
+				`from aiohttp import web`,
+				`app.router.add_get(r"/a/{name:[^?]+}", a)`,
+				`app.router.add_get(r"/b/{name:.*?}", b)`,
+				`app.router.add_get(r"/c/{name:[\w/]+}", c)`,
+				`app.router.add_get(r"/d/{name:\S+}", d)`,
+				`app.router.add_get(r"/e/{name:[a-z]*}", e)`,
+				`app.router.add_get(r"/f/{name:[^/]+}", f)`,
+			},
+			want: []string{"/f/{name}"},
+		},
+		{
 			name: "requires aiohttp import",
 			lines: []string{
 				`app.router.add_get("/users/{user_id}", user)`,
@@ -592,4 +605,61 @@ def flask_view():
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/aio", "/flask"}, result.Routes)
+}
+
+func TestExtractPythonAiohttpRouteTableScope(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{
+			name: "function-scoped table and module-level FastAPI router",
+			src: `from aiohttp import web
+from fastapi import APIRouter
+
+routes = APIRouter()
+
+
+def make_aiohttp():
+    routes = web.RouteTableDef()
+
+    @routes.get("/aio")
+    async def aio(request):
+        pass
+
+    return routes
+
+
+@routes.get(path="/fast")
+async def fast_handler():
+    pass
+`,
+			want: []string{"/aio", "/fast"},
+		},
+		{
+			name: "module-level table used in a class",
+			src: `from aiohttp import web
+
+routes = web.RouteTableDef()
+
+
+class Handlers:
+    @routes.get(r"/users/{user_id:\d+}")
+    async def user(self, request):
+        pass
+`,
+			want: []string{"/users/{user_id}"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(tc.src), 0o644))
+
+			result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, result.Routes)
+		})
+	}
 }

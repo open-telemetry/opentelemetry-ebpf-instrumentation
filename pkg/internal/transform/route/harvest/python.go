@@ -209,12 +209,14 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		line := stripHashComment(strings.TrimSpace(scan.Text()))
+		raw := scan.Text()
+		line := stripHashComment(strings.TrimSpace(raw))
 		if line == "" {
 			continue
 		}
 
 		if stmt.Len() == 0 {
+			aiohttp.startStatement(len(raw) - len(strings.TrimLeft(raw, " \t")))
 			depth = parenDelta(line)
 			startsStmt := startsFastAPI(line) || startsFlask(line) || aiohttp.starts(line) ||
 				djangoImportStart.MatchString(line) ||
