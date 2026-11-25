@@ -209,6 +209,9 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !p.cfg.Rust.Enabled {
+		ebpfcommon.ShrinkRustMaps(spec)
+	}
 	if err := verifyH2MutationSupport(); err != nil {
 		p.log.Warn("HTTP/2 socket mutation disabled because the rollback helper is unavailable",
 			"error", err)

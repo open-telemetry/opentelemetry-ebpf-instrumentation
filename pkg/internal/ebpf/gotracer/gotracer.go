@@ -345,6 +345,7 @@ type Tracer struct {
 	attachGoAutoSDKProbe              func(goAutoSDKActivationProbe, app.PID, uint64, uint64, uint64) (io.Closer, error)
 	goAutoSDKProcessStartTime         func(app.PID) (uint64, error)
 	exceptionsEnabled                 bool
+	rustEnabled                       bool
 	exceptionsMu                      sync.Mutex
 	exceptionProbes                   map[executableIdentity][]ebpfcommon.GoProbe
 	exceptionProcesses                map[app.PID]goExceptionProcess
@@ -382,6 +383,7 @@ func New(
 		attachGoAutoSDKProbe:              attachGoAutoSDKActivationProbe,
 		goAutoSDKProcessStartTime:         readGoAutoSDKProcessStartTime,
 		exceptionsEnabled:                 cfg.ExceptionsEnabled() && cfg.Logs.Enabled(),
+		rustEnabled:                       cfg.Rust.Enabled,
 		exceptionProbes:                   map[executableIdentity][]ebpfcommon.GoProbe{},
 		exceptionProcesses:                map[app.PID]goExceptionProcess{},
 		attachGoExceptionProbe:            attachGoExceptionProbe,
@@ -505,6 +507,9 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	p.privateExceptionEvents(spec)
 	if !p.exceptionsEnabled {
 		ebpfcommon.ShrinkPythonExceptionMaps(spec)
+	}
+	if !p.rustEnabled {
+		ebpfcommon.ShrinkRustMaps(spec)
 	}
 
 	return []*ebpfcommon.SpecBundle{{
