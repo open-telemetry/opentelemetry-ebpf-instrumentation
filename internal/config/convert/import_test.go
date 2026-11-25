@@ -474,6 +474,44 @@ func TestV2ToRuntimeCompleteInstrumentationCanDisableAerospike(t *testing.T) {
 	require.NotContains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationAerospike)
 }
 
+func TestV2ISO8583Enablement(t *testing.T) {
+	for _, tc := range []struct {
+		section         string
+		traces, metrics bool
+	}{
+		{"{}", true, true},
+		{"{enabled: {traces: false}}", false, true},
+		{"{enabled: {metrics: false}}", true, false},
+		{"{enabled: {traces: false, metrics: false}}", false, false},
+	} {
+		t.Run(tc.section, func(t *testing.T) {
+			ext, err := schema.ParseReceiverYAML([]byte("version: \"2.0\"\ninstrumentation:\n  iso8583: " + tc.section + "\n"))
+			require.NoError(t, err)
+			cfg, err := V2ToRuntime(ext)
+			require.NoError(t, err)
+			const iso = instrumentations.InstrumentationISO8583
+			require.Equal(t, tc.traces, instrumentations.NewInstrumentationSelection(cfg.Traces.Instrumentations).Enabled(iso))
+			require.Equal(t, tc.metrics, instrumentations.NewInstrumentationSelection(cfg.OTELMetrics.Instrumentations).Enabled(iso))
+			require.Equal(t, tc.metrics, instrumentations.NewInstrumentationSelection(cfg.Prometheus.Instrumentations).Enabled(iso))
+		})
+	}
+}
+
+func TestV2ISO8583TransmissionTimezone(t *testing.T) {
+	ext, err := schema.ParseReceiverYAML([]byte("version: \"2.0\"\ninstrumentation:\n  iso8583:\n    transmission_timezone: Asia/Shanghai\n"))
+	require.NoError(t, err)
+	cfg, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, "Asia/Shanghai", cfg.EBPF.ISO8583TransmissionLocation.String())
+	_, exported := RuntimeToV2(cfg)
+	require.Equal(t, "Asia/Shanghai", exported.Capture.Instrumentation.ISO8583.TransmissionTimezone)
+
+	ext, err = schema.ParseReceiverYAML([]byte("version: \"2.0\"\ninstrumentation:\n  iso8583:\n    transmission_timezone: Unknown/Zone\n"))
+	require.NoError(t, err)
+	_, err = V2ToRuntime(ext)
+	require.ErrorContains(t, err, "iso8583.transmission_timezone")
+}
+
 func TestV2ToRuntimePartialInstrumentationCanDisableAerospike(t *testing.T) {
 	t.Parallel()
 

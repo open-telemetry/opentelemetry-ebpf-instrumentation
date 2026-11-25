@@ -26,6 +26,7 @@ type Instrumentation struct {
 	DNS       DNSInstrumentation        `yaml:"dns"`
 	GPU       GPUInstrumentation        `yaml:"gpu"`
 	Aerospike *AerospikeInstrumentation `yaml:"aerospike,omitempty"`
+	ISO8583   *ISO8583Instrumentation   `yaml:"iso8583,omitempty"`
 }
 
 // ProtocolInstrumentation describes common trace and metric enablement and
@@ -33,6 +34,12 @@ type Instrumentation struct {
 type ProtocolInstrumentation struct {
 	Enabled ProtocolEnablement `yaml:"enabled"`
 	Filters SignalFilters      `yaml:"filters"`
+}
+
+// ISO8583Instrumentation configures the clock used for transmission timestamps.
+type ISO8583Instrumentation struct {
+	ProtocolInstrumentation `yaml:",inline"`
+	TransmissionTimezone    string `yaml:"transmission_timezone,omitempty"`
 }
 
 // AerospikeInstrumentation applies the documented signal defaults when the

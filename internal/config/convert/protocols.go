@@ -18,6 +18,7 @@ const (
 	protocolDNS       protocolName = "dns"
 	protocolGPU       protocolName = "gpu"
 	protocolAerospike protocolName = "aerospike"
+	protocolISO8583   protocolName = "iso8583"
 )
 
 type protocolMapping struct {
@@ -44,6 +45,7 @@ var runtimeInstrumentations = []instrumentations.Instrumentation{
 	instrumentations.InstrumentationMemcached,
 	instrumentations.InstrumentationSunRPC,
 	instrumentations.InstrumentationAerospike,
+	instrumentations.InstrumentationISO8583,
 }
 
 var protocolMappings = []protocolMapping{
@@ -57,4 +59,5 @@ var protocolMappings = []protocolMapping{
 	{name: protocolDNS, instr: instrumentations.InstrumentationDNS, appMetrics: false},
 	{name: protocolGPU, instr: instrumentations.InstrumentationGPU, appMetrics: true, metricWildcard: true},
 	{name: protocolAerospike, instr: instrumentations.InstrumentationAerospike, appMetrics: true, metricWildcard: true},
+	{name: protocolISO8583, instr: instrumentations.InstrumentationISO8583, appMetrics: true, metricWildcard: true},
 }
