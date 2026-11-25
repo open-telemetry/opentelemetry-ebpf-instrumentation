@@ -201,7 +201,7 @@ static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
         return 0;
     }
 
-    bpf_dbg_printk("nodejs_async_switch: buf=[%s], pid_tgid=%llx, fd=%u", buf, pid_tgid, fd);
+    bpf_dbg_printk("nodejs switch: buf=[%s], pid_tgid=%llx, fd=%u", buf, pid_tgid, fd);
 
     const tp_info_pid_t *tp = nodejs_server_trace_for_fd(pid_tgid, fd);
     if (tp) {
@@ -486,7 +486,7 @@ static __always_inline int handle_runtime_metrics(const char *path, const u64 pi
     e->delay_p99_ns = vals[8];
     e->delay_count = vals[9];
 
-    bpf_dbg_printk("nodejs_runtime_metrics: pid_tgid=%llx, idle=%llu, active=%llu",
+    bpf_dbg_printk("nodejs elu: pid_tgid=%llx, idle=%llu, active=%llu",
                    pid_tgid,
                    e->elu_idle_ns,
                    e->elu_active_ns);
