@@ -54,8 +54,6 @@ func ExtractPythonRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarveste
 	return extractPythonRoutes(ctx, rootDirForPID(fi.Pid()), dir)
 }
 
-// extractPythonRoutes scans the Python files under dir. root bounds the
-// search for dependency manifests in the parents of dir.
 func extractPythonRoutes(ctx context.Context, root, dir string) (*RouteHarvesterResult, error) {
 	log := slog.With("component", "route.harvester.python")
 	aiohttp, err := dependsOnAiohttp(ctx, root, dir)
@@ -211,9 +209,6 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		// Comments are removed before statements are joined, so code in a
-		// trailing comment is not scanned and a comment after an opening
-		// parenthesis does not hide the lines that follow.
 		line := stripHashComment(strings.TrimSpace(scan.Text()))
 		if line == "" {
 			continue

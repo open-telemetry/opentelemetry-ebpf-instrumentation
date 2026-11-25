@@ -138,9 +138,7 @@ func deduplicateSingleParamRoutes(routes []string) []string {
 			otherRoutes = append(otherRoutes, route)
 			continue
 		}
-		// A catch-all such as /{tail:path} matches several segments: folding it
-		// into /{id} would chain single segments into a route that does not
-		// exist, like /{id}/{id}.
+		// Folding a catch-all into /{id} would report /{id}/{id} for longer paths.
 		if tail, _ := routeParam(route[1:]); tail {
 			tailRoutes = append(tailRoutes, route)
 			continue
@@ -148,10 +146,7 @@ func deduplicateSingleParamRoutes(routes []string) []string {
 		singleParamRoutes = append(singleParamRoutes, route)
 	}
 
-	// Roots are tried in order. Catch-alls go after the multi-segment routes,
-	// which are more specific, and before the single parameter routes, which
-	// would otherwise chain into a route that does not exist, like
-	// /{name}/{name}.
+	// Catch-alls go before single parameter routes, which would chain into /{name}/{name}.
 	otherRoutes = append(otherRoutes, tailRoutes...)
 
 	// If we have more than one single parameter route, replace them all with /{id}

@@ -477,9 +477,6 @@ func TestMatcherNonTerminalPathParam(t *testing.T) {
 	assert.Empty(t, partial.Find("/files/a/b/metadata"))
 }
 
-// Root catch-alls are tried after the more specific multi-segment routes and
-// before single parameter routes, which would otherwise chain into a route
-// that does not exist.
 func TestPartialRouteMatcherRootCatchAll(t *testing.T) {
 	m := NewPartialRouteMatcher([]string{"/{tail:path}", "/{user}/profile", "/{name}"})
 

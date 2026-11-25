@@ -452,8 +452,6 @@ func validRailsParam(param string) bool {
 	return true
 }
 
-// stripHashComment removes a # comment that is outside quoted strings, as
-// used by Ruby and Python.
 func stripHashComment(line string) string {
 	var quote rune
 	escaped := false

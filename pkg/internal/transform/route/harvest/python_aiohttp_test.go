@@ -296,7 +296,6 @@ func TestDependsOnAiohttp(t *testing.T) {
 	}
 }
 
-// An application started from a subdirectory keeps its manifests in a parent.
 func TestDependsOnAiohttpParentManifest(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "app", "src")
@@ -308,8 +307,6 @@ func TestDependsOnAiohttpParentManifest(t *testing.T) {
 	assert.True(t, got)
 }
 
-// The nearest manifests describe the application; one further up belongs to
-// something else.
 func TestDependsOnAiohttpUsesNearestManifest(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "srv", "api")
@@ -322,7 +319,6 @@ func TestDependsOnAiohttpUsesNearestManifest(t *testing.T) {
 	assert.False(t, got)
 }
 
-// Manifests above the process root belong to the host, not the application.
 func TestDependsOnAiohttpStopsAtRoot(t *testing.T) {
 	host := t.TempDir()
 	root := filepath.Join(host, "root")
@@ -448,8 +444,6 @@ app.router.add_get(r"/static/{rest:.+}", static)
 	assert.Equal(t, "/static/{rest:path}", matcher.Find("/static/css/site.css"))
 }
 
-// A root catch-all next to another root parameter, as in a single page app
-// fallback, must not be folded into /{id}, which would report /{id}/{id}.
 func TestExtractPythonAiohttpRootTailRoute(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
@@ -470,8 +464,6 @@ app.router.add_get("/{tail:.*}", index)
 	assert.Contains(t, result.Routes, matcher.Find("/a"))
 }
 
-// aiohttp is also a common HTTP client: depending on it does not make client
-// calls or other libraries' methods routes.
 func TestExtractPythonAiohttpClientOnly(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("aiohttp==3.9.5\n"), 0o644))
@@ -519,8 +511,6 @@ app.add_routes([web.get("/users/{user_id}", user)])
 	}
 }
 
-// A route table decorator with a partial path is not recorded by aiohttp, and
-// must not fall through to the FastAPI patterns either.
 func TestExtractPythonAiohttpPartialPathDecorator(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
@@ -594,8 +584,6 @@ func TestExtractPythonAiohttpComments(t *testing.T) {
 	}
 }
 
-// A function-scoped route table can reuse the name of a module-level Flask
-// object: only aiohttp-shaped decorators are claimed, so the Flask route stays.
 func TestExtractPythonAiohttpTableNameReusedByFlask(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
