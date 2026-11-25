@@ -1254,6 +1254,7 @@ static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
                                                    u64 id,
                                                    const pid_connection_info_t *p_conn,
                                                    const egress_key_t *e_key,
+                                                   const egress_key_t *buf_key,
                                                    tp_info_pid_t *tp_pid) {
     if (inject_flags & k_inject_tcp_options) {
         schedule_write_tcp_option(msg, tp_pid);
@@ -1267,7 +1268,7 @@ static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
 
-    if (!fill_msg_buffers(msg, p_conn, e_key)) {
+    if (!fill_msg_buffers(msg, p_conn, buf_key)) {
         clear_tp_info_pid(e_key);
         return false;
     }
@@ -1305,6 +1306,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     const u64 id = bpf_get_current_pid_tgid();
     const connection_info_t conn = get_connection_info(msg);
     const egress_key_t e_key = make_egress_key(&conn);
+    const egress_key_t buf_key = msg_buffer_key(&conn);
 
     t_ctx->p_conn.conn = conn;
     sort_connection_info(&t_ctx->p_conn.conn);
@@ -1320,13 +1322,13 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     // skip H2 here — it uses HPACK for per-stream traceparents
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key, t_ctx->p_conn.pid);
     if (tp_pid && !is_h2_socket(msg) &&
-        handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, tp_pid)) {
+        handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, &buf_key, tp_pid)) {
         return SK_PASS;
     }
 
     if (is_go_grpc_client_conn(&t_ctx->p_conn)) {
         bpf_msg_pull_data(msg, 0, msg->size, 0);
-        fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
+        fill_msg_buffers(msg, &t_ctx->p_conn, &buf_key);
         // per-stream decision in the h2 chain: inject only streams the uprobe left written=0
         t_ctx->go_grpc_conn = true;
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
@@ -1338,7 +1340,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     }
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
-    const bool msg_buffers_ready = fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
+    const bool msg_buffers_ready = fill_msg_buffers(msg, &t_ctx->p_conn, &buf_key);
 
     if (is_h2_socket(msg)) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
