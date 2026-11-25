@@ -51,7 +51,7 @@ typedef struct call_protocol_args {
     unsigned char small_buf[MIN_HTTP2_SIZE];
     protocol_selector_t protocols;
     u8 skip_tp_parsing;
-    u8 use_bpf_loop;
+    u8 _pad1;
     u8 wire_tp_found;
     int bytes_len;
     u16 orig_dport;

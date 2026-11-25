@@ -1092,19 +1092,11 @@ int GUARDED_PROG(obi_protocol_http2_grpc_frames, void *, ctx) {
     return 0;
 }
 
-// k_tail_protocol_http2
-SEC("kprobe/http2")
-int GUARDED_PROG(obi_protocol_http2, void *, ctx) {
-    call_protocol_args_t *args = protocol_args();
-
-    if (!args) {
-        return 0;
-    }
-
+static __always_inline void start_http2_frames(void *ctx, const call_protocol_args_t *args) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
 
     if (!g_ctx) {
-        return 0;
+        return;
     }
 
     // prev_info is skipped: the whole struct outgrew an inline memset, and every
@@ -1117,6 +1109,4 @@ int GUARDED_PROG(obi_protocol_http2, void *, ctx) {
     h2_resume_cut_frame(g_ctx);
 
     preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_frames);
-
-    return 0;
 }

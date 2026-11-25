@@ -843,7 +843,7 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 		// Swap the bpf_loop-based programs with their legacy counterparts so
 		// bpf2go-generated struct fields still bind on kernels without bpf_loop.
 		for _, name := range []string{
-			"obi_protocol_http", "obi_continue_protocol_http", "obi_handle_buf_with_args",
+			"obi_continue_protocol_http", "obi_handle_buf_with_args",
 			"obi_uprobe_writeSubset_returns",
 			"obi_protocol_http2_grpc_handle_start_frame_server",
 			"obi_protocol_http2_grpc_handle_start_frame_server_finalize",
@@ -885,12 +885,19 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 		if _, ok := spec.Programs["obi_protocol_http_inherit_tp"]; ok {
 			spec.Programs["obi_protocol_http_inherit_tp"] = dummy
 		}
+	} else {
+		// only the legacy HTTP/1 programs tail call these, the bpf_loop ones run the same steps inline
+		for _, name := range []string{"obi_continue_protocol_http_tp", "obi_continue2_protocol_http"} {
+			if _, ok := spec.Programs[name]; ok {
+				spec.Programs[name] = dummy
+			}
+		}
 	}
 
 	// Slot dummies in place of the legacy programs we already moved, so the
 	// bpf2go struct binding still resolves them.
 	for _, name := range []string{
-		"obi_protocol_http_legacy", "obi_continue_protocol_http_legacy", "obi_handle_buf_with_args_legacy",
+		"obi_continue_protocol_http_legacy", "obi_handle_buf_with_args_legacy",
 		"obi_uprobe_writeSubset_returns_legacy",
 		"obi_protocol_http2_grpc_handle_start_frame_server_legacy",
 		"obi_protocol_http2_grpc_handle_start_frame_server_finalize_legacy",

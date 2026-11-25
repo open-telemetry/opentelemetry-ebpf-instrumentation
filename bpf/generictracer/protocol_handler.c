@@ -89,7 +89,7 @@ static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
         if (!args->protocols.http2) {
             return 0;
         }
-        preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http2);
+        start_http2_frames(ctx, args);
     } else if (args->protocols.tcp && is_mysql(&args->pid_conn.conn,
                                                (const unsigned char *)args->u_buf,
                                                args->bytes_len,

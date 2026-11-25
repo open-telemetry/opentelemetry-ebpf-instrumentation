@@ -590,8 +590,12 @@ int GUARDED_PROG(obi_continue_protocol_http_tp_commit, struct pt_regs *, ctx) {
 
     commit_http_tp(args, meta, tp_p);
 
-    preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue2_protocol_http);
-    return 0;
+    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
+    if (!info) {
+        return 0;
+    }
+
+    return __obi_continue2_protocol_http(ctx, args, info, meta);
 }
 
 // Returns true for a client's own traceparent: the library chose the client
@@ -1162,14 +1166,10 @@ int GUARDED_PROG(obi_continue_protocol_http, struct pt_regs *, ctx) {
         return 0;
     }
 
-    if (args->use_bpf_loop) {
-        return __obi_continue_protocol_http(ctx, args, info, true);
-    }
-
-    return __obi_continue_protocol_http(ctx, args, info, false);
+    return __obi_continue_protocol_http(ctx, args, info, true);
 }
 
-static __always_inline int __obi_protocol_http(struct pt_regs *ctx, bool use_bpf_loop) {
+static __always_inline int __obi_protocol_http(struct pt_regs *ctx) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
@@ -1215,7 +1215,6 @@ static __always_inline int __obi_protocol_http(struct pt_regs *ctx, bool use_bpf
     if (args->packet_type == PACKET_TYPE_REQUEST && (info->status == 0) &&
         (info->start_monotime_ns == 0)) {
 
-        args->use_bpf_loop = use_bpf_loop;
         preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue_protocol_http);
 
         return 0;
@@ -1260,13 +1259,7 @@ static __always_inline int __obi_protocol_http(struct pt_regs *ctx, bool use_bpf
 // k_tail_protocol_http
 SEC("kprobe/http")
 int GUARDED_PROG(obi_protocol_http, struct pt_regs *, ctx) {
-    return __obi_protocol_http(ctx, true);
-}
-
-// k_tail_protocol_http
-SEC("kprobe/http")
-int GUARDED_PROG(obi_protocol_http_legacy, struct pt_regs *, ctx) {
-    return __obi_protocol_http(ctx, false);
+    return __obi_protocol_http(ctx);
 }
 
 // k_tail_large_buf_emit_continue
