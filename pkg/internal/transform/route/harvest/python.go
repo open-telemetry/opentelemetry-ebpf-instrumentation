@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"regexp/syntax"
 	"sort"
 	"strings"
 
@@ -277,6 +278,59 @@ func parenDelta(line string) int {
 		}
 	}
 	return depth
+}
+
+// pyDelimitedEnd finds the matching delimiter for a call or list starting at open.
+// Delimiters inside quoted strings are part of the argument value.
+func pyDelimitedEnd(stmt string, open int) int {
+	opening, closing := stmt[open], byte(')')
+	if opening == '[' {
+		closing = ']'
+	}
+	depth := 0
+	var quote byte
+	for i := open; i < len(stmt); i++ {
+		if quote != 0 {
+			switch stmt[i] {
+			case '\\':
+				i++
+			case quote:
+				quote = 0
+			}
+			continue
+		}
+		switch stmt[i] {
+		case '\'', '"':
+			quote = stmt[i]
+		case opening:
+			depth++
+		case closing:
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// singleSegmentRegexParam reports whether a parameter regex matches one non-empty
+// path segment: a character class repeated with + or an exact count, such as [0-9]{4}.
+func singleSegmentRegexParam(body *syntax.Regexp) bool {
+	// Both + and positive exact counts such as {4} produce non-empty parameters.
+	fixedCount := body.Op == syntax.OpRepeat && body.Min > 0 && body.Min == body.Max
+	if (body.Op != syntax.OpPlus && !fixedCount) || body.Sub[0].Op != syntax.OpCharClass {
+		return false
+	}
+	class := body.Sub[0]
+	// Rune stores inclusive [low, high] pairs. A single-segment parameter
+	// requires every range to exclude the path separator.
+	for i := 0; i < len(class.Rune); i += 2 {
+		if class.Rune[i] <= '/' && '/' <= class.Rune[i+1] {
+			return false
+		}
+	}
+	return true
 }
 
 func addPyMatch(routes map[string]struct{}, re *regexp.Regexp, line string) {

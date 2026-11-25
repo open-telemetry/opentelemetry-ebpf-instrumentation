@@ -84,9 +84,9 @@ func djangoListAssignment(stmt string) (djangoAssignment, bool) {
 		operand := expr
 		var end int
 		if strings.HasPrefix(expr, "[") {
-			end = djangoDelimitedEnd(expr, 0)
+			end = pyDelimitedEnd(expr, 0)
 		} else if wrapper := djangoI18nStart.FindStringIndex(expr); wrapper != nil && wrapper[0] == 0 {
-			end = djangoDelimitedEnd(expr, wrapper[1]-1)
+			end = pyDelimitedEnd(expr, wrapper[1]-1)
 		} else {
 			name := djangoListNamePattern.FindString(expr)
 			end = len(name) - 1
@@ -196,19 +196,8 @@ func djangoRegexExprRoute(expr *syntax.Regexp) (string, bool) {
 	case syntax.OpLiteral:
 		return string(expr.Rune), true
 	case syntax.OpCapture:
-		body := expr.Sub[0]
-		// Both + and positive exact counts such as {4} produce non-empty parameters.
-		fixedCount := body.Op == syntax.OpRepeat && body.Min > 0 && body.Min == body.Max
-		if expr.Name == "" || (body.Op != syntax.OpPlus && !fixedCount) || body.Sub[0].Op != syntax.OpCharClass {
+		if expr.Name == "" || !singleSegmentRegexParam(expr.Sub[0]) {
 			return "", false
-		}
-		class := body.Sub[0]
-		// Rune stores inclusive [low, high] pairs. A single-segment parameter
-		// requires every range to exclude the path separator.
-		for i := 0; i < len(class.Rune); i += 2 {
-			if class.Rune[i] <= '/' && '/' <= class.Rune[i+1] {
-				return "", false
-			}
 		}
 		return "<" + expr.Name + ">", true
 	case syntax.OpConcat:
@@ -244,40 +233,6 @@ func djangoRegexExprRoute(expr *syntax.Regexp) (string, bool) {
 	return "", false
 }
 
-// djangoDelimitedEnd finds the matching delimiter for a call or list starting at open.
-// Delimiters inside quoted strings are part of the argument value.
-func djangoDelimitedEnd(stmt string, open int) int {
-	opening, closing := stmt[open], byte(')')
-	if opening == '[' {
-		closing = ']'
-	}
-	depth := 0
-	var quote byte
-	for i := open; i < len(stmt); i++ {
-		if quote != 0 {
-			switch stmt[i] {
-			case '\\':
-				i++
-			case quote:
-				quote = 0
-			}
-			continue
-		}
-		switch stmt[i] {
-		case '\'', '"':
-			quote = stmt[i]
-		case opening:
-			depth++
-		case closing:
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
 func scanDjango(stmt string, aliases map[string]string) []djangoRoute {
 	var routes []djangoRoute
 	for {
@@ -286,7 +241,7 @@ func scanDjango(stmt string, aliases map[string]string) []djangoRoute {
 			return append(routes, scanDjangoPaths(stmt, aliases)...)
 		}
 		routes = append(routes, scanDjangoPaths(stmt[:wrapper[0]], aliases)...)
-		end := djangoDelimitedEnd(stmt, wrapper[1]-1)
+		end := pyDelimitedEnd(stmt, wrapper[1]-1)
 		if end < 0 {
 			return routes
 		}

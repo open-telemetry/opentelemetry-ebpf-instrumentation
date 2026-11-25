@@ -446,10 +446,10 @@ func TestDjangoDelimitedEnd(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			call := "i18n_patterns(" + body + ")"
 			stmt := call + ` + [path("health/", health)]`
-			assert.Equal(t, len(call)-1, djangoDelimitedEnd(stmt, len("i18n_patterns")))
+			assert.Equal(t, len(call)-1, pyDelimitedEnd(stmt, len("i18n_patterns")))
 		})
 	}
-	assert.Equal(t, -1, djangoDelimitedEnd(`i18n_patterns(path("orders/", orders)`, len("i18n_patterns")))
+	assert.Equal(t, -1, pyDelimitedEnd(`i18n_patterns(path("orders/", orders)`, len("i18n_patterns")))
 }
 
 func TestExtractPythonDjangoI18nPatterns(t *testing.T) {

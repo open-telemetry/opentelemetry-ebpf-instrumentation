@@ -23,6 +23,15 @@ func TestScanPyramid(t *testing.T) {
 		{stmt: `config.add_route("static", "/static/*subpath")`, route: "/static/*"},
 		{stmt: `config.add_route("home", "/")`, route: "/"},
 		{stmt: `self.config.add_route( "user", "/users/{user_id}", )`, route: "/users/{user_id}"},
+		{stmt: `config.add_route(name="user", pattern="/users/{user_id}")`, route: "/users/{user_id}"},
+		{stmt: `config.add_route("user", factory=UserFactory(), pattern="/users/{user_id}")`, route: "/users/{user_id}"},
+		{stmt: `config.add_route("u", "/users/{id}", request_method=("GET", "POST"))`, route: "/users/{id}"},
+		{stmt: `config.add_route("a,b", "/ab/{id}")`, route: "/ab/{id}"},
+		{stmt: `config.add_route("tag#1", "/tags/{tag}")`, route: "/tags/{tag}"},
+		{stmt: `config.add_route("user", u"/users/{user_id}")`, route: "/users/{user_id}"},
+		{stmt: `config.add_route("user", R'/users/{user_id:\d+}')`, route: "/users/{user_id}"},
+		{stmt: `config.add_route("page", "/page/{action}", static=False)`, route: "/page/{action}"},
+		{stmt: `config.add_route(name="user", pattern="/prefix/pattern='/fake',")`, route: "/prefix/pattern='/fake',"},
 	} {
 		routes := map[string]struct{}{}
 		scanPyramid(tc.stmt, routes)
@@ -43,6 +52,15 @@ func TestScanPyramidSkipsUnsupportedForms(t *testing.T) {
 		`config.add_route("user", make_pattern(pattern="/users/"))`,
 		`config.add_route("health", "/health:ready")`,
 		`config.add_route("user", "/<user_id>")`,
+		`config.add_route("user", "/users/{user_id}", pattern="/other")`,
+		`config.add_route("user", **ROUTE_KWARGS)`,
+		`config.add_route(*ROUTE_ARGS)`,
+		`config.add_route("user", b"/users/{user_id}")`,
+		`config.add_route("user", pattern == "/users")`,
+		`config.add_route("user")`,
+		`config.add_route("page", "/page/{action}", static=True)`,
+		`config.add_route("youtube", "https://youtube.com/watch/{video_id}")`,
+		`config.add_route( "user",  # old pattern="/old", pattern=USER_PATTERN, )`,
 	} {
 		routes := map[string]struct{}{}
 		scanPyramid(stmt, routes)
@@ -77,9 +95,63 @@ func TestPyramidRoute(t *testing.T) {
 		{pattern: `/files/{path:\S+}`, ok: false},
 		{pattern: `/files/{path:[^?]+}`, ok: false},
 		{pattern: `/versions/{ver:\d+\.\d+}`, ok: false},
+		{pattern: `/files/{path:[ -~]+}`, ok: false},
+		{pattern: `/files/{path:[\w\x2f]+}`, ok: false},
+		{pattern: `/files/{path:[\w/]+}`, ok: false},
+		{pattern: `/users/{user_id:\d*}`, ok: false},
+		{pattern: `/users/{user_id:(}`, ok: false},
+		{pattern: "/users/{user_id}/profile.json", route: "/users/{user_id}/profile.json", ok: true},
+		{pattern: "/users/@me", route: "/users/@me", ok: true},
+		{pattern: "/v1/items;list/{id}", route: "/v1/items;list/{id}", ok: true},
+		{pattern: "/café", ok: false},
+		{pattern: "/a b", ok: false},
+		{pattern: "/search?q", ok: false},
+
+		// Examples from the Pyramid route pattern syntax docs:
+		// https://docs.pylonsproject.org/projects/pyramid/en/latest/narr/urldispatch.html#route-pattern-syntax
+		{pattern: "{foo}/bar/baz", route: "/{foo}/bar/baz", ok: true},
+		{pattern: "foo/{baz}/{bar}", route: "/foo/{baz}/{bar}", ok: true},
+		{pattern: "/{foo}/", route: "/{foo}/", ok: true},
+		{pattern: "/{a}/{a_b}/{_b}/{b9}", route: "/{a}/{a_b}/{_b}/{b9}", ok: true},
+		{pattern: "/{foo:[^/]+}", route: "/{foo}", ok: true},
+		{pattern: "foo/*fizzle", route: "/foo/*", ok: true},
+		{pattern: "a/b/c/*foo", route: "/a/b/c/*", ok: true},
+		{pattern: `/{year:\d+}/{month:\d+}/{day:\d+}`, route: "/{year}/{month}/{day}", ok: true},
+		{pattern: "/{0a}", ok: false},
+		{pattern: "foo/{name}.html", ok: false},
+		{pattern: "foo/{name}.{ext}", ok: false},
+		{pattern: "/{foo}{bar}", ok: false},
+		{pattern: "foo/{baz}/{bar}*fizzle", ok: false},
+		{pattern: "foo/{baz}/{bar}{fizzle:.*}", ok: false},
+		{pattern: "/Foo Bar/{baz}", ok: false},
+		{pattern: "/La Peña/{x}", ok: false},
+		{pattern: `/La Pe\xc3\xb1a/{x}`, ok: false},
+		{pattern: "https://youtube.com/watch/{video_id}", ok: false},
+		{pattern: "/{foo:a/b}", ok: false},
 	} {
 		route, ok := pyramidRoute(tc.pattern)
 		assert.Equal(t, tc.ok, ok, tc.pattern)
 		assert.Equal(t, tc.route, route, tc.pattern)
+	}
+}
+
+func TestPyTopLevelArgs(t *testing.T) {
+	args, ok := pyTopLevelArgs(`"a,b", f(x, y), k=[1, 2], d={"p": 1}, 'it\'s, #ok',`)
+	assert.True(t, ok)
+	assert.Equal(t, []string{`"a,b"`, `f(x, y)`, `k=[1, 2]`, `d={"p": 1}`, `'it\'s, #ok'`, ""}, args)
+
+	_, ok = pyTopLevelArgs(`"user",  # old pattern="/old", pattern=USER_PATTERN,`)
+	assert.False(t, ok)
+}
+
+func TestPyKeywordArg(t *testing.T) {
+	key, value, ok := pyKeywordArg(`pattern = "/users"`)
+	assert.True(t, ok)
+	assert.Equal(t, "pattern", key)
+	assert.Equal(t, `"/users"`, value)
+
+	for _, arg := range []string{`"/users"`, `pattern == "/users"`, `f(pattern="/users")`} {
+		_, _, ok := pyKeywordArg(arg)
+		assert.False(t, ok, arg)
 	}
 }
