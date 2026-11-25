@@ -291,6 +291,8 @@ runtimes:
             enabled: false
             bytecode_instrumentation: false
         attach_timeout: 10s
+    rust:
+        enabled: false
 network:
     capture:
         enabled: false

@@ -477,6 +477,7 @@ type Config struct {
 
 	NodeJS NodeJSConfig `yaml:"nodejs"`
 	Java   JavaConfig   `yaml:"javaagent"`
+	Rust   RustConfig   `yaml:"-" env:"-"`
 
 	JVMRuntimeMetrics    JVMRuntimeMetricsConfig    `yaml:"jvm_runtime_metrics"`
 	DotnetRuntimeMetrics DotnetRuntimeMetricsConfig `yaml:"dotnet_runtime_metrics"`
@@ -748,6 +749,15 @@ type NodeJSConfig struct {
 	// processes, capturing spans the application creates through the
 	// OpenTelemetry API when no OpenTelemetry SDK is registered.
 	ManualSpans bool `yaml:"manual_spans" env:"OTEL_EBPF_NODEJS_MANUAL_SPANS"`
+}
+
+// RustConfig controls the Rust runtime probes. Config v2 only
+// (capture.runtimes.rust.enabled): Config v1 is frozen.
+type RustConfig struct {
+	// Enabled attaches the Tokio task-tracking probes. Off (the default), no Rust
+	// probe is attached, the Rust maps are shrunk at load, and parents are resolved
+	// by thread identity, as for any native binary.
+	Enabled bool
 }
 
 type JavaConfig struct {

@@ -688,7 +688,7 @@
         },
         "runtimes": {
           "$ref": "#/$defs/Runtimes",
-          "description": "Runtime injection mechanisms (Go, Node.js, Java).\nIf omitted, runtime injection defaults are used.\n"
+          "description": "Runtime injection mechanisms (Go, Node.js, Java, Rust).\nIf omitted, runtime injection defaults are used.\n"
         },
         "network": {
           "$ref": "#/$defs/Network",
@@ -1889,7 +1889,7 @@
     },
     "RuntimeInjection": {
       "type": "object",
-      "description": "Runtime injection mechanism configuration. Controls whether a runtime injection (Go probes, Node.js SIGUSR1, Java agent) is enabled for workloads selected via the global selection rules.",
+      "description": "Runtime injection mechanism configuration. Controls whether a runtime injection (Go probes, Node.js SIGUSR1, Java agent, Rust Tokio probes) is enabled for workloads selected via the global selection rules.",
       "additionalProperties": false,
       "properties": {
         "enabled": {
@@ -1988,6 +1988,14 @@
           "description": "Java runtime instrumentation controls.\nIf omitted, Java injection defaults are used.\n",
           "default": {
             "enabled": true,
+            "filter": {}
+          }
+        },
+        "rust": {
+          "$ref": "#/$defs/RuntimeInjection",
+          "description": "Rust runtime instrumentation controls: Tokio task tracking, the probes that carry a request's trace context from task to task in Tokio binaries.\nIf omitted, Rust injection defaults are used.\n",
+          "default": {
+            "enabled": false,
             "filter": {}
           }
         }

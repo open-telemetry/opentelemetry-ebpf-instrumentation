@@ -48,6 +48,7 @@ func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.NetworkFlows.ExcludeInterfaces, got.NetworkFlows.ExcludeInterfaces)
 	require.Equal(t, obi.DefaultConfig.NodeJS.Enabled, got.NodeJS.Enabled)
 	require.Equal(t, obi.DefaultConfig.Java.Enabled, got.Java.Enabled)
+	require.Equal(t, obi.DefaultConfig.Rust.Enabled, got.Rust.Enabled)
 	require.Equal(t, obi.DefaultConfig.LogLevel, got.LogLevel)
 	require.Equal(t, obi.DefaultConfig.LogFormat, got.LogFormat)
 	require.Equal(t, obi.DefaultConfig.LogConfig, got.LogConfig)
@@ -573,6 +574,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.Java.Debug = true
 	cfg.Java.DebugInstrumentation = true
 	cfg.Java.Timeout = 7 * time.Second
+	cfg.Rust.Enabled = true
 
 	cfg.EBPF.BpfDebug = true
 	cfg.EBPF.ProtocolDebug = true
@@ -727,6 +729,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.True(t, got.Discovery.SkipGoSpecificTracers)
 	require.False(t, got.NodeJS.Enabled)
 	require.False(t, got.Java.Enabled)
+	require.True(t, got.Rust.Enabled)
 	require.True(t, got.Java.DebugInstrumentation)
 	require.Equal(t, 7*time.Second, got.Java.Timeout)
 
@@ -1375,6 +1378,13 @@ func TestV2ToRuntimeRejectsUnsupportedFilters(t *testing.T) {
 			},
 		},
 		{
+			name: "Rust runtime",
+			path: "capture.runtimes.rust.filter",
+			mutate: func(extension *schema.Extension) {
+				extension.Capture.Runtimes.Rust.Filter = filter
+			},
+		},
+		{
 			name: "log trace annotation",
 			path: "correlation.log_trace_annotation.filter",
 			mutate: func(extension *schema.Extension) {
@@ -1609,6 +1619,7 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.Discovery.SkipGoSpecificTracers, got.Discovery.SkipGoSpecificTracers)
 	require.Equal(t, obi.DefaultConfig.NodeJS.Enabled, got.NodeJS.Enabled)
 	require.Equal(t, obi.DefaultConfig.Java.Enabled, got.Java.Enabled)
+	require.Equal(t, obi.DefaultConfig.Rust.Enabled, got.Rust.Enabled)
 	require.Equal(t, obi.DefaultConfig.Java.Timeout, got.Java.Timeout)
 
 	require.Equal(t, 301, got.Traces.ReportersCacheLen)
@@ -1636,6 +1647,7 @@ func TestV2ToRuntimeOmittedCaptureSiblingsPreserveDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.Discovery.SkipGoSpecificTracers, got.Discovery.SkipGoSpecificTracers)
 	require.Equal(t, obi.DefaultConfig.NodeJS.Enabled, got.NodeJS.Enabled)
 	require.Equal(t, obi.DefaultConfig.Java.Enabled, got.Java.Enabled)
+	require.Equal(t, obi.DefaultConfig.Rust.Enabled, got.Rust.Enabled)
 	require.Equal(t, obi.DefaultConfig.Java.Timeout, got.Java.Timeout)
 	require.Equal(t, obi.DefaultConfig.Traces.ReportersCacheLen, got.Traces.ReportersCacheLen)
 	require.Equal(t, obi.DefaultConfig.OTELMetrics.ReportersCacheLen, got.OTELMetrics.ReportersCacheLen)
@@ -1951,4 +1963,29 @@ func incomingRoutePatterns(routes *services.CustomRoutesConfig) []string {
 		return nil
 	}
 	return *routes.PolicyOverrides.Incoming.Patterns
+}
+
+// The document is decoded over the exported defaults.
+func TestV2ToRuntimeRustRuntimeEnabledKeepsOtherDefaults(t *testing.T) {
+	t.Parallel()
+
+	_, parsed, err := schema.ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      runtimes:
+        rust:
+          enabled: true
+`))
+	require.NoError(t, err)
+
+	got, err := V2ToRuntime(parsed)
+	require.NoError(t, err)
+
+	require.True(t, got.Rust.Enabled)
+	require.Equal(t, obi.DefaultConfig.Discovery.SkipGoSpecificTracers, got.Discovery.SkipGoSpecificTracers)
+	require.Equal(t, obi.DefaultConfig.NodeJS.Enabled, got.NodeJS.Enabled)
+	require.Equal(t, obi.DefaultConfig.Java.Enabled, got.Java.Enabled)
+	require.Equal(t, obi.DefaultConfig.Java.Timeout, got.Java.Timeout)
 }

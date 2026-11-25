@@ -462,6 +462,13 @@ extensions:
             bytecode_instrumentation: false
           # Timeout for Java agent attachment.
           attach_timeout: 10s
+        # Rust Tokio task tracking: probes that carry a request's trace context from task
+        # to task in Tokio binaries. Off, a Rust service is traced like any other native
+        # binary and the Rust maps are shrunk at load.
+        rust:
+          enabled: false
+          # Reserved; keep empty.
+          filter: {}
 
       # network controls how network flow telemetry is captured and interpreted
       # for in-scope workloads (interfaces/protocols/cidrs, dedupe, enrichment, diagnostics).

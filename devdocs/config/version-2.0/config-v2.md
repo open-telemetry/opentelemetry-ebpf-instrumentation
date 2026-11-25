@@ -642,7 +642,7 @@ retains the `REDACTED` replacement by omitting `replacement`.
 ### `capture.runtimes` Section
 
 The `capture.runtimes` section defines how language-specific runtime instrumentation injection mechanisms are controlled.
-These include Go probes, Node.js SIGUSR1 signal injection, and Java agent attachment.
+These include Go probes, Node.js SIGUSR1 signal injection, Java agent attachment, and the Rust Tokio probes.
 
 Unlike protocol instrumentation, runtimes are not about capturing specific telemetry signals — they are about *how* to instrument a service once it's selected.
 Each runtime has a simple structure: `enabled` (boolean) controls whether to attempt injection.
@@ -652,6 +652,10 @@ Java also includes additional runtime-specific configuration such as debug contr
 The default is `true`. Set it to `false` to skip these probes when channel span links are unnecessary, for example when exporting only metrics.
 These probes run on every channel send and receive, which can add notable kernel CPU to busy Go services.
 This field is available through Config v2 only and has no effect when Go runtime instrumentation is disabled.
+
+`capture.runtimes.rust.enabled` controls Rust Tokio task tracking: the probes that carry a request's trace context from task to task in Tokio binaries.
+The default is `false`. Off, no Tokio probe is attached, the Rust maps are shrunk at load, and a Rust service is traced like any other native binary: its client spans resolve their parent by thread identity, which a work-stealing runtime can misattribute.
+This field is available through Config v2 only.
 
 Runtime `filter` fields are reserved by the schema but non-empty values are not
 supported by the current adapter; use capture rules for workload selection.
@@ -1122,6 +1126,7 @@ Important mapping notes:
 | `network.sampling` | `extensions.obi.capture.network.capture.flow_lifecycle.sampling` | Move |
 | `network.source` | `extensions.obi.capture.network.capture.source` | Move |
 | `nodejs.enabled` | `extensions.obi.capture.runtimes.nodejs.enabled` | Move |
+| N/A | `extensions.obi.capture.runtimes.rust.enabled` | Config v2-only switch for Rust Tokio task tracking, defaults to false |
 | `otel_metrics_export.endpoint` | `meter_provider.readers[0].periodic.exporter.otlp_grpc.endpoint` or, with gated HTTP support, `.otlp_http.endpoint` | OTel ownership move; automatic migration emits gRPC, while HTTP requires the documented manual mapping |
 | `otel_metrics_export.extra_span_resource_attributes` | `extensions.obi.capture.attributes.select.<span metric>.include` | One selection for both exporters; migration rejects differing active OTLP and Prometheus lists |
 | `otel_metrics_export.features` | Use the effective `metrics.features` mapping | Deprecated; an enabled OTLP exporter whose deprecated `features` field is present (including `[]`) takes precedence, otherwise enabled Prometheus features may supply it |

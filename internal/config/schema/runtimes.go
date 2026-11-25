@@ -8,6 +8,7 @@ type CaptureRuntimes struct {
 	Go     GoRuntime   `yaml:"go"`
 	NodeJS Runtime     `yaml:"nodejs"`
 	Java   JavaRuntime `yaml:"java"`
+	Rust   Runtime     `yaml:"rust"`
 }
 
 // Runtime describes generic language runtime capture settings.

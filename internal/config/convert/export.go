@@ -300,6 +300,9 @@ func captureRuntimes(cfg *obi.Config) schema.CaptureRuntimes {
 			},
 			AttachTimeout: schema.Duration(cfg.Java.Timeout),
 		},
+		Rust: schema.Runtime{
+			Enabled: cfg.Rust.Enabled,
+		},
 	}
 }
 
