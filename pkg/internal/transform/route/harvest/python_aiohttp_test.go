@@ -54,6 +54,17 @@ func TestScanAiohttp(t *testing.T) {
 			want: []string{"/items", "/items/{item_id}", "/orders", "/users/{user_id}"},
 		},
 		{
+			name: "annotated route table",
+			lines: []string{
+				`from aiohttp import web`,
+				`routes: web.RouteTableDef = web.RouteTableDef()`,
+				`@routes.get(r"/users/{user_id:\d+}")`,
+				`routes: Flask = Flask(__name__)`,
+				`@routes.get(r"/flask/{item_id:\d+}")`,
+			},
+			want: []string{"/users/{user_id}"},
+		},
+		{
 			name: "regex parameters keep only the name",
 			lines: []string{
 				`from aiohttp import web`,

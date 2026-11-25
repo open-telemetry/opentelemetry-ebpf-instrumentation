@@ -19,6 +19,9 @@ const (
 	aiohttpMethodNames = `get|post|put|patch|delete|head|options|view`
 	aiohttpMethods     = `(?:` + aiohttpMethodNames + `)`
 	aiohttpName        = `([A-Za-z_][A-Za-z0-9_]*)`
+	// aiohttpAnnotation matches an optional type annotation in an
+	// assignment, e.g. "routes: web.RouteTableDef = ...".
+	aiohttpAnnotation = `(?:\s*:[^=]+)?`
 	// aiohttpMethodArg matches the method argument of route()/add_route(),
 	// e.g. "GET" or hdrs.METH_GET.
 	aiohttpMethodArg = `[^,()]+,\s*`
@@ -39,9 +42,9 @@ var aiohttpWebImportPattern = regexp.MustCompile(`^(?:from\s+aiohttp\s+import\s+
 
 // aiohttpTablePattern does not require the closing parenthesis, so the first
 // line of a multi-line RouteTableDef( call is enough.
-var aiohttpTablePattern = regexp.MustCompile(`^` + aiohttpName + `\s*=\s*(?:` + pyObj + `)?RouteTableDef\s*\(`)
+var aiohttpTablePattern = regexp.MustCompile(`^` + aiohttpName + aiohttpAnnotation + `\s*=\s*(?:` + pyObj + `)?RouteTableDef\s*\(`)
 
-var aiohttpAssignmentPattern = regexp.MustCompile(`^` + aiohttpName + `\s*=[^=]`)
+var aiohttpAssignmentPattern = regexp.MustCompile(`^` + aiohttpName + aiohttpAnnotation + `\s*=[^=]`)
 
 var aiohttpDecoratorPattern = regexp.MustCompile(`^@` + aiohttpName + `\.`)
 
