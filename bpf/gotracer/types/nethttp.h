@@ -32,6 +32,7 @@ typedef struct server_http_func_invocation {
     u64 response_length;
     u64 status;
     u64 rpc_request_addr; // pointer to the jsonrpc Request
+    u64 echo_context;
     tp_info_t tp;
     u8 method[k_method_max_len];
     u8 path[k_path_max_len];

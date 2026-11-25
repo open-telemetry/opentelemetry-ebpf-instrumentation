@@ -318,11 +318,23 @@ int GUARDED_PROG(obi_uprobe_restfulRouteWrapRequestResponse, struct pt_regs *, c
     return 0;
 }
 
-static __always_inline void
-harvest_echo_route(void *context, const go_addr_key_t *g_key, const u64 path_off) {
+static __always_inline void save_echo_context(const go_addr_key_t *g_key, void *context) {
     server_http_func_invocation_t *invocation =
         bpf_map_lookup_elem(&ongoing_http_server_requests, g_key);
-    if (!invocation || !context || path_off == 0 || path_off == (u64)-1) {
+    if (invocation) {
+        invocation->echo_context = (u64)context;
+    }
+}
+
+static __always_inline void harvest_echo_route(const go_addr_key_t *g_key, const u64 path_off) {
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, g_key);
+    if (!invocation) {
+        return;
+    }
+    void *context = (void *)invocation->echo_context;
+    invocation->echo_context = 0;
+    if (!context || path_off == 0 || path_off == (u64)-1) {
         return;
     }
 
@@ -332,15 +344,20 @@ harvest_echo_route(void *context, const go_addr_key_t *g_key, const u64 path_off
         return;
     }
 
-    unsigned char pattern[k_pattern_max_len] = {};
+    server_http_func_invocation_t *scratch = serve_http_inv_mem();
+    if (!scratch) {
+        return;
+    }
+    unsigned char *pattern = scratch->pattern;
+    bpf_memset(pattern, 0, sizeof(scratch->pattern));
     u64 size = path.len;
-    bpf_clamp_umax(size, sizeof(pattern) - 1);
+    bpf_clamp_umax(size, sizeof(scratch->pattern) - 1);
     if (bpf_probe_read_user(pattern, size, path.str) || pattern[0] != '/') {
         return;
     }
 
     // Read final router state, including 405 metadata, before replacing an outer ServeMux match.
-    bpf_memcpy(invocation->pattern, pattern, sizeof(pattern));
+    bpf_memcpy(invocation->pattern, pattern, sizeof(scratch->pattern));
 }
 
 SEC("uprobe/echoV4Find")
@@ -348,16 +365,8 @@ int GUARDED_PROG(obi_uprobe_echoV4Find, struct pt_regs *, ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
 
-    bpf_map_delete_elem(&ongoing_echo_v4_routes, &g_key);
-    if (!bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key)) {
-        return 0;
-    }
-
     // Receiver, two strings, then Context's type and data words.
-    void *context = GO_PARAM7(ctx);
-    if (context) {
-        bpf_map_update_elem(&ongoing_echo_v4_routes, &g_key, &context, BPF_ANY);
-    }
+    save_echo_context(&g_key, GO_PARAM7(ctx));
     return 0;
 }
 
@@ -366,16 +375,8 @@ int GUARDED_PROG(obi_uprobe_echoV4FindReturns, struct pt_regs *, ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
 
-    void **saved_context = bpf_map_lookup_elem(&ongoing_echo_v4_routes, &g_key);
-    if (!saved_context) {
-        return 0;
-    }
-    void *context = *saved_context;
-    bpf_map_delete_elem(&ongoing_echo_v4_routes, &g_key);
-
     off_table_t *ot = get_offsets_table();
-    harvest_echo_route(
-        context, &g_key, go_offset_of(ot, (go_offset){.v = _echo_v4_context_path_pos}));
+    harvest_echo_route(&g_key, go_offset_of(ot, (go_offset){.v = _echo_v4_context_path_pos}));
     return 0;
 }
 
@@ -384,15 +385,7 @@ int GUARDED_PROG(obi_uprobe_echoV5Route, struct pt_regs *, ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
 
-    bpf_map_delete_elem(&ongoing_echo_v5_routes, &g_key);
-    if (!bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key)) {
-        return 0;
-    }
-
-    void *context = GO_PARAM2(ctx);
-    if (context) {
-        bpf_map_update_elem(&ongoing_echo_v5_routes, &g_key, &context, BPF_ANY);
-    }
+    save_echo_context(&g_key, GO_PARAM2(ctx));
     return 0;
 }
 
@@ -401,16 +394,8 @@ int GUARDED_PROG(obi_uprobe_echoV5RouteReturns, struct pt_regs *, ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
 
-    void **saved_context = bpf_map_lookup_elem(&ongoing_echo_v5_routes, &g_key);
-    if (!saved_context) {
-        return 0;
-    }
-    void *context = *saved_context;
-    bpf_map_delete_elem(&ongoing_echo_v5_routes, &g_key);
-
     off_table_t *ot = get_offsets_table();
-    harvest_echo_route(
-        context, &g_key, go_offset_of(ot, (go_offset){.v = _echo_v5_context_path_pos}));
+    harvest_echo_route(&g_key, go_offset_of(ot, (go_offset){.v = _echo_v5_context_path_pos}));
     return 0;
 }
 

@@ -44,22 +44,6 @@ struct {
 } ongoing_http_server_requests SEC(".maps");
 
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t);
-    __type(value, void *);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} ongoing_echo_v5_routes SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t);
-    __type(value, void *);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} ongoing_echo_v4_routes SEC(".maps");
-
-struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, u32);
     __type(value, unsigned char[k_http_header_max_len]);

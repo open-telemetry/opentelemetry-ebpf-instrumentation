@@ -162,9 +162,9 @@ func TestEchoV4ProbesFollowRouteHarvesting(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, spec.Programs, "obi_uprobe_echoV4Find")
 	require.Contains(t, spec.Programs, "obi_uprobe_echoV4FindReturns")
-	require.Contains(t, spec.Maps, "ongoing_echo_v4_routes")
-	assert.Equal(t, ebpf.LRUHash, spec.Maps["ongoing_echo_v4_routes"].Type)
-	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["ongoing_echo_v4_routes"].Pinning)
+	assert.NotContains(t, spec.Maps, "ongoing_echo_v4_routes")
+	assert.NotContains(t, spec.Maps, "ongoing_echo_v5_routes")
+	require.Contains(t, spec.Maps, "ongoing_http_server_requests")
 
 	tracer := &Tracer{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	entry, exit := new(ebpf.Program), new(ebpf.Program)
@@ -185,9 +185,9 @@ func TestEchoV5ProbesFollowRouteHarvesting(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, spec.Programs, "obi_uprobe_echoV5Route")
 	require.Contains(t, spec.Programs, "obi_uprobe_echoV5RouteReturns")
-	require.Contains(t, spec.Maps, "ongoing_echo_v5_routes")
-	assert.Equal(t, ebpf.LRUHash, spec.Maps["ongoing_echo_v5_routes"].Type)
-	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["ongoing_echo_v5_routes"].Pinning)
+	assert.NotContains(t, spec.Maps, "ongoing_echo_v4_routes")
+	assert.NotContains(t, spec.Maps, "ongoing_echo_v5_routes")
+	require.Contains(t, spec.Maps, "ongoing_http_server_requests")
 
 	tracer := &Tracer{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	entry, exit := new(ebpf.Program), new(ebpf.Program)
