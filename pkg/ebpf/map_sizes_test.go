@@ -10,6 +10,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -74,4 +75,33 @@ func TestScaleUpStillScalesTrackedSockCookies(t *testing.T) {
 	setupBPFMapSizes(spec, cfg)
 
 	assert.Equal(t, uint32(131070), spec.Maps["tracked_sock_cookies"].MaxEntries)
+}
+
+func TestRuntimeAllocatedHashMapsAllowedFromKernel61(t *testing.T) {
+	assert.False(t, runtimeAllocatedHashMapsAllowed(0, 0), "unknown kernel")
+	assert.False(t, runtimeAllocatedHashMapsAllowed(4, 18))
+	assert.False(t, runtimeAllocatedHashMapsAllowed(5, 15))
+	assert.False(t, runtimeAllocatedHashMapsAllowed(6, 0))
+	assert.True(t, runtimeAllocatedHashMapsAllowed(6, 1))
+	assert.True(t, runtimeAllocatedHashMapsAllowed(7, 0))
+}
+
+func TestPreallocateHashMapsOnlyTouchesHashMaps(t *testing.T) {
+	spec := &ebpf.CollectionSpec{
+		Maps: map[string]*ebpf.MapSpec{
+			"hash":        {Type: ebpf.Hash, Flags: unix.BPF_F_NO_PREALLOC | unix.BPF_F_RDONLY_PROG},
+			"percpu_hash": {Type: ebpf.PerCPUHash, Flags: unix.BPF_F_NO_PREALLOC},
+			"sk_storage":  {Type: ebpf.SkStorage, Flags: unix.BPF_F_NO_PREALLOC},
+			"lpm_trie":    {Type: ebpf.LPMTrie, Flags: unix.BPF_F_NO_PREALLOC},
+		},
+	}
+
+	preallocateHashMaps(spec)
+
+	assert.Equal(t, uint32(unix.BPF_F_RDONLY_PROG), spec.Maps["hash"].Flags, "other flags are kept")
+	assert.Zero(t, spec.Maps["percpu_hash"].Flags)
+	assert.Equal(t, uint32(unix.BPF_F_NO_PREALLOC), spec.Maps["sk_storage"].Flags,
+		"socket storage requires BPF_F_NO_PREALLOC")
+	assert.Equal(t, uint32(unix.BPF_F_NO_PREALLOC), spec.Maps["lpm_trie"].Flags,
+		"LPM tries require BPF_F_NO_PREALLOC")
 }
