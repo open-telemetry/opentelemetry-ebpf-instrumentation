@@ -152,6 +152,9 @@ int GUARDED_PROG(obi_uprobe_netFdReadRet, struct pt_regs *, ctx) {
     s64 len = (s64)GO_PARAM1(ctx);
 
     net_args_t *net_ptr = bpf_map_lookup_elem(&ongoing_fd_reads, &g_key);
+    if (net_ptr) {
+        claim_read_handled_since_entry(net_ptr);
+    }
 
     if (!net_ptr || !net_ptr->byte_ptr || net_ptr->skip) {
         if (!http_large_buffer_skip(len) && net_ptr && net_ptr->byte_ptr) {

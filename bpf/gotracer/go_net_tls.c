@@ -131,6 +131,8 @@ int GUARDED_PROG(obi_uprobe_cryptoTlsReadRet, struct pt_regs *, ctx) {
     if (args) {
         bpf_dbg_printk("buf = %s", args->byte_ptr);
 
+        claim_read_handled_since_entry(args);
+
         if (!args->byte_ptr || args->skip) {
             if (http_large_buffer_skip(len)) {
                 goto done;

@@ -27,6 +27,7 @@
 #include <gotracer/go_common.h>
 #include <gotracer/maps/mongo.h>
 #include <gotracer/maps/nethttp.h>
+#include <gotracer/types/net_args.h>
 
 #include <generictracer/k_tracer_defs.h>
 
@@ -55,6 +56,23 @@ cleanup_duplicate_generic_events_sorted(const pid_connection_info_t *pid_conn) {
     bpf_map_delete_elem(&ongoing_http, pid_conn);
     bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
     bpf_map_delete_elem(&ongoing_http2_connections, pid_conn);
+}
+
+// Go's HTTP client read loop enters its first read before the connection is claimed
+static __always_inline void claim_read_handled_since_entry(net_args_t *args) {
+    if (args->skip) {
+        return;
+    }
+
+    pid_connection_info_t p_conn = args->p_conn;
+    sort_connection_info(&p_conn.conn);
+
+    if (!already_handled_request_sorted(&p_conn.conn)) {
+        return;
+    }
+
+    cleanup_duplicate_generic_events_sorted(&p_conn);
+    args->skip = 1;
 }
 
 static __always_inline void
