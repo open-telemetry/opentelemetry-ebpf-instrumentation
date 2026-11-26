@@ -56,6 +56,7 @@ func TestStat_GoStatMetricsV2(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Go Stat Metrics TCP Resets tests", testStatMetricsTCPResetsGo)
 	t.Run("Go Stat Metrics TCP Resets after shutdown tests", testStatMetricsTCPResetsAfterShutdownGo)
+	t.Run("Go Stat Metrics CIDR attributes tests", testStatMetricsCIDRGo)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

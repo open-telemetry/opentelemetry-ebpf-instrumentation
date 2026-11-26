@@ -26,6 +26,12 @@ metrics:
         requirement_level: opt_in
       - ref: dst.zone
         requirement_level: opt_in
+      - ref: src.cidr
+        requirement_level:
+          conditionally_required: if stats.cidrs is configured
+      - ref: dst.cidr
+        requirement_level:
+          conditionally_required: if stats.cidrs is configured
       - ref: k8s.cluster.name
         requirement_level:
           recommended: if Kubernetes decoration is enabled
@@ -100,6 +106,12 @@ metrics:
         requirement_level: opt_in
       - ref: dst.zone
         requirement_level: opt_in
+      - ref: src.cidr
+        requirement_level:
+          conditionally_required: if stats.cidrs is configured
+      - ref: dst.cidr
+        requirement_level:
+          conditionally_required: if stats.cidrs is configured
       - ref: k8s.cluster.name
         requirement_level:
           recommended: if Kubernetes decoration is enabled
@@ -173,6 +185,12 @@ metrics:
         requirement_level: opt_in
       - ref: dst.zone
         requirement_level: opt_in
+      - ref: src.cidr
+        requirement_level:
+          conditionally_required: if stats.cidrs is configured
+      - ref: dst.cidr
+        requirement_level:
+          conditionally_required: if stats.cidrs is configured
       - ref: network.io.direction
         requirement_level: recommended
       - ref: network.tcp.handshake.role
@@ -252,6 +270,12 @@ metrics:
         requirement_level: opt_in
       - ref: dst.zone
         requirement_level: opt_in
+      - ref: src.cidr
+        requirement_level:
+          conditionally_required: if stats.cidrs is configured
+      - ref: dst.cidr
+        requirement_level:
+          conditionally_required: if stats.cidrs is configured
       - ref: reason
         requirement_level: opt_in
       - ref: network.tcp.handshake.role
@@ -329,6 +353,12 @@ metrics:
         requirement_level: opt_in
       - ref: dst.zone
         requirement_level: opt_in
+      - ref: src.cidr
+        requirement_level:
+          conditionally_required: if stats.cidrs is configured
+      - ref: dst.cidr
+        requirement_level:
+          conditionally_required: if stats.cidrs is configured
       - ref: network.tcp.handshake.role
         requirement_level: opt_in
       - ref: k8s.cluster.name
@@ -406,6 +436,12 @@ metrics:
         requirement_level: opt_in
       - ref: dst.zone
         requirement_level: opt_in
+      - ref: src.cidr
+        requirement_level:
+          conditionally_required: if stats.cidrs is configured
+      - ref: dst.cidr
+        requirement_level:
+          conditionally_required: if stats.cidrs is configured
       - ref: network.io.direction
         requirement_level: recommended
       - ref: network.tcp.reset.cause

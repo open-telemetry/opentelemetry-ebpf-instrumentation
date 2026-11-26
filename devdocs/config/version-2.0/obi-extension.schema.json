@@ -2390,7 +2390,8 @@
                 "cidrs": {
                   "$ref": "#/$defs/CIDRDefinitions"
                 }
-              }
+              },
+              "description": "Names the IP ranges of stats peers: each source and destination address gets the name of the narrowest matching CIDR as `src.cidr` and `dst.cidr`. It does not drop traffic; use `filters` for that.\nIf omitted, stats telemetry has no CIDR attributes.\n"
             },
             "filters": {
               "$ref": "#/$defs/SignalFilters",

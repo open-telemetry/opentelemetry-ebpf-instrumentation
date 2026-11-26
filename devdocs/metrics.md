@@ -99,7 +99,7 @@ To add a new application metric, follow these guidelines:
 
 **StatsO11y** is the component responsible for calculating statistical metrics — for example, TCP RTT or failed-connection counts — across all applications running on a node, regardless of which PID triggered the event. The probes live in [bpf/statsolly](../bpf/statsolly/).
 
-In [pkg/export/attributes/attr_defs.go](../pkg/export/attributes/attr_defs.go) some `AttrReportGroup` type structures are defined for stat metrics in both the k8s and non-k8s environment: `statsAttributes` and `statsKubeAttributes`. Here too, ad hoc attributes can be added for each metric. There are attributes that default to true and others to false, but which can be enabled by the user during configuration.
+In [pkg/export/attributes/attr_defs.go](../pkg/export/attributes/attr_defs.go) some `AttrReportGroup` type structures are defined for stat metrics in both the k8s and non-k8s environment: `statsAttributes` and `statsKubeAttributes`, plus `statsCIDR`, enabled when `stats.cidrs` is configured. Here too, ad hoc attributes can be added for each metric. There are attributes that default to true and others to false, but which can be enabled by the user during configuration.
 
 ### BPF program naming convention
 
@@ -177,6 +177,14 @@ The `tcp_rcv_state_process()` kprobe fixes every supported kernel without state 
 
 - A `kprobe` on `tcp_reset()`. It fires only on resets and reads the RST bit from its `skb` argument, but `tcp_reset()` takes the `skb` only since kernel 5.11, so 5.8 to 5.10 would keep the false `receive`. Falling back to the `tcp_rcv_state_process()` kprobe on older kernels means two mechanisms to maintain and test.
 - Pairing the two tracepoints in user space. The abort is the only case where `tcp_send_reset` answers a segment on the same socket right after `tcp_receive_reset`, so a pipeline node could hold received resets of closing sockets and drop the ones followed by that reset. It adds no kernel hook and works from 5.8, but it delays those received resets by a hold window and adds a stateful node with a timer to the stats pipeline.
+
+#### CIDR attributes on stat metrics
+
+With `stats.cidrs` configured, every stat metric carries `src.cidr` and `dst.cidr`: the name of the narrowest configured CIDR that contains each address. The configuration only names ranges; dropping traffic is the job of `filter.stats`.
+
+- The attributes name the IP range of a peer, not the path the bytes took. Whether traffic labeled as an external range went through a NAT gateway depends on the route tables, which OBI does not read. Ranges with a different route, such as VPC endpoints, need their own entries.
+- The peer is the address the socket is connected to. Traffic sent through a forward proxy, an egress gateway or a sidecar is classified by the address of that proxy.
+- An address that matches no entry gets an empty value. Add `0.0.0.0/0` and `::/0` entries for a complete split.
 
 ### Performance considerations
 
