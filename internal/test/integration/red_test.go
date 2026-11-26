@@ -962,7 +962,7 @@ func testPrometheusNoOBIEvents(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testREDMetricsRouteHarvesting(t *testing.T, baseURL, svcName, svcNameSpace, route string) {
+func testREDMetricsRouteHarvesting(t *testing.T, baseURL, svcName, svcNameSpace, route string, paths ...string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	parsedURL, err := url.Parse(baseURL)
 	require.NoError(t, err)
@@ -973,7 +973,10 @@ func testREDMetricsRouteHarvesting(t *testing.T, baseURL, svcName, svcNameSpace,
 	query := `http_server_request_duration_seconds_count{` + selector +
 		`http_route="` + route + `"}`
 
-	for _, path := range []string{"/rolldice/4", "/rolldice/42"} {
+	if len(paths) == 0 {
+		paths = []string{"/rolldice/4", "/rolldice/42"}
+	}
+	for _, path := range paths {
 		results, err := pq.Query(query)
 		require.NoError(t, err)
 		before := totalPromCount(t, results)
@@ -1008,6 +1011,11 @@ func testREDMetricsHTTPAutoRoutes(t *testing.T) {
 		t.Run(testParts[0], func(t *testing.T) {
 			waitForTestComponentsSub(t, testParts[0], "/rolldice/4")
 			testREDMetricsRouteHarvesting(t, testParts[0], "testserver", "integration-test", testParts[1])
+			if testParts[0] == instrumentedServiceEchoURL+"/api" ||
+				testParts[0] == instrumentedServiceEchoV4URL+"/api" {
+				testREDMetricsRouteHarvesting(t, testParts[0], "testserver", "integration-test",
+					"/api/lookup/:id", "/lookup/4", "/lookup/42")
+			}
 		})
 	}
 }

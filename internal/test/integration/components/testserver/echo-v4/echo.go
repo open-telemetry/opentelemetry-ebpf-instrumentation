@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 
 	"github.com/labstack/echo/v4"
 )
@@ -26,6 +27,13 @@ func handler() http.Handler {
 	api.GET("/rolldice/:id", respond)
 	api.GET("/health", respond)
 	api.GET("/files/*", respond)
+	auxiliary := echo.New()
+	auxiliary.GET("/auxiliary/:key", respond)
+	api.GET("/lookup/:id", func(c echo.Context) error {
+		aux := auxiliary.NewContext(httptest.NewRequest(http.MethodGet, "/auxiliary/check", nil), httptest.NewRecorder())
+		auxiliary.Router().Find(http.MethodGet, "/auxiliary/check", aux)
+		return respond(c)
+	})
 	mux := http.NewServeMux()
 	mux.Handle("/", e)
 	return mux

@@ -22,6 +22,7 @@ func TestRoutes(t *testing.T) {
 		{"second ID", "GET", "/api/rolldice/42", "/api/rolldice/:id", 200},
 		{"static", "GET", "/api/health", "/api/health", 200},
 		{"wildcard", "GET", "/api/files/a/b", "/api/files/*", 200},
+		{"auxiliary lookup", "GET", "/api/lookup/42", "/api/lookup/:id", 200},
 		{"method mismatch", "POST", "/api/rolldice/42", "", 405},
 		{"unmatched after match", "GET", "/missing", "", 404},
 	} {

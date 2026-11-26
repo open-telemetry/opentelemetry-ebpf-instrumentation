@@ -44,7 +44,8 @@ typedef struct server_http_func_invocation {
     u8 proto_minor;
     // set when an exception capture saw this request's goroutine panic
     bool panicked;
-    u8 _pad[4];
+    bool echo_route_matched;
+    u8 _pad[3];
 } server_http_func_invocation_t;
 
 typedef struct http2_owned_stream_ref {

@@ -321,7 +321,7 @@ int GUARDED_PROG(obi_uprobe_restfulRouteWrapRequestResponse, struct pt_regs *, c
 static __always_inline void save_echo_context(const go_addr_key_t *g_key, void *context) {
     server_http_func_invocation_t *invocation =
         bpf_map_lookup_elem(&ongoing_http_server_requests, g_key);
-    if (invocation) {
+    if (invocation && !invocation->echo_route_matched) {
         invocation->echo_context = (u64)context;
     }
 }
@@ -358,6 +358,8 @@ static __always_inline void harvest_echo_route(const go_addr_key_t *g_key, const
 
     // Read final router state, including 405 metadata, before replacing an outer ServeMux match.
     bpf_memcpy(invocation->pattern, pattern, sizeof(scratch->pattern));
+    // Later lookups on this goroutine may belong to unrelated Echo contexts.
+    invocation->echo_route_matched = true;
 }
 
 SEC("uprobe/echoV4Find")
