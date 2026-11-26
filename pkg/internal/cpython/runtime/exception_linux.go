@@ -27,7 +27,7 @@ const frameOwnerNone = 0xff
 const (
 	typeBasicSizeOffset = 32
 	typeStrOffset       = 136
-
+	pointerSize         = 8
 	// PyLongObject replaced ob_size with lv_tag in 3.12.
 	longTaggedMinor = 12
 	// PyBaseExceptionObject.traceback, after PyObject_HEAD, dict, args and notes.
@@ -82,7 +82,10 @@ type ExceptionLayout struct {
 	UnicodeCompactData uint8
 	ExceptionTraceback uint8
 
-	LongTagged bool
+	ExceptionContext         uint8
+	ExceptionCause           uint8
+	ExceptionSuppressContext uint8
+	LongTagged               bool
 
 	FrameReadSize    uint8
 	FrameLastiInt    bool
@@ -239,7 +242,7 @@ func exceptionLayout(file *elf.File, anchor uint64, version uint32) (ExceptionLa
 	if minor >= 9 && minor <= 12 {
 		layout, err := legacyExceptionLayout(parsed)
 		layout.TypeFlags = uint8(typeFlags)
-		layout.LongTagged = layout.Minor >= longTaggedMinor
+		setExceptionChainLayout(&layout)
 		return layout, err
 	}
 	positions, err := loadDebugExceptionPositions(parsed)
@@ -252,8 +255,17 @@ func exceptionLayout(file *elf.File, anchor uint64, version uint32) (ExceptionLa
 	}
 	layout, err := debugExceptionLayout(debug, minor, positions)
 	layout.TypeFlags = uint8(typeFlags)
-	layout.LongTagged = layout.Minor >= longTaggedMinor
+	setExceptionChainLayout(&layout)
 	return layout, err
+}
+
+// setExceptionChainLayout fills the fields that follow traceback in
+// PyException_HEAD on every supported version, and the int layout.
+func setExceptionChainLayout(layout *ExceptionLayout) {
+	layout.ExceptionContext = layout.ExceptionTraceback + pointerSize
+	layout.ExceptionCause = layout.ExceptionContext + pointerSize
+	layout.ExceptionSuppressContext = layout.ExceptionCause + pointerSize
+	layout.LongTagged = layout.Minor >= longTaggedMinor
 }
 
 // debugExceptionLayout reads the offsets CPython 3.13+ publishes at the start of _PyRuntime.

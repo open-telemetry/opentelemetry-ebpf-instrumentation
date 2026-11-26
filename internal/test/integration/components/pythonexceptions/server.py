@@ -171,6 +171,29 @@ def invoke(case, token):
         finally:
             with open(__file__) as source:
                 source.readline()
+    elif case == "context":
+        try:
+            outer("ascii", token)
+        except ValueError:
+            raise RuntimeError(token)
+    elif case == "suppressed":
+        try:
+            outer("ascii", token)
+        except ValueError:
+            raise RuntimeError(token) from None
+    elif case == "chain3":
+        try:
+            try:
+                outer("key", token)
+            except KeyError as error:
+                raise LookupError("middle " + token) from error
+        except LookupError:
+            raise RuntimeError(token)
+    elif case == "chain4":
+        try:
+            invoke("chain3", token)
+        except RuntimeError as error:
+            raise ConnectionError(token) from error
     else:
         outer(case, token)
 
@@ -197,7 +220,7 @@ def message(error):
     return ""
 
 
-def ground_truth(error):
+def describe(error):
     kind = type(error)
     name = kind.__qualname__ if kind.__module__ == "builtins" else f"{kind.__module__}.{kind.__qualname__}"
     return {
@@ -209,6 +232,28 @@ def ground_truth(error):
             for frame, line in traceback.walk_tb(error.__traceback__)
         ],
     }
+
+
+def chain(error):
+    """The exceptions traceback prints before error, newest first."""
+    links, seen = [], {id(error)}
+    while True:
+        if error.__cause__ is not None:
+            error, relation = error.__cause__, "cause"
+        elif error.__context__ is not None and not error.__suppress_context__:
+            error, relation = error.__context__, "context"
+        else:
+            return links
+        if id(error) in seen:
+            return links
+        seen.add(id(error))
+        links.append(dict(describe(error), relation=relation))
+
+
+def ground_truth(error):
+    """What OBI reports: the SDK's exception.type, the rendered message, the
+    traceback's frames and the cause or context chain."""
+    return dict(describe(error), chain=chain(error))
 
 
 def escape(case, token):

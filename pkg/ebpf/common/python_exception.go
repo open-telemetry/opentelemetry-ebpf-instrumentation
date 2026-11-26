@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -69,6 +70,12 @@ const (
 	pythonLongSignNegative = 2
 )
 
+// What traceback prints between an exception and the one linked from it.
+var pythonChainSeparators = map[BpfPythonExceptionRelation]string{
+	BpfPythonExceptionRelationK_pythonExceptionCause:   "\nThe above exception was the direct cause of the following exception:\n\n",
+	BpfPythonExceptionRelationK_pythonExceptionContext: "\nDuring handling of the above exception, another exception occurred:\n\n",
+}
+
 // CPython 3.11+ type and dict layout, the same on every 3.11-3.14 build; the
 // heap type's __qualname__ moved in 3.12. Python classes on 3.9 and 3.10 keep
 // their __name__.
@@ -117,16 +124,55 @@ func decodePythonException(payload []byte, event *exceptions.Event) error {
 }
 
 func describePythonException(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, event *exceptions.Event) error {
-	module, qualname := pythonTypeName(memory, record)
+	module, qualname := pythonTypeName(memory, record, record.Type)
 	event.Type = pythonQualifiedName(module, qualname, "builtins")
 	event.Message = pythonMessage(module, qualname, &record.Message, record.Text[:], record.Layout.Minor)
 	if event.Type == "" && event.Message == "" {
 		return fmt.Errorf("%w: unreadable type", errPythonExceptionPayload)
 	}
 
-	event.Stacktrace = pythonTraceback(memory, record) + pythonExceptionLine(module, qualname, event.Message)
+	var stacktrace strings.Builder
+	for _, link := range slices.Backward(pythonLinks(memory, record)) {
+		stacktrace.WriteString(link)
+	}
+	stacktrace.WriteString(pythonTraceback(memory, record, record.Frames[:record.FrameCount], record.Flags))
+	stacktrace.WriteString(pythonExceptionLine(module, qualname, event.Message))
+	event.Stacktrace = stacktrace.String()
 	event.SeverityNumber = int32(plog.SeverityNumberError)
 	return nil
+}
+
+// pythonLinks renders the chain newest first. It ends at an unreadable link,
+// since the older links' separators name their relation to it.
+func pythonLinks(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT) []string {
+	links := make([]string, 0, record.LinkCount)
+	for i := range int(record.LinkCount) {
+		link := pythonLink(memory, record, &record.Links[i])
+		if link == "" {
+			break
+		}
+		links = append(links, link)
+	}
+	return links
+}
+
+// pythonLink writes an exception of the cause or context chain, oldest first,
+// and the line traceback prints before the exception linked from it.
+func pythonLink(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, link *BpfPythonExceptionLinkT) string {
+	module, qualname := pythonTypeName(memory, record, link.Type)
+	message := pythonMessage(module, qualname, &link.Message, link.Text[:], record.Layout.Minor)
+	if qualname == "" && message == "" {
+		return ""
+	}
+
+	var text strings.Builder
+	// An exception that was never raised has no traceback.
+	if link.FrameCount > 0 || link.Flags&BpfPythonExceptionFlagsK_pythonExceptionTruncated != 0 {
+		text.WriteString(pythonTraceback(memory, record, link.Frames[:link.FrameCount], link.Flags))
+	}
+	text.WriteString(pythonExceptionLine(module, qualname, message))
+	text.WriteString(pythonChainSeparators[link.Relation])
+	return text.String()
 }
 
 // pythonExceptionLine is the line traceback ends an exception with.
@@ -143,8 +189,8 @@ func pythonExceptionLine(module, qualname, message string) string {
 
 // pythonTypeName returns a type's __module__ and __qualname__. A static type
 // names its module in tp_name, as "module.Name", and builtins have none.
-func pythonTypeName(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT) (string, string) {
-	layout, object := &record.Layout, record.Type
+func pythonTypeName(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, object uint64) (string, string) {
+	layout := &record.Layout
 	name := memory.StringPtr(libpf.Address(object + pythonTypeNameOffset))
 	flags := memory.Uint64(libpf.Address(object + pythonTypeFlagsOffset))
 	qualnameOffset, known := pythonHeapTypeQualname[layout.Minor]
@@ -405,8 +451,14 @@ func parsePythonExceptionPayload(payload []byte) (*BpfPythonExceptionPayloadT, e
 	}
 	if int(record.FrameCount) > len(record.Frames) ||
 		len(payload) != pythonFramesOffset+int(record.FrameCount)*pythonFrameSize ||
-		!pythonMessageFits(&record.Message, len(record.Text)) {
+		!pythonMessageFits(&record.Message, len(record.Text)) ||
+		int(record.LinkCount) > len(record.Links) {
 		return nil, errPythonExceptionPayload
+	}
+	for _, link := range record.Links[:record.LinkCount] {
+		if int(link.FrameCount) > len(link.Frames) || !pythonMessageFits(&link.Message, len(link.Text)) {
+			return nil, errPythonExceptionPayload
+		}
 	}
 	return record, nil
 }
@@ -427,17 +479,16 @@ func pythonMessageFits(message *BpfPythonExceptionMessageT, size int) bool {
 
 // pythonTraceback writes the frames outermost first, as traceback.format_exception
 // does, without source lines.
-func pythonTraceback(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT) string {
+func pythonTraceback(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, frames []BpfPythonExceptionFrameT, flags BpfPythonExceptionFlags) string {
 	var traceback strings.Builder
 	traceback.WriteString("Traceback (most recent call last):\n")
-	if record.Flags&BpfPythonExceptionFlagsK_pythonExceptionTruncated != 0 {
+	if flags&BpfPythonExceptionFlagsK_pythonExceptionTruncated != 0 {
 		traceback.WriteString("  ... frames omitted\n")
 	}
 
 	var last string
 	repeated := 0
-	for i := int(record.FrameCount) - 1; i >= 0; i-- {
-		frame := record.Frames[i]
+	for _, frame := range slices.Backward(frames) {
 		file, line, function, err := pythonFrame(memory, record, frame.Code, frame.Instr)
 		if errors.Is(err, errPythonNoLocation) {
 			continue

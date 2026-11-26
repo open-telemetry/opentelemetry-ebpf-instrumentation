@@ -362,6 +362,8 @@ func TestParsePythonExceptionPayload(t *testing.T) {
 	}
 
 	record := fakePythonRecord(0x10, "message", 0x100, 0x200)
+	record.LinkCount = 1
+	record.Links[0].FrameCount = 1
 	parsed, err := parsePythonExceptionPayload(encode(record))
 	require.NoError(t, err)
 	assert.Equal(t, record.Frames[:2], parsed.Frames[:2])
@@ -376,7 +378,13 @@ func TestParsePythonExceptionPayload(t *testing.T) {
 			r.Message.Count = 2
 			r.Message.Len[1] = uint16(len(r.Text)/len(r.Message.Len) + 1)
 		},
-		"argument count": func(r *BpfPythonExceptionPayloadT) { r.Message.Count = uint8(len(r.Message.Len) + 1) },
+		"argument count":   func(r *BpfPythonExceptionPayloadT) { r.Message.Count = uint8(len(r.Message.Len) + 1) },
+		"link count":       func(r *BpfPythonExceptionPayloadT) { r.LinkCount = uint8(len(r.Links) + 1) },
+		"link frame count": func(r *BpfPythonExceptionPayloadT) { r.Links[0].FrameCount = uint8(len(r.Links[0].Frames) + 1) },
+		"link message": func(r *BpfPythonExceptionPayloadT) {
+			r.Links[0].Message.Count = 1
+			r.Links[0].Message.Len[0] = uint16(len(r.Links[0].Text) + 1)
+		},
 	} {
 		corrupted := *record
 		corrupt(&corrupted)
@@ -521,4 +529,55 @@ func TestPythonMessageArguments(t *testing.T) {
 	assert.Empty(t, pythonMessage("builtins", "ValueError", &message, text, 12), "digits missing from the stored int")
 	fakePythonArgs(&message, text, "a", []byte{1})
 	assert.Empty(t, pythonMessage("builtins", "ValueError", &message, text, 12), "a short int")
+}
+
+func TestDescribePythonExceptionChain(t *testing.T) {
+	process := newFakePythonProcess()
+	inner := process.code("/app/storage.py", "inner_fn", 20, []byte{128, 0})
+	outer := process.code("/app/server.py", "outer_fn", 40, []byte{128, 0})
+
+	record := fakePythonRecord(process.heapType("ServiceError", "ServiceError", "__main__"), "outer", outer)
+	record.LinkCount = 1
+	cause := &record.Links[0]
+	cause.Type = process.exceptionType("KeyError")
+	cause.Relation = BpfPythonExceptionRelationK_pythonExceptionCause
+	cause.FrameCount = 1
+	cause.Frames[0].Code = inner
+	fakePythonArgs(&cause.Message, cause.Text[:], "k")
+
+	event := exceptions.Event{}
+	require.NoError(t, describePythonException(process.remote(), record, &event))
+	assert.Equal(t, "__main__.ServiceError", event.Type)
+	assert.Equal(t, "outer", event.Message)
+	assert.Equal(t, "Traceback (most recent call last):\n"+
+		"  File \"/app/storage.py\", line 20, in inner_fn\n"+
+		"KeyError: 'k'\n"+
+		"\n"+
+		"The above exception was the direct cause of the following exception:\n"+
+		"\n"+
+		"Traceback (most recent call last):\n"+
+		"  File \"/app/server.py\", line 40, in outer_fn\n"+
+		"ServiceError: outer\n", event.Stacktrace)
+
+	// A context that was never raised has no traceback.
+	cause.Relation = BpfPythonExceptionRelationK_pythonExceptionContext
+	cause.FrameCount = 0
+	event = exceptions.Event{}
+	require.NoError(t, describePythonException(process.remote(), record, &event))
+	assert.Equal(t, "KeyError: 'k'\n"+
+		"\n"+
+		"During handling of the above exception, another exception occurred:\n"+
+		"\n"+
+		"Traceback (most recent call last):\n"+
+		"  File \"/app/server.py\", line 40, in outer_fn\n"+
+		"ServiceError: outer\n", event.Stacktrace)
+
+	// An unreadable link is left out with its separator.
+	cause.Type = 0
+	cause.Message = BpfPythonExceptionMessageT{}
+	event = exceptions.Event{}
+	require.NoError(t, describePythonException(process.remote(), record, &event))
+	assert.Equal(t, "Traceback (most recent call last):\n"+
+		"  File \"/app/server.py\", line 40, in outer_fn\n"+
+		"ServiceError: outer\n", event.Stacktrace)
 }

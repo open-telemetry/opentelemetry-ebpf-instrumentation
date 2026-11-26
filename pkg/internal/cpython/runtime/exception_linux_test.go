@@ -57,6 +57,17 @@ func TestDebugExceptionLayout(t *testing.T) {
 	require.ErrorIs(t, err, errUnsupportedLayout, "zeroed debug offsets")
 }
 
+func TestExceptionChainLayout(t *testing.T) {
+	layout := ExceptionLayout{Minor: 14, ExceptionTraceback: exceptionTracebackOffset}
+	setExceptionChainLayout(&layout)
+	assert.Equal(t, [3]uint8{48, 56, 64}, [3]uint8{layout.ExceptionContext, layout.ExceptionCause, layout.ExceptionSuppressContext})
+	assert.True(t, layout.LongTagged)
+
+	layout = ExceptionLayout{Minor: 11, ExceptionTraceback: exceptionTracebackOffset}
+	setExceptionChainLayout(&layout)
+	assert.False(t, layout.LongTagged)
+}
+
 func TestExceptionLayoutMinors(t *testing.T) {
 	for _, minor := range []uint8{9, 10, 11, 12} {
 		layout, err := exceptionLayout(nil, 0, 3<<24|uint32(minor)<<16|0xf0)
@@ -81,6 +92,7 @@ func TestLegacyExceptionLayoutCompatibility(t *testing.T) {
 			CodeFilename: 104, CodeName: 112, CodeLinetable: 120, CodeFirstlineno: 40,
 			TupleItems: 24, UnicodeASCIIData: 48, UnicodeCompactData: 72, ExceptionTraceback: 32, interpretersMain: 40,
 			TstateExcInfo: 144, ErrItemValue: 8, ErrItemPrevious: 24,
+			ExceptionContext: 40, ExceptionCause: 48, ExceptionSuppressContext: 56,
 		},
 		10: {
 			TstateInterp: 16, TstateFrame: 24,
@@ -89,6 +101,7 @@ func TestLegacyExceptionLayoutCompatibility(t *testing.T) {
 			CodeFilename: 104, CodeName: 112, CodeLinetable: 120, CodeFirstlineno: 40,
 			TupleItems: 24, UnicodeASCIIData: 48, UnicodeCompactData: 72, ExceptionTraceback: 32, interpretersMain: 40,
 			TstateExcInfo: 144, ErrItemValue: 8, ErrItemPrevious: 24,
+			ExceptionContext: 40, ExceptionCause: 48, ExceptionSuppressContext: 56,
 		},
 		11: {
 			TstateInterp: 16, TstateFrame: 56, CFrameCurrentFrame: 8, FrameIsCFrame: true,
@@ -97,6 +110,7 @@ func TestLegacyExceptionLayoutCompatibility(t *testing.T) {
 			CodeAdaptive: 184, CodeFilename: 112, CodeName: 120, CodeLinetable: 136, CodeFirstlineno: 72,
 			TupleItems: 24, UnicodeASCIIData: 48, UnicodeCompactData: 72, ExceptionTraceback: exceptionTracebackOffset, interpretersMain: 48,
 			TstateExcInfo: 120, ErrItemValue: errItemValueOffset, ErrItemPrevious: errItemPreviousOffset,
+			ExceptionContext: 48, ExceptionCause: 56, ExceptionSuppressContext: 64,
 		},
 		12: {
 			TstateInterp: 16, TstateFrame: 56, CFrameCurrentFrame: 0, FrameIsCFrame: true,
@@ -105,8 +119,7 @@ func TestLegacyExceptionLayoutCompatibility(t *testing.T) {
 			CodeAdaptive: 192, CodeFilename: 112, CodeName: 120, CodeLinetable: 136, CodeFirstlineno: 68,
 			TupleItems: 24, UnicodeASCIIData: 40, UnicodeCompactData: 56, ExceptionTraceback: exceptionTracebackOffset, interpretersMain: 48,
 			TstateExcInfo: 104, ErrItemValue: errItemValueOffset, ErrItemPrevious: errItemPreviousOffset,
-
-			LongTagged: true,
+			ExceptionContext: 48, ExceptionCause: 56, ExceptionSuppressContext: 64, LongTagged: true,
 		},
 	}
 	for minor, want := range expected {

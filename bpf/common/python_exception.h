@@ -8,6 +8,10 @@
 enum {
     k_python_exception_max_frames = 24,
     k_python_exception_message_max = 256,
+    // exceptions recorded from the reported one's __cause__/__context__ chain
+    k_python_exception_max_links = 1,
+    k_python_exception_link_max_frames = 8,
+    k_python_exception_link_message_max = 128,
     // arguments a message renders; each takes an equal part of its buffer
     k_python_exception_max_args = 4,
 };
@@ -27,6 +31,12 @@ enum python_exception_arg_kind : u8 {
     k_python_arg_str4 = 4,
     // the int's ob_size, or lv_tag on 3.12+, followed by its digits
     k_python_arg_int = 8,
+};
+
+// How a link relates to the exception recorded before it.
+enum python_exception_relation : u8 {
+    k_python_exception_cause = 1,
+    k_python_exception_context = 2,
 };
 
 typedef struct python_exception_frame {
@@ -60,6 +70,19 @@ typedef struct python_exception_layout {
     u8 _pad;
 } python_exception_layout_t;
 
+// An exception that CPython prints before the one it is linked from.
+typedef struct python_exception_link {
+    u64 type; // PyTypeObject*
+    python_exception_message_t message;
+    unsigned char text[k_python_exception_link_message_max];
+    // the innermost frames of its traceback, innermost first
+    python_exception_frame_t frames[k_python_exception_link_max_frames];
+    u8 frame_count;
+    enum python_exception_relation relation;
+    enum python_exception_flags flags;
+    u8 _pad[5];
+} python_exception_link_t;
+
 // The exception_events payload of k_exception_runtime_python records. Only
 // the first frame_count frames are sent, innermost first.
 typedef struct python_exception_payload {
@@ -67,10 +90,12 @@ typedef struct python_exception_payload {
     u32 obi_pid; // raising process in OBI's PID namespace
     u8 frame_count;
     enum python_exception_flags flags;
-    u8 _pad[2];
+    u8 link_count;
     u8 _pad;
     python_exception_layout_t layout;
     python_exception_message_t message;
     unsigned char text[k_python_exception_message_max];
+    // links[0] is the exception this one was raised from or while handling
+    python_exception_link_t links[k_python_exception_max_links];
     python_exception_frame_t frames[k_python_exception_max_frames];
 } python_exception_payload_t;
