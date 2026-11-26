@@ -38,7 +38,7 @@ typedef struct tcp_io {
     u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
     enum network_io_direction direction;
     u8 count;
-    u8 _pad[1];
+    enum tcp_handshake_role role;
     u32 bytes[k_tcp_io_batch_size];
     connection_info_t conn;
 } tcp_io_t;
@@ -63,6 +63,8 @@ static __always_inline void flush_tcp_io_accum(struct sock *sk,
     se->flags = k_stat_type_tcp_io;
     se->direction = direction;
     se->count = accum->count;
+    const u8 *role_ptr = bpf_map_lookup_elem(&sock_role, &sk);
+    se->role = role_ptr ? *role_ptr : role_unknown;
     bpf_memcpy(se->bytes, accum->bytes, sizeof(se->bytes));
     se->conn = conn;
     bpf_ringbuf_submit(se, stats_events_flags());

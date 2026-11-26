@@ -1439,6 +1439,7 @@ Count of bytes transferred at the socket layer per TCP connection, broken down b
 | `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
 | `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
 | `network.io.direction` | enum | `recommended` | development | The network IO operation direction. | transmit |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |

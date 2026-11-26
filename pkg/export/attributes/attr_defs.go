@@ -973,7 +973,8 @@ func getDefinitions(
 		StatTCPIo.Section: {
 			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.NetworkIoDirection: true,
+				attr.NetworkIoDirection:      true,
+				attr.NetworkTCPHandshakeRole: false,
 			},
 		},
 		StatTCPSuccessfulConnections.Section: {

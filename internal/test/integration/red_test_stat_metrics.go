@@ -166,3 +166,22 @@ func testStatMetricsTCPIoGo(t *testing.T) {
 		})
 	}
 }
+
+func testStatMetricsTCPIoRoleGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	for _, direction := range []string{"transmit", "receive"} {
+		t.Run(direction, func(t *testing.T) {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				clientResults, err := pq.Query(`obi_stat_tcp_io_bytes_total{dst_port="8080",network_io_direction="` + direction + `",network_tcp_handshake_role="client"}`)
+				require.NoError(ct, err)
+				enoughPromResults(ct, clientResults)
+				assert.Positive(ct, totalPromCount(ct, clientResults))
+
+				serverResults, err := pq.Query(`obi_stat_tcp_io_bytes_total{src_port="8080",network_io_direction="` + direction + `",network_tcp_handshake_role="server"}`)
+				require.NoError(ct, err)
+				enoughPromResults(ct, serverResults)
+				assert.Positive(ct, totalPromCount(ct, serverResults))
+			}, testTimeout, 100*time.Millisecond)
+		})
+	}
+}

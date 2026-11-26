@@ -133,6 +133,7 @@ type TCPSuccessfulConnection struct {
 
 type TCPIo struct {
 	Direction uint8  `json:"direction"`
+	Role      uint8  `json:"role"`
 	Bytes     uint32 `json:"bytes"`
 }
 
@@ -197,7 +198,7 @@ type StatsTCPIo struct {
 	Flags     uint8
 	Direction uint8
 	Count     uint8
-	Pad       [1]uint8
+	Role      uint8
 	Bytes     [TCPIoBatchSize]uint32
 	Conn
 }

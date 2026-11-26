@@ -16,6 +16,9 @@ import (
 	"github.com/cilium/ebpf"
 
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 func TestFixupSpec(t *testing.T) {
@@ -311,6 +314,41 @@ func TestAttachDoTCPSendPages(t *testing.T) {
 			}
 			if link.closes != tc.wantCloses {
 				t.Errorf("closes: got %d, want %d", link.closes, tc.wantCloses)
+			}
+		})
+	}
+}
+
+func TestConnRoleUsed(t *testing.T) {
+	selectRole := func(metrics ...attributes.Name) attributes.Selection {
+		sel := attributes.Selection{}
+		for _, m := range metrics {
+			sel[m.Section] = attributes.InclusionLists{Include: []string{string(attr.NetworkTCPHandshakeRole)}}
+		}
+		return sel
+	}
+
+	for _, tc := range []struct {
+		name     string
+		features export.Features
+		sel      attributes.Selection
+		want     bool
+	}{
+		{name: "role not selected", features: export.FeatureStats, sel: selectRole(), want: false},
+		{name: "rtt", features: export.FeatureStatsTCPRtt, sel: selectRole(attributes.StatTCPRtt), want: true},
+		{name: "failed connections", features: export.FeatureStatsTCPFailedConnections, sel: selectRole(attributes.StatTCPFailedConnections), want: true},
+		{name: "io", features: export.FeatureStatsTCPIo, sel: selectRole(attributes.StatTCPIo), want: true},
+		{name: "io selected, io disabled", features: export.FeatureStatsTCPRtt, sel: selectRole(attributes.StatTCPIo), want: false},
+		{name: "rtt selected, rtt disabled", features: export.FeatureStatsTCPIo, sel: selectRole(attributes.StatTCPRtt), want: false},
+		{name: "successful connections only", features: export.FeatureStatsTCPSuccessfulConnections, sel: selectRole(attributes.StatTCPSuccessfulConnections), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			attrSel, err := attributes.NewAttrSelector(attributes.UndefinedGroup, &attributes.SelectorConfig{SelectionCfg: tc.sel})
+			if err != nil {
+				t.Fatalf("creating attr selector: %v", err)
+			}
+			if got := connRoleUsed(&tc.features, attrSel); got != tc.want {
+				t.Errorf("connRoleUsed: got %v, want %v", got, tc.want)
 			}
 		})
 	}
