@@ -121,9 +121,9 @@ static __always_inline void rust_set_context(u64 id, const tp_info_pid_t *contex
     if (rust_current_task(id, &key)) {
         const long result = bpf_map_update_elem(&rust_task_context, &key, context, BPF_ANY);
         if (result) {
-            bpf_dbg_printk("rust context store failed task=%llx err=%ld", key.addr, result);
+            bpf_dbg_printk("rust context store failed task=%llx, err=%ld", key.addr, result);
         } else {
-            bpf_dbg_printk("rust context task=%llx valid=%u", key.addr, context->valid);
+            bpf_dbg_printk("rust context task=%llx, valid=%u", key.addr, context->valid);
         }
     }
 }
@@ -160,16 +160,17 @@ static __always_inline void rust_copy_context(u64 id, void *map, const rust_task
     const tp_info_pid_t *parent = rust_spawner_context(id);
     if (!parent || !parent->valid) {
         bpf_map_delete_elem(map, key);
-        bpf_dbg_printk("rust inherit none key=%llx pid=%u", key->addr, key->pid);
+        bpf_dbg_printk("rust inherit none key=%llx, pid=%u", key->addr, key->pid);
         return;
     }
 
     const tp_info_pid_t context = *parent;
     const long result = bpf_map_update_elem(map, key, &context, BPF_ANY);
     if (result) {
-        bpf_dbg_printk("rust inherit failed key=%llx err=%ld", key->addr, result);
+        bpf_dbg_printk("rust inherit failed key=%llx, err=%ld", key->addr, result);
     } else {
-        bpf_dbg_printk("rust inherit key=%llx pid=%u valid=%u", key->addr, key->pid, context.valid);
+        bpf_dbg_printk(
+            "rust inherit key=%llx, pid=%u, valid=%u", key->addr, key->pid, context.valid);
     }
 }
 

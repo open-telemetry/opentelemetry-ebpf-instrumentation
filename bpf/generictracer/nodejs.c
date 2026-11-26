@@ -262,7 +262,7 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
             }
             bpf_map_delete_elem(&node_manual_ctx_shadow, &pid_tgid);
         }
-        bpf_dbg_printk("nodejs_mspan pop: pid_tgid = %llx", pid_tgid);
+        bpf_dbg_printk("nodejs_mspan pop: pid_tgid=%llx", pid_tgid);
         return 0;
     }
 
@@ -318,7 +318,7 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
     bpf_memcpy(newlive.span_id, sentinel.span_id, SPAN_ID_SIZE_BYTES);
     bpf_map_update_elem(&traces_ctx_v1, &pid_tgid, &newlive, BPF_ANY);
 
-    bpf_dbg_printk("nodejs_mspan override: pid_tgid = %llx", pid_tgid);
+    bpf_dbg_printk("nodejs_mspan override: pid_tgid=%llx", pid_tgid);
 
     return 0;
 }
@@ -412,7 +412,7 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
 // stale request context so a manual span ending in that callback
 // (handle_node_span) is not mis-parented into the previous request's trace.
 static __always_inline int handle_ctx_clear(const u64 pid_tgid) {
-    bpf_dbg_printk("nodejs_ctx_clear: pid_tgid = %llx", pid_tgid);
+    bpf_dbg_printk("nodejs_ctx_clear: pid_tgid=%llx", pid_tgid);
     obi_ctx__del(pid_tgid);
     // As with the '-ctx' refresh: this callback re-derives the base (here, no
     // request), so any stale override shadow must go. The bridge re-applies an

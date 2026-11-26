@@ -81,7 +81,7 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
 
     client_trace_parent(goroutine_addr, &req->tp);
 
-    bpf_d_printk("op=%s, [%s]", req->op, __FUNCTION__);
+    bpf_d_printk("op=%s [%s]", req->op, __FUNCTION__);
 
     bpf_map_update_elem(&ongoing_mongo_requests, &g_key, req, BPF_ANY);
 

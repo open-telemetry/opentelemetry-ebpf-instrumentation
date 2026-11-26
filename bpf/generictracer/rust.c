@@ -64,8 +64,10 @@ int GUARDED_PROG(obi_rust_task_poll, struct pt_regs *, ctx) {
     }
 
     thread->depth++;
-    bpf_dbg_printk(
-        "rust poll task=%llx depth=%u ip=%llx", PT_REGS_PARM1(ctx), thread->depth, PT_REGS_IP(ctx));
+    bpf_dbg_printk("rust poll task=%llx, depth=%u, ip=%llx",
+                   PT_REGS_PARM1(ctx),
+                   thread->depth,
+                   PT_REGS_IP(ctx));
     // Task tracking was checked and the worker state fetched above: reuse both per poll.
     rust_publish_thread_context(id, rust_thread_context(id, thread));
 

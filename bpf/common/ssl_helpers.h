@@ -20,7 +20,7 @@
 
 static __always_inline void set_active_ssl_connection(ssl_pid_connection_info_t *ssl_conn,
                                                       void *ssl) {
-    bpf_dbg_printk("Correlating SSL %llx to connection", ssl);
+    bpf_dbg_printk("Correlating ssl=%llx to connection", ssl);
     dbg_print_http_connection_info(&ssl_conn->p_conn.conn);
 
     const pid_ptr_key_t ssl_key = pid_ptr_key(ssl_conn->p_conn.pid, ssl);

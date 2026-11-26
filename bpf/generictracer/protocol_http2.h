@@ -374,7 +374,7 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
     bpf_dbg_printk("http2/grpc end prev_info=%llx", prev_info);
     if (prev_info) {
         prev_info->end_monotime_ns = bpf_ktime_get_ns();
-        bpf_dbg_printk("stream_id = %d", stream->stream_id);
+        bpf_dbg_printk("stream_id=%d", stream->stream_id);
         //dbg_print_http_connection_info(&stream->pid_conn.conn); // commented out since GitHub CI doesn't like this call
 
         http2_conn_info_data_t *conn =
@@ -1065,7 +1065,7 @@ int GUARDED_PROG(obi_protocol_http2_grpc_frames, void *, ctx) {
         }
 
         g_ctx->pos += frame_size;
-        //bpf_dbg_printk("New buf read g_ctx.pos = %d", g_ctx->pos);
+        //bpf_dbg_printk("New buf read g_ctx->pos=%d", g_ctx->pos);
     }
 
     // this is a weird recursion - we can't loop many times above because the

@@ -69,7 +69,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_unix_stream_recvmsg,
         return 0;
     }
 
-    bpf_dbg_printk("=== unix_stream recvmsg %d ===", id);
+    bpf_dbg_printk("=== unix_stream recvmsg id=%d ===", id);
 
     struct sock *sk;
     BPF_CORE_READ_INTO(&sk, sock, sk);
@@ -242,7 +242,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_unix_stream_sendmsg,
         return 0;
     }
 
-    bpf_dbg_printk("=== unix_stream sendmsg %d ===", id);
+    bpf_dbg_printk("=== unix_stream sendmsg id=%d ===", id);
 
     struct sock *sk;
     BPF_CORE_READ_INTO(&sk, sock, sk);
