@@ -51,17 +51,22 @@ func ExtractPythonRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarveste
 	if err != nil {
 		return nil, err
 	}
-	return extractPythonRoutes(ctx, dir)
+	return extractPythonRoutes(ctx, rootDirForPID(fi.Pid()), dir)
 }
 
-func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult, error) {
+func extractPythonRoutes(ctx context.Context, root, dir string) (*RouteHarvesterResult, error) {
 	log := slog.With("component", "route.harvester.python")
+	aiohttp, err := dependsOnAiohttp(ctx, root, dir)
+	if err != nil {
+		return nil, err
+	}
 	e := pythonExtractor{
 		routes:       map[string]struct{}{},
 		djangoRoutes: map[string][]djangoRoute{},
+		aiohttp:      aiohttp,
 	}
 	kind := PartialRoutes
-	err := walkPythonFiles(ctx, dir, func(path string) error {
+	err = walkPythonFiles(ctx, dir, func(path string) error {
 		if err := e.scanFile(ctx, path); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -155,6 +160,7 @@ func skipPythonDir(name string) bool {
 type pythonExtractor struct {
 	routes       map[string]struct{}
 	djangoRoutes map[string][]djangoRoute
+	aiohttp      bool
 }
 
 func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
@@ -171,8 +177,11 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 	djangoLists := map[string]*djangoList{}
 	djangoAliases := map[string]string{}
 	hasDjangoPath := false
+	aiohttp := aiohttpFile{enabled: e.aiohttp}
 	scanStmt := func(text string) {
-		scanPythonStmt(text, e.routes)
+		if !aiohttp.scan(text, e.routes) {
+			scanPythonStmt(text, e.routes)
+		}
 		if match := djangoFromImportAliasPattern.FindStringSubmatch(text); match != nil {
 			djangoAliases[match[3]] = match[1] + "." + match[2]
 		} else if match := djangoImportAliasPattern.FindStringSubmatch(text); match != nil {
@@ -200,14 +209,16 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		line := strings.TrimSpace(scan.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+		raw := scan.Text()
+		line := stripHashComment(strings.TrimSpace(raw))
+		if line == "" {
 			continue
 		}
 
 		if stmt.Len() == 0 {
+			aiohttp.startStatement(len(raw) - len(strings.TrimLeft(raw, " \t")))
 			depth = parenDelta(line)
-			startsStmt := startsFastAPI(line) || startsFlask(line) ||
+			startsStmt := startsFastAPI(line) || startsFlask(line) || aiohttp.starts(line) ||
 				djangoImportStart.MatchString(line) ||
 				hasDjangoPath && (djangoPathStart.MatchString(line) || djangoI18nStart.MatchString(line) ||
 					djangoListAssignmentPattern.MatchString(line))
