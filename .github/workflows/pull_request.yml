@@ -244,3 +244,63 @@ jobs:
       - name: Smoke test Config v2 collector receiver
         working-directory: examples/otel-collector
         run: sudo ./smoke-test.sh
+
+  generate-api-base-bpf:
+    name: Generate BPF for API base
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - uses: $/.github/actions/generate-bpf
+        with:
+          artifact-name: api-base-bpf-${{ github.run_id }}
+
+  go-api-compatibility:
+    name: Public Go API compatibility (report only)
+    if: github.event_name == 'pull_request'
+    needs: [generate-bpf, generate-api-base-bpf]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          path: head
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+
+      - name: Download head generated BPF files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: checks-bpf-generated-${{ github.run_id }}
+          path: head
+
+      - name: Download base generated BPF files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: api-base-bpf-${{ github.run_id }}
+          path: base
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: head/go.mod
+          cache-dependency-path: |
+            head/go.sum
+            base/go.sum
+          cache: true
+
+      - name: Check public Go API compatibility (report only)
+        env:
+          GOTOOLCHAIN: local
+        run: ./head/scripts/check-go-api-compatibility.sh ./base ./head
