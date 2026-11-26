@@ -1206,6 +1206,25 @@ func (c *Config) normalize() {
 	}
 }
 
+// JobTracesEnabled reports whether any selected workload groups its job spans, which all do unless a rule turns it off.
+func (c *Config) JobTracesEnabled() bool {
+	// the top-level target options select workloads that no rule refines
+	if c.TargetPIDs.Len() > 0 || c.AutoTargetExe.IsSet() || c.AutoTargetLanguage.IsSet() || c.Exec.IsSet() || c.Port.Len() > 0 {
+		return true
+	}
+	for _, s := range c.Discovery.Instrument {
+		if s.JobTraces.IsEnabled() {
+			return true
+		}
+	}
+	for _, s := range c.Discovery.Services {
+		if s.JobTraces.IsEnabled() {
+			return true
+		}
+	}
+	return false
+}
+
 // ExceptionsEnabled reports whether any selected workload can request capture.
 func (c *Config) ExceptionsEnabled() bool {
 	if c.Exceptions.Enabled {

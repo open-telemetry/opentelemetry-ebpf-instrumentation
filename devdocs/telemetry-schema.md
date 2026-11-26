@@ -197,6 +197,10 @@ section empty once drained.
   hosts with context propagation enabled, in both OTLP and Prometheus. Kernel TLS sends are
   counted too, and on kernels before 6.5 every sendpage path: `sendfile()`, splice, and
   in-kernel senders such as NFS, NVMe/TCP, iSCSI, Ceph and ESP-in-TCP.
+- A worker that takes jobs off a Redis queue outside a request gets one trace per job, rooted
+  at the fetch that took it, instead of a trace per call. Spans and metrics are unchanged; the
+  client spans of a job gain a parent. A Config v2 rule turns it off with
+  `refine.group_job_spans: false`. See [Queue Job Traces](queue-job-traces.md).
 
 ## Hosting notes
 

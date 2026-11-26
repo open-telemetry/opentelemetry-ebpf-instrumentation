@@ -23,6 +23,7 @@
 #include <maps/tp_info_mem.h>
 
 #include <generictracer/failed_connect.h>
+#include <generictracer/job_fetch.h>
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_aerospike.h>
 #include <generictracer/protocol_common.h>
@@ -395,6 +396,7 @@ static __always_inline void handle_unknown_tcp_connection(void *ctx,
                 if (!response_start_captured) {
                     bpf_probe_read(trace->rbuf, bytes_len, u_buf);
                 }
+                job_fetch_reply(pid_conn, existing, trace->rbuf, bytes_len);
 
                 bpf_ringbuf_submit(trace, get_flags());
             } else {
@@ -475,6 +477,8 @@ int GUARDED_PROG(obi_continue_protocol_tcp, void *, ctx) {
     if (!req) {
         return 0;
     }
+
+    job_fetch_request(&args->pid_conn, req);
 
     tcp_get_or_set_trace_info(req, &args->pid_conn, args->lw_thread, args->ssl, args->orig_dport);
 

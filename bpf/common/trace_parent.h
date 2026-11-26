@@ -25,6 +25,7 @@
 #include <maps/go_trace_map.h>
 #include <maps/java_tasks.h>
 #include <maps/java_vt_threads.h>
+#include <maps/job_contexts.h>
 #include <maps/nginx_upstream.h>
 #include <maps/node_manual_ctx_shadow.h>
 #include <maps/nodejs_fd_map.h>
@@ -337,6 +338,30 @@ static __always_inline tp_info_pid_t *find_go_parent_trace(const lw_thread_t lw_
     return NULL;
 }
 
+// the fetch that took the job the thread is running
+static __always_inline tp_info_pid_t *find_job_parent_trace(const pid_key_t *thread) {
+    if (!g_job_traces_enabled) {
+        return NULL;
+    }
+
+    job_context_t *job = bpf_map_lookup_elem(&job_contexts, thread);
+    if (!job || job->ended) {
+        return NULL;
+    }
+
+    if (!job->inherited) {
+        return &job->tp;
+    }
+
+    // once the owner takes another job, a pool thread started during this one may be running that one
+    const job_context_t *owner = bpf_map_lookup_elem(&job_contexts, &job->owner);
+    if (owner && bpf_memcmp(owner->tp.tp.span_id, job->tp.tp.span_id, SPAN_ID_SIZE_BYTES)) {
+        return NULL;
+    }
+
+    return &job->tp;
+}
+
 static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_info_t *p_conn,
                                                         u64 pid_tgid,
                                                         lw_thread_t lw_thread,
@@ -420,6 +445,17 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
         if (http_parent) {
             return http_parent;
         }
+    }
+
+    // the thread's own request, then its own job, before what an ancestor thread runs
+    tp_info_pid_t *own_parent = bpf_map_lookup_elem(&server_traces, t_key);
+    if (parent_trace_matches(own_parent, wire_tp)) {
+        return own_parent;
+    }
+
+    tp_info_pid_t *job_parent = find_job_parent_trace(&t_key->p_key);
+    if (parent_trace_matches(job_parent, wire_tp)) {
+        return job_parent;
     }
 
     tp_info_pid_t *java_parent = find_parent_java_trace(t_key, wire_tp);

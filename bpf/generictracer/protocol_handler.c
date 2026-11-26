@@ -58,6 +58,8 @@ static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
                    args->pid_conn.pid,
                    args->bytes_len);
 
+    job_fetch_see_buffer(&args->pid_conn, args->lw_thread);
+
     if (args->protocols.http && is_http(args->small_buf, MIN_HTTP_SIZE, &args->packet_type)) {
         preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http);
     } else if ((args->protocol_type != k_protocol_type_http) &&
