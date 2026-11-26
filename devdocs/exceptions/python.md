@@ -63,7 +63,7 @@ Traceback propagation does not establish that an exception caused the response.
 | Handler raises `ValueError("bad input")` and the framework responds 500 | `ValueError`, severity ERROR | `bad input` |
 | Handler raises `ValueError(404)` | `ValueError` | `404` |
 | Handler raises `Exception("first", 2)` | `Exception` | `('first', 2)` |
-| Handler raises `Exception("first", 2, {"a": 1})` | `Exception` | empty |
+| Handler raises `Exception("first", 2, {"a": 1})` | `Exception` | `('first', 2, ...` |
 | Handler catches the exception locally and returns 500 | none in the integration fixture | |
 | Handler responds successfully | none | |
 | Standalone uncaught exception | none | |
