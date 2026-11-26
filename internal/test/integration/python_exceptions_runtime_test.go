@@ -49,6 +49,7 @@ func TestPythonExceptions(t *testing.T) {
 	cases := []string{
 		"ascii", "empty", "unicode", "long", "key", "os", "custom", "multiarg",
 		"native", "native-int", "deep", "reraise", "raise_error", "latest", "chained",
+		"implicit_replacement", "nested_cleanup", "double_nested_cleanup", "with_traceback", "error_page", "error_page_reraise", "cleanup", "finally", "open",
 	}
 	if pythonMinor(t) >= 11 {
 		cases = append(cases, "group")
@@ -81,7 +82,26 @@ func TestPythonExceptions(t *testing.T) {
 				}
 			}
 
+			if framework == "fastapi" {
+				t.Run("handoff", func(t *testing.T) {
+					const token = "fastapi-handoff"
+					traceID := fixture.get("/handoff/"+token, http.StatusInternalServerError)
+					event := harness.wait(t, traceID)
+					assert.Equal(t, "ValueError", event.Type)
+					assert.Equal(t, token, event.Message)
+				})
+			}
+
 			if framework == "http" {
+				for mode, wantType := range map[string]string{"caught": "ValueError", "reraise": "LookupError", "cleanup": "ValueError"} {
+					t.Run("saved-error/"+mode, func(t *testing.T) {
+						token := "http-saved-" + mode
+						traceID := fixture.get("/saved-error/"+mode+"/"+token, http.StatusInternalServerError)
+						event := harness.wait(t, traceID)
+						assert.Equal(t, wantType, event.Type)
+						assert.Equal(t, token, event.Message)
+					})
+				}
 				t.Run("context/ascii", func(t *testing.T) {
 					const token = "http-context"
 					traceID := fixture.get("/raise/context/ascii/"+token, http.StatusInternalServerError)
@@ -96,6 +116,21 @@ func TestPythonExceptions(t *testing.T) {
 					const token = "http-native-helper"
 					traceID := fixture.get("/raise/native-helper/native/"+token, http.StatusInternalServerError)
 					assertPythonException(t, harness.wait(t, traceID), fixture.truth(token), "native")
+				})
+				// A request that handled its exception reports nothing, even when
+				// another request's exception reuses the address.
+				t.Run("reused-address", func(t *testing.T) {
+					var freedTrace, heldTrace string
+					var wg sync.WaitGroup
+					wg.Go(func() { freedTrace = fixture.get("/reuse/freed/http-reuse-freed", http.StatusInternalServerError) })
+					wg.Go(func() { heldTrace = fixture.get("/reuse/held/http-reuse-held", http.StatusInternalServerError) })
+					wg.Wait()
+					held := fixture.truth("http-reuse-held")
+					assertPythonException(t, harness.wait(t, heldTrace), held, "ascii")
+					if !held.Reused {
+						t.Skip("CPython did not reuse the freed exception's address")
+					}
+					harness.requireNone(t, freedTrace)
 				})
 			}
 
@@ -144,6 +179,7 @@ type pythonExceptionTruth struct {
 		Line     int    `json:"line"`
 		Function string `json:"function"`
 	} `json:"frames"`
+	Reused bool `json:"reused"`
 }
 
 type pythonExceptionClient struct {
@@ -207,10 +243,6 @@ func assertPythonException(t *testing.T, event exceptions.Event, truth pythonExc
 	var expected []string
 	for _, frame := range truth.Frames {
 		expected = append(expected, fmt.Sprintf("  File \"%s\", line %d, in %s", frame.File, frame.Line, frame.Function))
-	}
-	// `raise error` adds a frame for the re-raise; the capture keeps the first raise.
-	if scenario == "raise_error" {
-		expected = expected[len(expected)-4:]
 	}
 	expected = foldPythonFrames(expected)
 	if scenario == "deep" {

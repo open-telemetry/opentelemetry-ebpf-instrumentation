@@ -21,7 +21,7 @@
 #include <pid/pid_helpers.h>
 
 enum {
-    k_python_exception_pending_max = 1024,
+    k_python_exception_pending_max = 512,
     // Frames walked per raise, including C-stack shim frames that are skipped.
     k_python_exception_max_walk = 32,
     // Traceback entries walked; the innermost frames are kept.
@@ -39,6 +39,8 @@ enum {
     k_python_object_type = 8,
     k_python_var_object_size = 16,
     k_python_exception_args = 24,
+    // PyBaseExceptionObject.context follows traceback.
+    k_python_exception_context_after_traceback = 8,
     k_python_unicode_length = 16,
     k_python_unicode_state = 32,
     k_python_traceback_next = 16,
@@ -114,15 +116,18 @@ typedef struct python_exception_candidate {
     u8 owner;
     // seen outside the frame that raised it
     u8 propagated;
-    u8 _pad[6];
+    // last seen caught without leaving the frame handling the kept candidate
+    u8 swallowed;
+    u8 _pad[5];
     python_exception_payload_t payload;
 } python_exception_candidate_t;
 
-// The raises of one server request that a 5xx can report: the latest, and the
-// newest earlier one that propagated.
+// Candidates for one request. A replacement can still escape the handler
+// while a finally block raises another exception.
 typedef struct python_exception_pending {
     python_exception_candidate_t latest;
     python_exception_candidate_t kept;
+    python_exception_candidate_t replacement;
 } python_exception_pending_t;
 
 struct {
@@ -225,7 +230,7 @@ static __always_inline bool python_exception_instance(const python_exception_pro
     return (flags & k_python_type_base_exception_subclass) != 0;
 }
 
-// `raise err` of an instance that already propagated keeps the first capture.
+// Matches an explicit re-raise to its original capture.
 // A traceback tells the re-raise from a new instance at a recycled address.
 static __always_inline bool python_exception_reraised(const python_exception_proc_t *proc,
                                                       const python_exception_candidate_t *latest,
@@ -239,7 +244,7 @@ static __always_inline bool python_exception_reraised(const python_exception_pro
 }
 
 // Whether a live exception left the frame that raised it: its traceback gains
-// an entry for each frame it passes through. A freed or reused object fails.
+// an entry for each frame it passes through.
 static __always_inline bool
 python_exception_propagated(const python_exception_proc_t *proc, const u64 value, const u64 type) {
     if ((s64)python_read_ptr(value + k_python_object_refcnt) <= 0 ||
@@ -251,7 +256,44 @@ python_exception_propagated(const python_exception_proc_t *proc, const u64 value
     return traceback && python_read_ptr(traceback + k_python_traceback_next);
 }
 
-// Finds the propagated exception instance being handled on this thread.
+// The code object a PyFrameObject runs, through its interpreter frame on 3.11+.
+static __always_inline u64 python_frame_object_code(const python_exception_proc_t *proc,
+                                                    const u64 frame_object) {
+    u64 frame = frame_object;
+    if (proc->frame_object_frame) {
+        frame = python_read_ptr(frame_object + proc->frame_object_frame);
+    }
+
+    return python_read_ptr(frame + proc->frame_code) & ~k_python_stackref_tag;
+}
+
+// The innermost entry of a traceback, where its exception was raised; 0 when
+// the traceback is longer than the walk.
+static __always_inline u64 python_traceback_start(u64 traceback) {
+    for (u32 i = 0; i < k_python_traceback_max_walk && traceback; i++) {
+        const u64 next = python_read_ptr(traceback + k_python_traceback_next);
+        if (!next) {
+            return traceback;
+        }
+        traceback = next;
+    }
+
+    return 0;
+}
+
+// Whether a traceback entry is at the frame's code and instruction.
+static __always_inline bool python_traceback_at(const python_exception_proc_t *proc,
+                                                const u64 entry,
+                                                const python_exception_frame_t *frame) {
+    s32 lasti = 0;
+    bpf_probe_read_user(&lasti, sizeof(lasti), (const void *)(entry + k_python_traceback_lasti));
+    const u32 instr = lasti > 0 ? (u32)lasti >> 1 : 0;
+    const u64 code =
+        python_frame_object_code(proc, python_read_ptr(entry + k_python_traceback_frame));
+    return code == frame->code && instr == frame->instr;
+}
+
+// Finds the exception instance being handled on this thread that the candidate captured.
 static __always_inline u64 python_exception_handled(const python_exception_proc_t *proc,
                                                     const u64 tstate,
                                                     const python_exception_candidate_t *candidate,
@@ -264,17 +306,71 @@ static __always_inline u64 python_exception_handled(const python_exception_proc_
             continue;
         }
 
-        // Candidates captured as a str or tuple match by type, excluding the saved exception.
-        const bool same = candidate->exception ? handled == candidate->exception
-                                               : handled != kept && python_object_type(handled) ==
-                                                                        candidate->payload.type;
-        if (same) {
-            return python_exception_propagated(proc, handled, candidate->payload.type) ? handled
-                                                                                       : 0;
+        if (candidate->exception) {
+            if (handled == candidate->exception) {
+                return handled;
+            }
+            continue;
+        }
+
+        // Candidates captured as a str or tuple match by type and by where the
+        // traceback starts, excluding the saved exception. CPython raises and
+        // clears same-type exceptions while handling one, as open() does.
+        if (handled == kept || python_object_type(handled) != candidate->payload.type) {
+            continue;
+        }
+        const u64 start =
+            python_traceback_start(python_read_ptr(handled + proc->exception_traceback));
+        if (!start || python_traceback_at(proc, start, &candidate->payload.frames[0])) {
+            return handled;
         }
     }
 
     return 0;
+}
+
+// Whether `value` was raised while `older` was being handled.
+static __always_inline bool python_exception_in_context_of(const python_exception_proc_t *proc,
+                                                           const u64 value,
+                                                           const u64 older) {
+    const u32 offset = proc->exception_traceback + k_python_exception_context_after_traceback;
+    u64 context = value;
+    for (u32 i = 0; i < k_python_exc_info_max_walk; i++) {
+        context = python_read_ptr(context + offset);
+        if (!context || context == older) {
+            return context != 0;
+        }
+    }
+
+    return false;
+}
+
+// Whether `value` was raised and caught while the kept exception was being
+// handled, as when a 500 handler fails to load its template: it never left the
+// frame handling the kept exception, the outermost entry of its traceback.
+static __always_inline bool python_exception_swallowed(const python_exception_proc_t *proc,
+                                                       const u64 value,
+                                                       const python_exception_candidate_t *kept) {
+    if (!kept->capture_ns || !kept->exception || value == kept->exception ||
+        !python_exception_in_context_of(proc, value, kept->exception)) {
+        return false;
+    }
+
+    const u64 handler = python_read_ptr(
+        python_read_ptr(kept->exception + proc->exception_traceback) + k_python_traceback_frame);
+    if (!handler) {
+        return false;
+    }
+
+    u64 traceback = python_read_ptr(value + proc->exception_traceback);
+    for (u32 i = 0; i < k_python_traceback_max_walk && traceback; i++) {
+        if (python_read_ptr(traceback + k_python_traceback_frame) == handler) {
+            return i == 0;
+        }
+        traceback = python_read_ptr(traceback + k_python_traceback_next);
+    }
+
+    return true;
 }
 
 static __always_inline void python_exception_copy(python_exception_candidate_t *dst,
@@ -282,28 +378,67 @@ static __always_inline void python_exception_copy(python_exception_candidate_t *
     bpf_probe_read_kernel(dst, sizeof(*dst), src);
 }
 
-// Before a new raise replaces the latest candidate, keeps it if it propagated.
+// Before a new raise replaces the latest candidate, keeps it if it propagated
+// or is still being handled, as by a finally block it may yet leave, unless it
+// was swallowed while the kept candidate was being handled.
 static __always_inline void python_exception_keep(const python_exception_proc_t *proc,
                                                   const u64 tstate,
                                                   python_exception_pending_t *pending) {
     python_exception_candidate_t *latest = &pending->latest;
+    python_exception_candidate_t *kept = &pending->kept;
     if (!latest->capture_ns) {
         return;
     }
 
-    if (!latest->propagated) {
-        const u64 handled = python_exception_handled(proc, tstate, latest, pending->kept.exception);
-        if (handled) {
-            latest->exception = handled;
-        }
-        latest->propagated =
-            handled || (latest->exception &&
-                        python_exception_propagated(proc, latest->exception, latest->payload.type));
+    const u64 held = kept->exception ? python_exception_handled(proc, tstate, kept, 0) : 0;
+    if (!kept->propagated && held) {
+        kept->propagated = python_exception_propagated(proc, held, kept->payload.type);
     }
 
-    if (latest->propagated) {
-        python_exception_copy(&pending->kept, latest);
+    python_exception_candidate_t *replacement = &pending->replacement;
+    const u64 replaced =
+        replacement->capture_ns ? python_exception_handled(proc, tstate, replacement, 0) : 0;
+    // A replacement caught while the kept exception is still handled never left the handler.
+    if (held && !replaced) {
+        replacement->capture_ns = 0;
     }
+    // One still handled after leaving the kept exception's handler replaced it.
+    if (replaced && python_exception_propagated(proc, replaced, replacement->payload.type) &&
+        !python_exception_swallowed(proc, replaced, kept)) {
+        python_exception_copy(kept, replacement);
+        kept->exception = replaced;
+        kept->propagated = true;
+        replacement->capture_ns = 0;
+    }
+
+    const u64 handled = python_exception_handled(proc, tstate, latest, kept->exception);
+    if (handled) {
+        latest->exception = handled;
+        latest->propagated =
+            latest->propagated || python_exception_propagated(proc, handled, latest->payload.type);
+        latest->swallowed = python_exception_swallowed(proc, handled, kept);
+    }
+
+    if (!latest->propagated && !handled) {
+        return;
+    }
+    // A re-raise keeps the latest candidate, so this can outlive its handler.
+    if (latest->swallowed) {
+        // Cleanup can catch another error while the saved replacement is still unwinding.
+        if (handled && (!replacement->capture_ns ||
+                        !python_exception_in_context_of(proc, handled, replacement->exception))) {
+            python_exception_copy(replacement, latest);
+        }
+        return;
+    }
+    if (kept->propagated && !latest->propagated) {
+        // The newer exception can still escape. Keep the observed fallback
+        // until the response can confirm the newer one propagated.
+        python_exception_copy(replacement, latest);
+        return;
+    }
+    python_exception_copy(kept, latest);
+    replacement->capture_ns = 0;
 }
 
 // The message is `value` when a str was raised, else the instance's args[0] if it is a str.
@@ -457,17 +592,6 @@ static __always_inline void python_exception_walk(const python_exception_proc_t 
     }
 }
 
-// The code object a PyFrameObject runs, through its interpreter frame on 3.11+.
-static __always_inline u64 python_frame_object_code(const python_exception_proc_t *proc,
-                                                    const u64 frame_object) {
-    u64 frame = frame_object;
-    if (proc->frame_object_frame) {
-        frame = python_read_ptr(frame_object + proc->frame_object_frame);
-    }
-
-    return python_read_ptr(frame + proc->frame_code) & ~k_python_stackref_tag;
-}
-
 // Walks a traceback, outermost entry first, keeping its last
 // k_python_exception_max_frames entries in a ring, and writes them to an empty
 // payload innermost first.
@@ -519,9 +643,20 @@ static __always_inline void python_traceback_walk(const python_exception_proc_t 
     }
 }
 
-// Records a raise. An instance raised again after propagating, as when a
-// thread's exception is re-raised on the event loop, takes its frames from its
-// traceback: the live stack is the re-raising thread's.
+// A re-raise adds the current frame outside the existing traceback. Save both
+// while they are available, including for responses sent after the handler exits.
+static __always_inline void python_exception_capture_frames(const python_exception_proc_t *proc,
+                                                            const u64 tstate,
+                                                            const u64 traceback,
+                                                            python_exception_payload_t *payload) {
+    payload->frame_count = 0;
+    payload->flags &= ~k_python_exception_truncated;
+    if (traceback) {
+        python_traceback_walk(proc, traceback, payload);
+    }
+    python_exception_walk(proc, tstate, payload);
+}
+
 static __always_inline void python_exception_capture(const python_exception_proc_t *proc,
                                                      const u64 tstate,
                                                      const u64 type,
@@ -534,6 +669,7 @@ static __always_inline void python_exception_capture(const python_exception_proc
     candidate->tstate = tstate;
     candidate->exception = instance ? value : 0;
     candidate->propagated = 0;
+    candidate->swallowed = 0;
 
     python_exception_payload_t *payload = &candidate->payload;
     payload->type = type;
@@ -541,14 +677,8 @@ static __always_inline void python_exception_capture(const python_exception_proc
     __builtin_memset(payload->_pad, 0, sizeof(payload->_pad));
     payload->layout = proc->layout;
     python_exception_message(proc, value, value_type, payload);
-    payload->frame_count = 0;
-
     const u64 traceback = instance ? python_read_ptr(value + proc->exception_traceback) : 0;
-    if (traceback) {
-        python_traceback_walk(proc, traceback, payload);
-    } else {
-        python_exception_walk(proc, tstate, payload);
-    }
+    python_exception_capture_frames(proc, tstate, traceback, payload);
 }
 
 // The request's candidates, updated in place; a request's first raise creates
@@ -568,6 +698,7 @@ python_exception_pending_slot(const python_exception_key_t *key) {
     empty->latest.exception = 0;
     empty->kept.capture_ns = 0;
     empty->kept.exception = 0;
+    empty->replacement.capture_ns = 0;
     bpf_map_update_elem(&python_exception_pending, key, empty, BPF_NOEXIST);
     return bpf_map_lookup_elem(&python_exception_pending, key);
 }
@@ -578,30 +709,61 @@ static __always_inline u32 python_exception_payload_len(const python_exception_p
     return offsetof(python_exception_payload_t, frames) + frames * sizeof(python_exception_frame_t);
 }
 
-// Selects the latest propagated exception, falling back to the saved candidate.
+// Whether this thread is writing the response of the request that owns `tp`.
+static __always_inline bool python_exception_responding(const tp_info_t *tp) {
+    tp_info_t current = {};
+    return python_exception_owner(bpf_get_current_pid_tgid(), &current) != k_exception_owner_none &&
+           __builtin_memcmp(current.span_id, tp->span_id, sizeof(current.span_id)) == 0;
+}
+
+// The candidate's propagated instance while the thread that raised it handles
+// it, which holds a reference to it. A freed candidate's address can hold
+// another request's exception, so it is only matched against handled ones.
+static __always_inline u64 python_exception_live(const python_exception_proc_t *proc,
+                                                 const python_exception_candidate_t *candidate,
+                                                 const u64 kept) {
+    if (!candidate->capture_ns || candidate->pid_tgid != bpf_get_current_pid_tgid()) {
+        return 0;
+    }
+
+    const u64 handled = python_exception_handled(proc, candidate->tstate, candidate, kept);
+    return handled && python_exception_propagated(proc, handled, candidate->payload.type) ? handled
+                                                                                          : 0;
+}
+
+// Selects the latest propagated exception unless it was swallowed while the
+// kept candidate was being handled, else the kept candidate if it propagated.
 static __always_inline const python_exception_candidate_t *
 python_exception_choose(const python_exception_proc_t *proc,
                         const python_exception_pending_t *pending,
-                        const tp_info_t *tp) {
+                        const tp_info_t *tp,
+                        u64 *live_exception) {
     const python_exception_candidate_t *latest = &pending->latest;
     const python_exception_candidate_t *kept = &pending->kept;
-    if (latest->exception &&
-        (latest->propagated ||
-         python_exception_propagated(proc, latest->exception, latest->payload.type))) {
+    const bool responding = python_exception_responding(tp);
+
+    const u64 live = responding ? python_exception_live(proc, latest, kept->exception) : 0;
+    if (live && !python_exception_swallowed(proc, live, kept)) {
+        *live_exception = live;
         return latest;
     }
-    // Native raises are normalized after probe entry; find the instance while
-    // the raising thread is still handling this request's exception.
-    if (!latest->exception && latest->capture_ns &&
-        latest->pid_tgid == bpf_get_current_pid_tgid()) {
-        tp_info_t current = {};
-        if (python_exception_owner(latest->pid_tgid, &current) != k_exception_owner_none &&
-            __builtin_memcmp(current.span_id, tp->span_id, sizeof(current.span_id)) == 0 &&
-            python_exception_handled(proc, latest->tstate, latest, kept->exception)) {
-            return latest;
-        }
+    if (!live && latest->propagated && !latest->swallowed) {
+        return latest;
     }
-    return kept->capture_ns ? kept : NULL;
+
+    const u64 held = responding ? python_exception_live(proc, kept, 0) : 0;
+    const python_exception_candidate_t *replacement = &pending->replacement;
+    const u64 replaced = responding ? python_exception_live(proc, replacement, 0) : 0;
+    if (replaced && !python_exception_swallowed(proc, replaced, kept)) {
+        *live_exception = replaced;
+        return replacement;
+    }
+
+    if (!kept->capture_ns) {
+        return NULL;
+    }
+    *live_exception = held;
+    return kept->propagated || held ? kept : NULL;
 }
 
 // Sends the exception of the server request that owns `tp`, if it was raised
@@ -611,8 +773,7 @@ python_exception_emit(const u32 host_pid, const tp_info_t *tp, const u64 request
     python_exception_key_t key = {.pid = host_pid};
     __builtin_memcpy(key.span_id, tp->span_id, sizeof(key.span_id));
 
-    const python_exception_pending_t *pending =
-        bpf_map_lookup_elem(&python_exception_pending, &key);
+    python_exception_pending_t *pending = bpf_map_lookup_elem(&python_exception_pending, &key);
     if (!pending) {
         bpf_dbg_printk("python exception: no pending capture pid=%d", host_pid);
         return;
@@ -621,8 +782,9 @@ python_exception_emit(const u32 host_pid, const tp_info_t *tp, const u64 request
     const u32 process_pid = pending->latest.payload.obi_pid;
     const python_exception_proc_t *proc =
         bpf_map_lookup_elem(&python_exception_procs, &process_pid);
+    u64 live_exception = 0;
     const python_exception_candidate_t *candidate =
-        proc ? python_exception_choose(proc, pending, tp) : NULL;
+        proc ? python_exception_choose(proc, pending, tp, &live_exception) : NULL;
     if (!candidate || candidate->capture_ns < request_start_ns) {
         bpf_dbg_printk("python exception: no eligible candidate pid=%d", host_pid);
         bpf_map_delete_elem(&python_exception_pending, &key);
@@ -640,8 +802,19 @@ python_exception_emit(const u32 host_pid, const tp_info_t *tp, const u64 request
     task_pid(&record->hdr.pid);
     record->hdr.runtime = k_exception_runtime_python;
     record->hdr.owner = candidate->owner;
-    record->hdr.payload_len = python_exception_payload_len(&candidate->payload);
-    __builtin_memcpy(record->payload, &candidate->payload, sizeof(candidate->payload));
+    python_exception_payload_t *payload = (void *)record->payload;
+    __builtin_memcpy(payload, &candidate->payload, sizeof(*payload));
+    if (live_exception) {
+        const u64 traceback = python_read_ptr(live_exception + proc->exception_traceback);
+        if (traceback) {
+            payload->flags &= ~k_python_exception_truncated;
+            python_traceback_walk(proc, traceback, payload);
+            if (!payload->frame_count) {
+                __builtin_memcpy(payload, &candidate->payload, sizeof(*payload));
+            }
+        }
+    }
+    record->hdr.payload_len = python_exception_payload_len(payload);
 
     bpf_dbg_printk("python exception: submitting pid=%d, owner=%d", host_pid, candidate->owner);
     exception_record_submit(record);

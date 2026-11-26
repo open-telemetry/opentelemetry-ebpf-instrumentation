@@ -37,7 +37,20 @@ Exceptions raised before OBI attaches to a process are not captured.
 
 OBI keeps bounded candidate state and uses traceback propagation to select an
 exception when the server response arrives. Selection uses a heuristic for
-exceptions that escape handlers.
+exceptions that escape handlers:
+
+- The latest exception that left the frame raising it is selected, unless it
+  was raised while an earlier candidate was being handled and never left the
+  frame handling that one, as when a 500 handler fails to load its error
+  template. The earlier candidate is selected instead.
+- An exception still being handled when another one is raised, as by a
+  `finally` block that runs cleanup code, remains a candidate. It is selected
+  over the earlier candidate once it is seen being handled outside the frame
+  handling that one, at the response or when another exception is raised.
+- A raise from C code, such as `None + 1`, is matched with the instance CPython
+  creates for it by type and by the frame and instruction that raised it.
+  CPython raises and clears exceptions internally, as `open()` does with a
+  `TypeError`, and these do not take over the exception being handled.
 
 An exception retained while another exception is raised can still be reported
 if the request later returns 500, even when both exceptions were caught.
@@ -63,9 +76,12 @@ rendering for custom exceptions and unsupported argument shapes.
 ## Stack traces
 
 The probe walks an existing traceback when available, otherwise the active
-Python frames. It retains up to 24 frames; traversal is bounded to 32 active
-frames or 128 traceback entries. User space reads code objects and line tables
-from the target process and formats a Python traceback.
+Python frames. When the response selects an exception that is still alive, OBI
+walks its traceback again, so the stack matches CPython's traceback: from the
+frame that caught the exception to the frame that raised it, including
+re-raises and `with_traceback()`. It retains up to 24 frames; traversal is
+bounded to 32 active frames or 128 traceback entries. User space reads code
+objects and line tables from the target process and formats a Python traceback.
 
 `exception.stacktrace` lists frames outermost first and ends with the exception
 type and message:
