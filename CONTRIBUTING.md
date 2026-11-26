@@ -90,12 +90,21 @@ make docker-clang-tidy # or make clang-tidy
 
 CI formats and lints the C code with the `clang-format` and `clang-tidy` from the generator image, the same LLVM build as the clang that `make docker-generate` uses. The `docker-` targets run that same version. `make clang-format`, `make clang-tidy` and the pre-commit hook use the local tools instead: install the same major version as the generator image, and point `CLANG_FORMAT` and `CLANG_TIDY` at them if they are not the default `clang-format` and `clang-tidy` in your `PATH`.
 
+#### Mise-managed tools
+
+Local Go formatting and linting, and Markdown linting, use versions pinned in
+this repository's Mise configuration. Install [Mise](https://mise.jdx.dev/installing-mise.html),
+[activate it in your shell](https://mise.jdx.dev/shell-setup.html), then run
+`mise install` from the repository root.
+
+#### Linting Markdown
+
+Check Markdown files with `make lint-markdown` or apply fixes with
+`make lint-markdown-fix`.
+
 #### Formatting the Go code
 
-Local Go formatting and linting uses the `golangci-lint` version pinned in this
-repository's Mise configuration. Install [Mise](https://mise.jdx.dev/installing-mise.html),
-[activate it in your shell](https://mise.jdx.dev/shell-setup.html), then run
-`mise install` from the repository root. Format Go code with `mise run fmt`.
+Format Go code with `mise run fmt`.
 The `make fmt` target remains available as a compatibility wrapper.
 
 ```
