@@ -18,6 +18,7 @@ SOURCE_WORKFLOW = ".github/workflows/pull_request.yml"
 SOURCE_NAME = "PR checks"
 JOB_NAME = "Public Go API compatibility (report only)"
 REPORT_TITLE = "obi-go-api-compatibility-report"
+ADDITIONS_TITLE = "obi-go-api-additions-report"
 MARKER = "<!-- obi-go-api-compatibility -->"
 MAX_REPORT = 3000
 
@@ -77,10 +78,12 @@ def read_report(gh, run):
     if not check_run_id.isdecimal() or not str(job.get("id", "")).isdecimal():
         return None
     annotations = gh.pages(f"/repos/{REPOSITORY}/check-runs/{check_run_id}/annotations")
-    reports = [annotation for annotation in annotations if annotation.get("title") == REPORT_TITLE]
-    if len(reports) != 1:
+    reports = [annotation for annotation in annotations if annotation.get("title") in (REPORT_TITLE, ADDITIONS_TITLE)]
+    compatibility = [annotation for annotation in reports if annotation.get("title") == REPORT_TITLE]
+    additions = [annotation for annotation in reports if annotation.get("title") == ADDITIONS_TITLE]
+    if len(compatibility) != 1 or len(additions) > 1:
         return None
-    annotation = reports[0]
+    annotation = compatibility[0]
     if annotation.get("annotation_level") not in ("warning", "notice"):
         return None
     message = annotation.get("message", "")
@@ -89,7 +92,14 @@ def read_report(gh, run):
     incompatible = annotation["annotation_level"] == "warning"
     if (incompatible and not message.strip()) or (not incompatible and message != "No incompatible API changes detected."):
         return None
-    return incompatible, message, job
+    addition_message = None
+    if additions:
+        addition = additions[0]
+        addition_message = addition.get("message", "")
+        if (addition.get("annotation_level") != "notice" or not isinstance(addition_message, str)
+                or not addition_message.strip() or len(addition_message.encode("utf-8")) > MAX_REPORT):
+            return None
+    return (message if incompatible else None), addition_message, job
 
 
 def find_current_pr(gh, run):
@@ -141,7 +151,7 @@ def main():
     selected_pr = find_current_pr(gh, run) if report else None
     if not selected_pr:
         return 0
-    incompatible, message, job = report
+    incompatible_message, additions_message, job = report
     pr, head_repo, head_ref = selected_pr
     issue_path = f"/repos/{REPOSITORY}/issues/{pr['number']}/comments"
     existing = [
@@ -152,19 +162,29 @@ def main():
     ]
     if len(existing) > 1:
         return fail("multiple bot marker comments found; refusing to update")
-    if incompatible:
-        body = (
-            f"{MARKER}\n"
-            "### Potential breaking Go API changes\n\n"
-            "The report-only check found potential incompatible changes in publicly importable "
-            "root-module packages. This is a warning for review, not a definitive compatibility "
-            "guarantee. OBI's stable Go API follows source-level compatibility rules; breaking "
-            "changes require a major release.\n\n"
-            "<details><summary>Comparison details</summary>\n\n"
-            "<pre>" + html.escape(message, quote=True).replace("@", "&#64;") + "</pre>\n\n</details>\n"
-            f"[View the completed check run](https://github.com/{REPOSITORY}/actions/runs/{run['id']}/job/{job['id']})\n"
-            "<!-- /obi-go-api-compatibility -->"
-        )
+    if incompatible_message or additions_message:
+        sections = [MARKER + "\n"]
+        if additions_message:
+            sections.extend([
+                "### Public API additions\n\n",
+                "These additions are informational. Check whether each one is intended to be public.\n\n",
+                "<details><summary>Added API</summary>\n\n<pre>" + html.escape(additions_message, quote=True).replace("@", "&#64;") + "</pre>\n\n</details>\n",
+            ])
+        if incompatible_message:
+            sections.extend([
+                "### Potential breaking Go API changes\n\n",
+                "The report-only check found potential incompatible changes in publicly importable "
+                "root-module packages. This is a warning for review, not a definitive compatibility "
+                "guarantee. OBI's stable Go API follows source-level compatibility rules; breaking "
+                "changes require a major release.\n\n",
+                "<details><summary>Comparison details</summary>\n\n"
+                "<pre>" + html.escape(incompatible_message, quote=True).replace("@", "&#64;") + "</pre>\n\n</details>\n",
+            ])
+        sections.extend([
+            f"[View the completed check run](https://github.com/{REPOSITORY}/actions/runs/{run['id']}/job/{job['id']})\n",
+            "<!-- /obi-go-api-compatibility -->",
+        ])
+        body = "".join(sections)
         if existing and existing[0].get("body") == body:
             return 0
         latest = gh.request("GET", f"/repos/{REPOSITORY}/pulls/{pr['number']}")
@@ -177,7 +197,7 @@ def main():
         return 0
 
     if existing:
-        cleared = f"{MARKER}\n> The Go API compatibility check completed with no potential incompatibilities for the current head.\n<!-- /obi-go-api-compatibility -->"
+        cleared = f"{MARKER}\n> The Go API compatibility check completed with neither public API additions nor potential incompatibilities for the current head.\n<!-- /obi-go-api-compatibility -->"
         if existing[0].get("body") != cleared:
             latest = gh.request("GET", f"/repos/{REPOSITORY}/pulls/{pr['number']}")
             if not current_pull_request(latest, pr, run, head_repo, head_ref):

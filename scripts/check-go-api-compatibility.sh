@@ -56,12 +56,9 @@ head_revision="$(git -C "$head_dir" rev-parse --short HEAD 2>/dev/null || echo u
 echo "Compared pull request base $base_revision with tested head $head_revision (Linux $(uname -m)). Each checkout must contain generated BPF files from its matching revision. Scope is publicly importable root-module packages; internal packages, commands, and build tooling are excluded. Collector is a separate module. This report-only source API check is not a definitive compatibility guarantee." >> "$GITHUB_STEP_SUMMARY"
 
 if [[ -s "$tmp/added-packages" ]]; then
-  {
-    echo '### Added public packages'
-    echo
-    sed 's/^/    /' "$tmp/added-packages"
-    echo
-  } >> "$GITHUB_STEP_SUMMARY"
+  while IFS= read -r package; do
+    printf '#### %s\n\n- New public package\n\n' "$package" >> "$tmp/additions"
+  done < "$tmp/added-packages"
 fi
 
 if [[ -s "$tmp/removed-packages" ]]; then
@@ -79,30 +76,48 @@ while IFS= read -r import_path; do
   index=$((index + 1))
   (cd "$base_dir" && "$tmp/bin/apidiff" -w "$tmp/$index.old" "$import_path")
   (cd "$head_dir" && "$tmp/bin/apidiff" -w "$tmp/$index.new" "$import_path")
-  if ! "$tmp/bin/apidiff" -incompatible "$tmp/$index.old" "$tmp/$index.new" > "$tmp/$index.diff"; then
+  if ! "$tmp/bin/apidiff" "$tmp/$index.old" "$tmp/$index.new" > "$tmp/$index.diff"; then
     echo "apidiff failed for $import_path" >&2
     exit 1
   fi
-  if [[ -s "$tmp/$index.diff" ]]; then
-    {
-      echo "#### $import_path"
-      echo
-      sed 's/^/    /' "$tmp/$index.diff"
-      echo
-    } >> "$tmp/incompatibilities"
-  fi
+  awk -v package="$import_path" -v incompatible="$tmp/$index.incompatible" -v additions="$tmp/additions" '
+    /^Incompatible changes:$/ { section="incompatible"; next }
+    /^Compatible changes:$/ { section="compatible"; next }
+    section == "incompatible" && /^- / {
+      if (!incompatible_header) { print "#### " package >> incompatible; incompatible_header=1 }
+      print $0 >> incompatible
+    }
+    section == "compatible" && /^- / && /: added$/ {
+      if (!addition_header) { print "#### " package "\n" >> additions; addition_header=1 }
+      print $0 >> additions
+    }
+  ' "$tmp/$index.diff"
+  if [[ -s "$tmp/$index.incompatible" ]]; then cat "$tmp/$index.incompatible" >> "$tmp/incompatibilities"; fi
 done < "$tmp/shared-packages"
+
+emit_annotation() {
+  local level="$1" title="$2" message="$3"
+  message="${message//'%'/'%25'}"
+  message="${message//$'\r'/'%0D'}"
+  message="${message//$'\n'/'%0A'}"
+  printf '::%s title=%s::%s\n' "$level" "$title" "$message"
+}
+
+if [[ -s "$tmp/additions" ]]; then
+  echo '### Public API additions' >> "$GITHUB_STEP_SUMMARY"
+  cat "$tmp/additions" >> "$GITHUB_STEP_SUMMARY"
+  additions_report="$(head -c 2800 "$tmp/additions")"
+  [[ $(wc -c < "$tmp/additions") -le 2800 ]] || additions_report+=$'\n[report truncated]'
+  emit_annotation notice obi-go-api-additions-report "$additions_report"
+fi
 
 if [[ -s "$tmp/incompatibilities" ]]; then
   echo '### Potential incompatibilities' >> "$GITHUB_STEP_SUMMARY"
   cat "$tmp/incompatibilities" >> "$GITHUB_STEP_SUMMARY"
   report="$(head -c 2800 "$tmp/incompatibilities")"
   [[ $(wc -c < "$tmp/incompatibilities") -le 2800 ]] || report+=$'\n[report truncated]'
-  report="${report//'%'/'%25'}"
-  report="${report//$'\r'/'%0D'}"
-  report="${report//$'\n'/'%0A'}"
-  printf '::warning title=obi-go-api-compatibility-report::%s\n' "$report"
+  emit_annotation warning obi-go-api-compatibility-report "$report"
 else
   echo 'No incompatible API changes detected in the compared packages.' >> "$GITHUB_STEP_SUMMARY"
-  printf '::notice title=obi-go-api-compatibility-report::No incompatible API changes detected.\n'
+  emit_annotation notice obi-go-api-compatibility-report 'No incompatible API changes detected.'
 fi

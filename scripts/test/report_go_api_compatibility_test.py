@@ -4,6 +4,8 @@
 import importlib.util
 import json
 import os
+import pathlib
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -16,8 +18,9 @@ SPEC.loader.exec_module(report)
 
 
 class FakeGitHub:
-    def __init__(self, annotation, comments=None, current_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", conclusion="success"):
+    def __init__(self, annotation, comments=None, current_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", conclusion="success", additional_annotations=None):
         self.annotation = annotation
+        self.additional_annotations = additional_annotations or []
         self.comments = comments or []
         self.current_sha = current_sha
         self.conclusion = conclusion
@@ -47,7 +50,7 @@ class FakeGitHub:
                      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "conclusion": self.conclusion, "id": 88,
                      "check_run_url": "https://api.github.com/repos/x/check-runs/77"}]
         if "/check-runs/77/annotations" in path:
-            return [] if self.annotation is None else [self.annotation]
+            return ([] if self.annotation is None else [self.annotation]) + self.additional_annotations
         if "/issues/9/comments" in path:
             return self.comments
         raise AssertionError(path)
@@ -60,6 +63,35 @@ class FakeGitHub:
 
 
 class ReportTest(unittest.TestCase):
+    def test_pinned_apidiff_separates_additions_from_interface_breaks(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            base, head = root / "base", root / "head"
+            for checkout in (base, head):
+                (checkout / "api").mkdir(parents=True)
+                (checkout / "go.mod").write_text("module go.opentelemetry.io/obi\n\ngo 1.24\n", encoding="utf-8")
+            (base / "api/api.go").write_text(
+                "package api\ntype Handler interface { Handle() }\nfunc Existing() {}\n", encoding="utf-8"
+            )
+            (head / "api/api.go").write_text(
+                "package api\ntype Handler interface { Handle(); Added() }\n"
+                "func Existing() {}\nfunc Added() {}\n", encoding="utf-8"
+            )
+            (head / "newpkg").mkdir()
+            (head / "newpkg/new.go").write_text("package newpkg\nfunc New() {}\n", encoding="utf-8")
+            summary = root / "summary.md"
+            result = subprocess.run(
+                ["bash", str(repository / "scripts/check-go-api-compatibility.sh"), str(base), str(head)],
+                env=dict(os.environ, GITHUB_STEP_SUMMARY=str(summary)), capture_output=True, text=True, check=True,
+            )
+            self.assertIn("::notice title=obi-go-api-additions-report::", result.stdout)
+            self.assertIn("::warning title=obi-go-api-compatibility-report::", result.stdout)
+            self.assertIn("### Public API additions", summary.read_text(encoding="utf-8"))
+            self.assertIn("### Potential incompatibilities", summary.read_text(encoding="utf-8"))
+            self.assertIn("- Added: added", result.stdout)
+            self.assertIn("- Handler.Added: added", result.stdout)
+
     def test_jobs_endpoint_object_is_paginated(self):
         github = report.GitHub("token")
         with patch.object(github, "request", return_value={"total_count": 1, "jobs": [{"id": 2}]}) as request:
@@ -89,6 +121,41 @@ class ReportTest(unittest.TestCase):
         self.assertIn("&lt;/pre&gt;", body["body"])
         self.assertIn("&#64;everyone", body["body"])
         self.assertIn("/actions/runs/41/job/88", body["body"])
+
+    def test_additions_only_posts_informational_comment(self):
+        fake = FakeGitHub(
+            {"title": report.REPORT_TITLE, "annotation_level": "notice",
+             "message": "No incompatible API changes detected."},
+            additional_annotations=[{"title": report.ADDITIONS_TITLE, "annotation_level": "notice",
+                                    "message": "pkg: func New added"}],
+        )
+        self.run_helper(fake.annotation, fake)
+        self.assertEqual(len(fake.writes), 1)
+        body = fake.writes[0][2]["body"]
+        self.assertIn("### Public API additions", body)
+        self.assertNotIn("### Potential breaking", body)
+
+    def test_mixed_report_keeps_break_warning_and_additions_separate(self):
+        fake = FakeGitHub(
+            {"title": report.REPORT_TITLE, "annotation_level": "warning", "message": "method added to interface"},
+            additional_annotations=[{"title": report.ADDITIONS_TITLE, "annotation_level": "notice",
+                                    "message": "pkg: func New added"}],
+        )
+        self.run_helper(fake.annotation, fake)
+        body = fake.writes[0][2]["body"]
+        self.assertLess(body.index("### Public API additions"), body.index("### Potential breaking"))
+        self.assertIn("method added to interface", body)
+
+    def test_addition_title_requires_notice_level(self):
+        base = {"title": report.REPORT_TITLE, "annotation_level": "notice",
+                "message": "No incompatible API changes detected."}
+        fake = FakeGitHub(
+            base,
+            additional_annotations=[{"title": report.ADDITIONS_TITLE, "annotation_level": "warning",
+                                    "message": "pkg: func New added"}],
+        )
+        self.run_helper(base, fake)
+        self.assertEqual(fake.writes, [])
 
     def test_stale_head_does_not_post(self):
         fake = FakeGitHub({"title": report.REPORT_TITLE, "annotation_level": "warning", "message": "API break"}, current_sha="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
