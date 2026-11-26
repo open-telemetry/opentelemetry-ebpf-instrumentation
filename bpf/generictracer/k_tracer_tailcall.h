@@ -32,7 +32,6 @@
     /* Generic */                                                                                  \
     entry(k_tail_handle_buf_with_args, obi_handle_buf_with_args, void *)                           \
     /* HTTP/2 + gRPC */                                                                            \
-    entry(k_tail_protocol_http2, obi_protocol_http2, void *)                                       \
     entry(k_tail_protocol_http2_grpc_frames, obi_protocol_http2_grpc_frames, void *)               \
     entry(k_tail_protocol_http2_grpc_handle_start_frame,                                           \
           obi_protocol_http2_grpc_handle_start_frame,                                              \
