@@ -98,6 +98,7 @@ readers. Keep them concise, specific, and easy to scan. Lead with the relevant
 point, use short paragraphs or lists when helpful, and include only the context
 needed to understand or act on the message. Do not post generated wall-of-text
 reports, exhaustive restatements of the code, or a play-by-play of the work.
+Before creating a pull request, read the target repository’s `.github/pull_request_template.md` in full and preserve its exact section structure; do not replace it with a generic format.
 
 ## Validation
 
