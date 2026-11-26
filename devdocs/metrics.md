@@ -150,6 +150,15 @@ Probes that can run at or after this transition read the port with `parse_full_s
 
 `src.port` is still `0` for a connection attempt that fails before sending its SYN, for example when no ephemeral port is free. The failed-connections probe does not fall back to `inet_sport` for these attempts, because on a socket reused with `connect(AF_UNSPEC)` it still holds the port of the previous connection. `tcp_disconnect()` resets `segs_out` and the SYN increments it, so `segs_out == 0` identifies them.
 
+#### `network.tcp.handshake.role` of connections OBI did not see open
+
+`obi_stat_tcp_rtt_seconds` and `obi_stat_tcp_io_bytes_total` read the role from the `sock_role` map. The `inet_sock_set_state` tracepoint writes it when a socket reaches `ESTABLISHED`: `client` from `SYN_SENT`, `server` from `SYN_RECV`. A `tcp_destroy_sock` tracepoint deletes it. The role is `unknown` when the socket has no entry:
+
+- The connection was established before OBI started, for example a long-lived connection pool after an OBI restart. The handshake is over, so the role cannot be recovered.
+- The entry was evicted. `sock_role` is an LRU map of 65,536 sockets by default, scaled by `ebpf.maps_config.global_scale_factor`, and shared by all these metrics.
+
+`obi_stat_tcp_successful_connections_total` takes the role from the transition itself, and `obi_stat_tcp_failed_connections_total` does the same for attempts that fail during the handshake, so neither depends on the map for those.
+
 #### `obi_stat_tcp_resets_total` scope and cause
 
 The metric counts RST segments that the TCP stack sends (`tcp_send_reset`) or accepts (`tcp_receive_reset`) on connections past the handshake. It is enabled only from Config v2 (`capture.network.stats.features: [tcp_resets]`) and is not part of the default stats families.

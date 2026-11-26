@@ -43,6 +43,7 @@ const (
 	wireRetransmitConnOffset = 4
 	wireTCPIoDirectionOffset = 1
 	wireTCPIoCountOffset     = 2
+	wireTCPIoRoleOffset      = 3
 	wireTCPIoBytesOffset     = 4
 	wireTCPIoConnOffset      = 44
 	wireResetDirectionOffset = 1
@@ -111,7 +112,8 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 	retransmitRaw[1], retransmitRaw[2], retransmitRaw[3] = 0xc1, 0xc2, 0xc3
 	tcpIoRaw := newWireStat(ebpf.StatTypeTCPIo, wireSizeTCPIo, wireTCPIoConnOffset, ipv4Conn)
 	tcpIoRaw[wireTCPIoDirectionOffset] = uint8(ebpf.CodeDirectionTransmit)
-	tcpIoRaw[wireTCPIoCountOffset], tcpIoRaw[3] = 3, 0xd1
+	tcpIoRaw[wireTCPIoCountOffset] = 3
+	tcpIoRaw[wireTCPIoRoleOffset] = uint8(ebpf.CodeRoleClient)
 	putWireBytes(tcpIoRaw, [ebpf.TCPIoBatchSize]uint32{100, 200, 300, 400})
 	resetRaw := newWireStat(ebpf.StatTypeTCPReset, wireSizeTCPReset, wireResetConnOffset, ipv6Conn)
 	resetRaw[wireResetDirectionOffset] = uint8(ebpf.CodeDirectionTransmit)
@@ -174,6 +176,7 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 				Type: ebpf.StatTypeTCPIo,
 				TCPIo: &ebpf.TCPIo{
 					Direction: uint8(ebpf.CodeDirectionTransmit),
+					Role:      uint8(ebpf.CodeRoleClient),
 					Bytes:     600,
 				},
 				CommonAttrs: commonAttrs(ipv4Conn),

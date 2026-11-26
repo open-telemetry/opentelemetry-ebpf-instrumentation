@@ -175,6 +175,8 @@ metrics:
         requirement_level: opt_in
       - ref: network.io.direction
         requirement_level: recommended
+      - ref: network.tcp.handshake.role
+        requirement_level: opt_in
       - ref: k8s.cluster.name
         requirement_level:
           recommended: if Kubernetes decoration is enabled

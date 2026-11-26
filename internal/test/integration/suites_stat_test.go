@@ -24,6 +24,7 @@ func TestStat_GoStatMetrics(t *testing.T) {
 	t.Run("Go Stat Metrics TCP Successful Connection tests", testStatMetricsTCPSuccessfulConnectionsGo)
 	t.Run("Go Stat Metrics TCP Retransmits tests", testStatMetricsTCPRetransmitsGo)
 	t.Run("Go Stat Metrics TCP IO tests", testStatMetricsTCPIoGo)
+	t.Run("Go Stat Metrics TCP IO role tests", testStatMetricsTCPIoRoleGo)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
