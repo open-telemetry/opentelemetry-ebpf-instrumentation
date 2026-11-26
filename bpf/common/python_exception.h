@@ -50,12 +50,10 @@ typedef struct python_exception_frame {
 typedef struct python_exception_message {
     u16 len[k_python_exception_max_args];
     enum python_exception_arg_kind kind[k_python_exception_max_args];
-    u8 count; // 0 without a message
-    // bit i: argument i was longer than its part
-    u8 truncated;
-    // arguments after the stored ones were not recorded
-    u8 more;
-    u8 quote_single; // Use repr() for a lone string argument.
+    u8 count; // 0 means no message
+    u8 truncated_args_mask;
+    u8 has_omitted_args;
+    u8 quote_single_string;
 } python_exception_message_t;
 
 // PyCodeObject and str offsets that user space needs to symbolize the frames.
@@ -84,7 +82,7 @@ typedef struct python_exception_link {
 } python_exception_link_t;
 
 // The exception_events payload of k_exception_runtime_python records. Only
-// the first frame_count frames are sent, innermost first.
+// the first frame_count frames are sent, innermost first, followed by link_count links.
 typedef struct python_exception_payload {
     u64 type;    // PyTypeObject*
     u32 obi_pid; // raising process in OBI's PID namespace
@@ -95,7 +93,7 @@ typedef struct python_exception_payload {
     python_exception_layout_t layout;
     python_exception_message_t message;
     unsigned char text[k_python_exception_message_max];
+    python_exception_frame_t frames[k_python_exception_max_frames];
     // links[0] is the exception this one was raised from or while handling
     python_exception_link_t links[k_python_exception_max_links];
-    python_exception_frame_t frames[k_python_exception_max_frames];
 } python_exception_payload_t;

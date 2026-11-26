@@ -550,7 +550,7 @@ static __always_inline bool python_exception_arg(const python_exception_proc_t *
     message->kind[index] = kind;
     message->len[index] = len;
     if (truncated) {
-        message->truncated |= 1 << index;
+        message->truncated_args_mask |= 1 << index;
     }
     return true;
 }
@@ -573,8 +573,9 @@ static __always_inline void python_exception_message(const python_exception_proc
     }
 
     const u64 str = python_read_ptr(type + k_python_type_str);
-    message->quote_single = str && str == proc->key_error_str;
-    const bool default_str = message->quote_single || (str && str == proc->base_exception_str);
+    message->quote_single_string = str && str == proc->key_error_str;
+    const bool default_str =
+        message->quote_single_string || (str && str == proc->base_exception_str);
     u64 args = value;
     if (value_type != proc->tuple_type) {
         if (!python_exception_instance(proc, value_type)) {
@@ -607,7 +608,7 @@ static __always_inline void python_exception_message(const python_exception_proc
         }
         message->count = i + 1;
     }
-    message->more = message->count < count;
+    message->has_omitted_args = message->count < count;
 }
 
 static __always_inline u64 python_exception_first_frame(const python_exception_proc_t *proc,
@@ -762,11 +763,10 @@ static __always_inline u64 python_exception_topmost(const python_exception_proc_
     return 0;
 }
 
-// The exception printed before `exception`: its __cause__, else `context`
-// unless __suppress_context__ is set.
+// At raise time tstate supplies the implicit context. Stored links use __context__.
 static __always_inline u64 python_exception_predecessor(const python_exception_proc_t *proc,
                                                         const u64 exception,
-                                                        const u64 context,
+                                                        const u64 tstate,
                                                         enum python_exception_relation *relation) {
     const u64 cause = python_read_ptr(exception + proc->exception_cause);
     if (cause) {
@@ -779,7 +779,16 @@ static __always_inline u64 python_exception_predecessor(const python_exception_p
                         sizeof(suppress_context),
                         (const void *)(exception + proc->exception_suppress_context));
     *relation = k_python_exception_context;
-    return suppress_context ? 0 : context;
+    if (suppress_context) {
+        return 0;
+    }
+    if (tstate) {
+        const u64 handled = python_exception_topmost(proc, tstate);
+        if (handled && handled != exception) {
+            return handled;
+        }
+    }
+    return python_read_ptr(exception + proc->exception_context);
 }
 
 static __always_inline void python_exception_link(const python_exception_proc_t *proc,
@@ -812,18 +821,9 @@ static __always_inline void python_exception_chain(const python_exception_proc_t
                                                    python_exception_payload_t *payload) {
     payload->link_count = 0;
 
-    u64 context = python_exception_topmost(proc, tstate);
-    if (context == value) {
-        context = 0;
-    }
     enum python_exception_relation relation = k_python_exception_context;
-    u64 next = context;
-    if (instance) {
-        if (!context) {
-            context = python_read_ptr(value + proc->exception_context);
-        }
-        next = python_exception_predecessor(proc, value, context, &relation);
-    }
+    u64 next = instance ? python_exception_predecessor(proc, value, tstate, &relation)
+                        : python_exception_topmost(proc, tstate);
 
     u64 newer = value;
     for (u32 i = 0; i < k_python_exception_max_links; i++) {
@@ -836,8 +836,7 @@ static __always_inline void python_exception_chain(const python_exception_proc_t
         payload->link_count = i + 1;
 
         newer = next;
-        next = python_exception_predecessor(
-            proc, newer, python_read_ptr(newer + proc->exception_context), &relation);
+        next = python_exception_predecessor(proc, newer, 0, &relation);
     }
 }
 
@@ -911,12 +910,6 @@ python_exception_pending_slot(const python_exception_key_t *key) {
     empty->replacement.capture_ns = 0;
     bpf_map_update_elem(&python_exception_pending, key, empty, BPF_NOEXIST);
     return bpf_map_lookup_elem(&python_exception_pending, key);
-}
-
-static __always_inline u32 python_exception_payload_len(const python_exception_payload_t *payload) {
-    u8 frames = payload->frame_count;
-    bpf_clamp_umax(frames, k_python_exception_max_frames);
-    return offsetof(python_exception_payload_t, frames) + frames * sizeof(python_exception_frame_t);
 }
 
 // Whether this thread is writing the response of the request that owns `tp`.
@@ -1013,7 +1006,8 @@ python_exception_emit(const u32 host_pid, const tp_info_t *tp, const u64 request
     record->hdr.runtime = k_exception_runtime_python;
     record->hdr.owner = candidate->owner;
     python_exception_payload_t *payload = (void *)record->payload;
-    bpf_probe_read_kernel(payload, sizeof(*payload), &candidate->payload);
+    bpf_probe_read_kernel(
+        payload, offsetof(python_exception_payload_t, links), &candidate->payload);
     if (live_exception) {
         const u64 traceback = python_read_ptr(live_exception + proc->exception_traceback);
         if (traceback) {
@@ -1025,11 +1019,24 @@ python_exception_emit(const u32 host_pid, const tp_info_t *tp, const u64 request
                                   &payload->flags,
                                   k_python_exception_max_frames);
             if (!payload->frame_count) {
-                bpf_probe_read_kernel(payload, sizeof(*payload), &candidate->payload);
+                bpf_probe_read_kernel(
+                    payload, offsetof(python_exception_payload_t, links), &candidate->payload);
             }
         }
     }
-    record->hdr.payload_len = python_exception_payload_len(payload);
+    u8 frames = payload->frame_count;
+    bpf_clamp_umax(frames, k_python_exception_max_frames);
+    u32 len = offsetof(python_exception_payload_t, frames) + frames * sizeof(payload->frames[0]);
+    if (payload->link_count) {
+        if (bpf_probe_read_kernel(record->payload + len,
+                                  sizeof(payload->links[0]),
+                                  &candidate->payload.links[0]) == 0) {
+            len += sizeof(payload->links[0]);
+        } else {
+            payload->link_count = 0;
+        }
+    }
+    record->hdr.payload_len = len;
 
     bpf_dbg_printk("python exception: submitting pid=%d, owner=%d", host_pid, candidate->owner);
     exception_record_submit(record);

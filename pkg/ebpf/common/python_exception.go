@@ -111,7 +111,9 @@ var (
 
 const pythonFramesOffset = int(unsafe.Offsetof(BpfPythonExceptionPayloadT{}.Frames))
 
-var pythonFrameSize = int(unsafe.Sizeof(BpfPythonExceptionPayloadT{}.Frames[0]))
+const pythonLinkSize = int(unsafe.Sizeof(BpfPythonExceptionPayloadT{}.Links[0]))
+
+const pythonFrameSize = int(unsafe.Sizeof(BpfPythonExceptionPayloadT{}.Frames[0]))
 
 // decodePythonException reads the type name and the frames' code objects from
 // the raising process and formats a CPython-style traceback.
@@ -307,7 +309,7 @@ func pythonMessage(message *BpfPythonExceptionMessageT, text []byte, minor uint8
 	}
 	part := pythonArgCapacity(message, len(text))
 	tuple := pythonArgsTuple(message)
-	quote := tuple || message.QuoteSingle != 0
+	quote := tuple || message.QuoteSingleString != 0
 
 	args := make([]string, 0, count+1)
 	for i := range count {
@@ -316,7 +318,7 @@ func pythonMessage(message *BpfPythonExceptionMessageT, text []byte, minor uint8
 		if err != nil {
 			return ""
 		}
-		if message.Truncated&(1<<i) != 0 {
+		if message.TruncatedArgsMask&(1<<i) != 0 {
 			if quote {
 				arg = arg[:len(arg)-1]
 			}
@@ -325,7 +327,7 @@ func pythonMessage(message *BpfPythonExceptionMessageT, text []byte, minor uint8
 		}
 		args = append(args, arg)
 	}
-	if message.More != 0 {
+	if message.HasOmittedArgs != 0 {
 		return pythonArgs(append(args, "..."), tuple, false)
 	}
 	return pythonArgs(args, tuple, true)
@@ -333,7 +335,7 @@ func pythonMessage(message *BpfPythonExceptionMessageT, text []byte, minor uint8
 
 // pythonArgsTuple reports whether str() renders the arguments as their tuple.
 func pythonArgsTuple(message *BpfPythonExceptionMessageT) bool {
-	return message.Count > 1 || message.More != 0
+	return message.Count > 1 || message.HasOmittedArgs != 0
 }
 
 // pythonArgCapacity is the buffer part of each argument: all of it for a lone one.
@@ -443,16 +445,23 @@ func parsePythonExceptionPayload(payload []byte) (*BpfPythonExceptionPayloadT, e
 	if len(payload) < pythonFramesOffset {
 		return nil, errPythonExceptionPayload
 	}
-	full := make([]byte, unsafe.Sizeof(BpfPythonExceptionPayloadT{}))
-	copy(full, payload)
 	record := &BpfPythonExceptionPayloadT{}
+	frameCount := int(payload[unsafe.Offsetof(record.FrameCount)])
+	linkCount := int(payload[unsafe.Offsetof(record.LinkCount)])
+	framesEnd := pythonFramesOffset + frameCount*pythonFrameSize
+	if frameCount > len(record.Frames) || linkCount > len(record.Links) ||
+		len(payload) != framesEnd+linkCount*pythonLinkSize {
+		return nil, errPythonExceptionPayload
+	}
+
+	// The probe packs links immediately after the populated frames.
+	full := make([]byte, unsafe.Sizeof(*record))
+	copy(full, payload[:framesEnd])
+	copy(full[unsafe.Offsetof(record.Links):], payload[framesEnd:])
 	if err := binary.Read(bytes.NewReader(full), binary.LittleEndian, record); err != nil {
 		return nil, err
 	}
-	if int(record.FrameCount) > len(record.Frames) ||
-		len(payload) != pythonFramesOffset+int(record.FrameCount)*pythonFrameSize ||
-		!pythonMessageFits(&record.Message, len(record.Text)) ||
-		int(record.LinkCount) > len(record.Links) {
+	if !pythonMessageFits(&record.Message, len(record.Text)) {
 		return nil, errPythonExceptionPayload
 	}
 	for _, link := range record.Links[:record.LinkCount] {

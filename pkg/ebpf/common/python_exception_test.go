@@ -274,9 +274,9 @@ func TestDescribePythonExceptionType(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			record := fakePythonRecord(tc.object, tc.message)
-			record.Message.QuoteSingle = tc.quoteSingle
+			record.Message.QuoteSingleString = tc.quoteSingle
 			if tc.truncated {
-				record.Message.Truncated = 1
+				record.Message.TruncatedArgsMask = 1
 			}
 			event := exceptions.Event{}
 			require.NoError(t, describePythonException(process.remote(), record, &event))
@@ -360,15 +360,36 @@ func TestParsePythonExceptionPayload(t *testing.T) {
 	encode := func(record *BpfPythonExceptionPayloadT) []byte {
 		var buf bytes.Buffer
 		require.NoError(t, binary.Write(&buf, binary.LittleEndian, record))
-		return buf.Bytes()[:pythonFramesOffset+int(record.FrameCount)*pythonFrameSize]
+		packed := buf.Bytes()[:pythonFramesOffset+int(record.FrameCount)*pythonFrameSize]
+		if record.LinkCount != 0 {
+			packed = append(packed, buf.Bytes()[unsafe.Offsetof(record.Links):]...)
+		}
+		return packed
 	}
 
 	record := fakePythonRecord(0x10, "message", 0x100, 0x200)
 	record.LinkCount = 1
 	record.Links[0].FrameCount = 1
+	record.Links[0].Type = 0xabc
 	parsed, err := parsePythonExceptionPayload(encode(record))
 	require.NoError(t, err)
 	assert.Equal(t, record.Frames[:2], parsed.Frames[:2])
+	assert.Equal(t, record.Links[0], parsed.Links[0])
+	for _, frames := range []int{0, 2, len(record.Frames)} {
+		for _, links := range []uint8{0, 1} {
+			r := *record
+			r.FrameCount, r.LinkCount = uint8(frames), links
+			wire := encode(&r)
+			got, err := parsePythonExceptionPayload(wire)
+			require.NoError(t, err)
+			assert.Equal(t, r.Frames[:frames], got.Frames[:frames])
+			assert.Equal(t, r.Links[:links], got.Links[:links])
+			_, err = parsePythonExceptionPayload(append(wire, 0))
+			require.ErrorIs(t, err, errPythonExceptionPayload)
+			_, err = parsePythonExceptionPayload(wire[:len(wire)-1])
+			require.ErrorIs(t, err, errPythonExceptionPayload)
+		}
+	}
 	assert.Equal(t, "message", string(parsed.Text[:parsed.Message.Len[0]]))
 
 	_, err = parsePythonExceptionPayload(encode(record)[:pythonFramesOffset+pythonFrameSize])
@@ -452,7 +473,7 @@ func fakePythonArgs(message *BpfPythonExceptionMessageT, text []byte, args ...an
 func fakePythonPartialArgs(message *BpfPythonExceptionMessageT, text []byte, more bool, args ...any) {
 	*message = BpfPythonExceptionMessageT{Count: uint8(len(args))}
 	if more {
-		message.More = 1
+		message.HasOmittedArgs = 1
 	}
 	part := pythonArgCapacity(message, len(text))
 	for i, arg := range args {
@@ -519,8 +540,8 @@ func TestPythonMessageArguments(t *testing.T) {
 				var message BpfPythonExceptionMessageT
 				text := make([]byte, 256)
 				fakePythonPartialArgs(&message, text, tc.more, tc.args...)
-				message.Truncated = tc.truncated
-				message.QuoteSingle = tc.quoteSingle
+				message.TruncatedArgsMask = tc.truncated
+				message.QuoteSingleString = tc.quoteSingle
 				assert.Equal(t, tc.want, pythonMessage(&message, text, minor))
 			})
 		}
@@ -548,7 +569,7 @@ func TestDescribePythonExceptionChain(t *testing.T) {
 	cause.FrameCount = 1
 	cause.Frames[0].Code = inner
 	fakePythonArgs(&cause.Message, cause.Text[:], "user_id")
-	cause.Message.QuoteSingle = 1
+	cause.Message.QuoteSingleString = 1
 
 	event := exceptions.Event{}
 	require.NoError(t, describePythonException(process.remote(), record, &event))
