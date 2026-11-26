@@ -551,38 +551,49 @@ func TestISO8583StandaloneMongoHeader(t *testing.T) {
 }
 
 func TestISO8583ProtocolDebug(t *testing.T) {
-	ctx, cfg, filter := newTraceDispatcherTestContext()
-	defer ctx.Close()
-	cfg.ProtocolDebug = true
-	logFile, err := os.CreateTemp(t.TempDir(), "tcp-debug")
-	require.NoError(t, err)
-	stdout := os.Stdout
-	os.Stdout = logFile
-	t.Cleanup(func() {
-		os.Stdout = stdout
-		_ = logFile.Close()
-	})
 	req := iso8583TestFrame("01002000000000000000000000")
 	resp := iso8583TestFrame("0110000000000200000000")
 	for _, tc := range []struct {
+		name      string
+		debug     bool
 		tag       BpfProtocolType
 		req, resp []byte
 	}{
-		{ProtocolTypeUnknown, req, resp},
-		{ProtocolTypeUnknown, req, nil},
-		{ProtocolTypeUnknown, nil, resp},
-		{ProtocolTypeISO8583, []byte("unrecognized copy"), nil},
+		{"disabled", false, ProtocolTypeUnknown, req, resp},
+		{"exchange", true, ProtocolTypeUnknown, req, resp},
+		{"request only", true, ProtocolTypeUnknown, req, nil},
+		{"response only", true, ProtocolTypeUnknown, nil, resp},
+		{"kernel classified", true, ProtocolTypeISO8583, []byte("unrecognized copy"), nil},
 	} {
-		event := TCPRequestInfo{Flags: EventTypeTCP, Direction: directionSend, ProtocolType: tc.tag, StartMonotimeNs: 10, EndMonotimeNs: 25}
-		event.Len = uint32(copy(event.Buf[:], tc.req))
-		event.ReqLen = event.Len
-		event.RespLen = uint32(copy(event.Rbuf[:], tc.resp))
-		_, _, err := ReadTCPRequestIntoSpan(ctx, cfg, &ringbuf.Record{RawSample: traceRecordBytes(&event)}, filter)
-		require.NoError(t, err)
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cfg, filter := newTraceDispatcherTestContext()
+			defer ctx.Close()
+			cfg.ProtocolDebug = tc.debug
+			logFile, err := os.CreateTemp(t.TempDir(), "tcp-debug")
+			require.NoError(t, err)
+			stdout := os.Stdout
+			os.Stdout = logFile
+			t.Cleanup(func() {
+				os.Stdout = stdout
+				_ = logFile.Close()
+			})
+
+			event := TCPRequestInfo{Flags: EventTypeTCP, Direction: directionSend, ProtocolType: tc.tag, StartMonotimeNs: 10, EndMonotimeNs: 25}
+			event.Len = uint32(copy(event.Buf[:], tc.req))
+			event.ReqLen = event.Len
+			event.RespLen = uint32(copy(event.Rbuf[:], tc.resp))
+			_, _, err = ReadTCPRequestIntoSpan(ctx, cfg, &ringbuf.Record{RawSample: traceRecordBytes(&event)}, filter)
+			require.NoError(t, err)
+
+			output, err := os.ReadFile(logFile.Name())
+			require.NoError(t, err)
+			if tc.debug {
+				assert.Contains(t, string(output), fmt.Sprintf("[>] %v\n[<] %v\n", tc.req, tc.resp))
+			} else {
+				assert.Empty(t, output)
+			}
+		})
 	}
-	info, err := logFile.Stat()
-	require.NoError(t, err)
-	assert.Zero(t, info.Size())
 }
 
 func BenchmarkISO8583PrefixReject(b *testing.B) {

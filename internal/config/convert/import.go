@@ -59,6 +59,7 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	defaults.Capture.Metrics.Features = nil
 	// Check before applying defaults to distinguish omitted sources from explicit ones.
 	serviceNameSourcesOmitted := src.Enrich == nil || src.Enrich.ServiceName.Sources == nil
+	configuredISO8583 := src.Capture.Instrumentation.ISO8583
 	var complete bool
 	var err error
 	src, complete, err = src.WithDefaults(defaults)
@@ -124,7 +125,7 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := applyV2CaptureAttributes(&cfg, src); err != nil {
 		return nil, err
 	}
-	if err := applyV2MetricsEnablement(&cfg, src, complete); err != nil {
+	if err := applyV2MetricsEnablement(&cfg, src, configuredISO8583, complete); err != nil {
 		return nil, err
 	}
 	cfg.Attributes.Select.Normalize()
@@ -2471,7 +2472,7 @@ func completeDaemonTelemetry(telemetry schema.DaemonTelemetry) bool {
 	return telemetry.Metrics.Prometheus.SpanMetricsServiceCacheSize != 0
 }
 
-func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete bool) error {
+func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, configuredISO8583 *schema.ISO8583Instrumentation, complete bool) error {
 	if features := src.Capture.Metrics.Features; features != nil {
 		mask, err := export.LoadV2Features(features)
 		if err != nil {
@@ -2481,10 +2482,10 @@ func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete b
 		return nil
 	}
 
-	appMetricsEnabled, appConfigured := appMetricsEnablement(
-		src.Capture.Instrumentation,
-		complete || completeInstrumentation(src.Capture.Instrumentation),
-	)
+	// An implicit ISO 8583 default must not turn RED back on for unrelated protocols.
+	instrumentation := src.Capture.Instrumentation
+	instrumentation.ISO8583 = configuredISO8583
+	appMetricsEnabled, appConfigured := appMetricsEnablement(instrumentation, complete || completeInstrumentation(instrumentation))
 	networkConfigured := complete || !zeroValue(src.Capture.Network.Capture)
 	networkMetricsEnabled := src.Capture.Network.Capture.Enabled
 	statsFeatures, statsConfigured := statsMetricsEnablement(src.Capture.Network.Stats)

@@ -762,10 +762,10 @@ ISO 8583 response time at the observed endpoint, estimated from field 7 or measu
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| `auth.outcome` | enum | `recommended` | development | Authorization or financial request outcome derived from the reply's DE39. | approved, partially_approved, declined, technical_error, unknown, not_applicable |
-| `duration.source` | enum | `recommended` | development | Source of the ISO 8583 exchange duration. | field_7, capture |
-| `mti` | string | `recommended` | development | Four-digit initiating message type indicator, inferred from the reply when the request was not observed. | 0100, 0200, 0420, 0800 |
-| `request.type` | enum | `recommended` | development | Role of the observed endpoint in the ISO 8583 exchange. | client, server |
+| `auth.outcome` | enum | `recommended` | development | Authorization or financial request outcome derived from the reply's DE39. | approved; partially_approved; declined; technical_error; unknown; not_applicable |
+| `duration.source` | enum | `recommended` | development | Source of the ISO 8583 exchange duration. | field_7; capture |
+| `mti` | string | `recommended` | development | Four-digit initiating message type indicator, inferred from the reply when the request was not observed. | 0100; 0200; 0420; 0800 |
+| `request.type` | enum | `recommended` | development | Role of the observed endpoint in the ISO 8583 exchange. | client; server |
 
 ## `jvm.class.count`
 

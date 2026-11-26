@@ -85,10 +85,10 @@ ISO 8583 attributes defined by OBI.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `auth.outcome` | enum | development | Authorization or financial request outcome derived from the reply's DE39. | approved, partially_approved, declined, technical_error, unknown, not_applicable |
-| `duration.source` | enum | development | Source of the ISO 8583 exchange duration. | field_7, capture |
-| `mti` | string | development | Four-digit initiating message type indicator, inferred from the reply when the request was not observed. | 0100, 0200, 0420, 0800 |
-| `request.type` | enum | development | Role of the observed endpoint in the ISO 8583 exchange. | client, server |
+| `auth.outcome` | enum | development | Authorization or financial request outcome derived from the reply's DE39. | approved; partially_approved; declined; technical_error; unknown; not_applicable |
+| `duration.source` | enum | development | Source of the ISO 8583 exchange duration. | field_7; capture |
+| `mti` | string | development | Four-digit initiating message type indicator, inferred from the reply when the request was not observed. | 0100; 0200; 0420; 0800 |
+| `request.type` | enum | development | Role of the observed endpoint in the ISO 8583 exchange. | client; server |
 
 ## `registry.obi.k8s`
 

@@ -1,12 +1,15 @@
 # Copyright The OpenTelemetry Authors
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 import multiprocessing
 import socket
 import socketserver
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from time import sleep
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
 
 def frame(message, *, ascii_length=False):
@@ -49,6 +52,17 @@ def serve_echo():
         server.serve_forever()
 
 
+def endpoints_traced():
+    query = 'iso8583_request_duration_seconds_count{mti=~"0120|0420"} > 0'
+    url = "http://lgtm:9090/api/v1/query?" + urlencode({"query": query})
+    try:
+        with urlopen(url, timeout=2) as response:
+            series = json.load(response)["data"]["result"]
+    except OSError:
+        return False
+    return {item["metric"]["request_type"] for item in series} == {"client", "server"}
+
+
 class Client(BaseHTTPRequestHandler):
     def do_GET(self):
         # The switch batches two replies, then sends a third on the same connection.
@@ -69,6 +83,12 @@ class Client(BaseHTTPRequestHandler):
             conn.sendall(frame(packed_reply, ascii_length=True))
             conn.shutdown(socket.SHUT_WR)
             conn.recv(1)
+        # Exercise only genuine ISO replies until both Python endpoints are being traced.
+        if self.path == "/ready":
+            self.send_response(200 if endpoints_traced() else 503)
+            self.end_headers()
+            return
+
         # A separate TCP write can start with a complete ISO reply inside an MQTT payload.
         payload = frame(b"06100200000000000000" + stamp.encode())
         topic_and_id = b"\x00\x08payments\x00\x01"

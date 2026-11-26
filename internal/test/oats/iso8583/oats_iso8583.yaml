@@ -10,6 +10,10 @@ fixture:
     command: ../finalize-weaver.sh
     timeout: 3m
 input:
+  - path: /ready
+    retry:
+      timeout: 2m
+      interval: 1s
   - path: /echo
     retry:
       timeout: 10s
@@ -28,8 +32,6 @@ expected:
     - traceql: '{ span.messaging.system = "mqtt" && span.messaging.destination.name = "payments" }'
       match_spans:
         - name: publish payments
-    - traceql: '{ span.mti =~ "0500|0600|0700" }'
-      absent: true
     - traceql: '{ kind=client && span.mti = "0120" && span.duration.source = "field_7" && duration >= 5s }'
       match_spans:
         - name: ISO 8583 0120
@@ -63,8 +65,6 @@ expected:
             - key: server.port
               value: "8584"
   metrics:
-    - promql: sum(iso8583_request_duration_seconds_count{mti=~"0500|0600|0700"}) or vector(0)
-      value: '== 0'
     - promql: iso8583_request_duration_seconds_sum{mti="0120",duration_source="field_7",request_type="client"} / iso8583_request_duration_seconds_count{mti="0120",duration_source="field_7",request_type="client"}
       value: '>= 5'
     - promql: iso8583_request_duration_seconds_sum{mti="0420",duration_source="field_7",request_type="server"} / iso8583_request_duration_seconds_count{mti="0420",duration_source="field_7",request_type="server"}
@@ -81,3 +81,16 @@ expected:
       value: '> 0'
     - promql: iso8583_request_duration_seconds_count{mti="0800",request_type="server"}
       value: '> 0'
+    - promql: sum(iso8583_request_duration_seconds_count{mti=~"0500|0600|0700"}) or vector(0)
+      value: '== 0'
+  custom-checks:
+    - script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        # After the ingestion window, search the whole exchange. OATS counts plain output lines for absent traces.
+        sleep 10
+        end=$(date +%s)
+        curl -fsSG "$OATS_GRAFANA_URL/api/datasources/proxy/uid/tempo/api/search" \
+          --data "start=$((end - 600))" --data "end=$end" \
+          --data-urlencode 'q={ span.mti =~ "0500|0600|0700" }' |
+          jq -e 'if .traces == [] then true else error("unexpected overlap traces: \(.traces)") end'

@@ -2,7 +2,7 @@ services:
   testserver:
     image: python:3.15.0-slim@sha256:ea4f1f290e071bf7d28199cfb3e09f5dbad31b50e9c32fd58f2f2d7be915f3ae
     volumes:
-      - ./exchange.py:/exchange.py:ro
+      - ../../integration/components/javaiso8583/exchange.py:/exchange.py:ro
     command: ["python", "/exchange.py"]
     ports:
       - "127.0.0.1::8080"

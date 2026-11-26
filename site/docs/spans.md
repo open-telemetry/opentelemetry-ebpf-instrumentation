@@ -502,13 +502,13 @@ Name, from the first template that applies: `ISO 8583 {mti}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| `duration.source` | enum | `required` | development | Source of the ISO 8583 exchange duration. | field_7, capture |
-| `mti` | string | `required` | development | Four-digit initiating message type indicator, inferred from the reply when the request was not observed. | 0100, 0200, 0420, 0800 |
-| `network.peer.address` | string | `recommended`: if the remote socket address is known | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80, /tmp/my.sock |
+| `duration.source` | enum | `required` | development | Source of the ISO 8583 exchange duration. | field_7; capture |
+| `mti` | string | `required` | development | Four-digit initiating message type indicator, inferred from the reply when the request was not observed. | 0100; 0200; 0420; 0800 |
+| `network.peer.address` | string | `recommended`: if the remote socket address is known | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | `recommended`: if the remote socket port is known | stable | Peer port number of the network connection. | 65123 |
-| `network.protocol.name` | string | `required` | stable | [OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent. | iso8583 |
-| `server.address` | string | `conditionally_required`: if the server address is known | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com, 10.1.2.80, /tmp/my.sock |
-| `server.port` | int | `conditionally_required`: if the server port is known | stable | Server port number. | 8584, 8080, 443 |
+| `network.protocol.name` | string | `required` | stable | [OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent. | amqp; http; mqtt |
+| `server.address` | string | `conditionally_required`: if the server address is known | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `conditionally_required`: if the server port is known | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
@@ -524,13 +524,13 @@ Name, from the first template that applies: `ISO 8583 {mti}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| `duration.source` | enum | `required` | development | Source of the ISO 8583 exchange duration. | field_7, capture |
-| `mti` | string | `required` | development | Four-digit initiating message type indicator, inferred from the reply when the request was not observed. | 0100, 0200, 0420, 0800 |
-| `network.peer.address` | string | `recommended`: if the remote socket address is known | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80, /tmp/my.sock |
+| `duration.source` | enum | `required` | development | Source of the ISO 8583 exchange duration. | field_7; capture |
+| `mti` | string | `required` | development | Four-digit initiating message type indicator, inferred from the reply when the request was not observed. | 0100; 0200; 0420; 0800 |
+| `network.peer.address` | string | `recommended`: if the remote socket address is known | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | `recommended`: if the remote socket port is known | stable | Peer port number of the network connection. | 65123 |
-| `network.protocol.name` | string | `required` | stable | [OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent. | iso8583 |
-| `server.address` | string | `conditionally_required`: if the server address is known | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com, 10.1.2.80, /tmp/my.sock |
-| `server.port` | int | `conditionally_required`: if the server port is known | stable | Server port number. | 8584, 8080, 443 |
+| `network.protocol.name` | string | `required` | stable | [OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent. | amqp; http; mqtt |
+| `server.address` | string | `conditionally_required`: if the server address is known | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `conditionally_required`: if the server port is known | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
 ## `obi.jsonrpc.client`
