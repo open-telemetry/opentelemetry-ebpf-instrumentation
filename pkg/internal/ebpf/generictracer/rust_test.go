@@ -14,7 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/internal/rustexec"
+	"go.opentelemetry.io/obi/internal/rustabi"
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
@@ -75,8 +75,8 @@ func TestRustControllerReportsUnsupportedCompilerAtInfo(t *testing.T) {
 		tracer:  &Tracer{log: slog.New(slog.NewTextHandler(&logs, nil))},
 		targets: map[app.PID]*rustTarget{pid: target},
 	}
-	db := rustexec.Database{}
-	err := db.CheckCompiler(rustexec.Build{Arch: "amd64", Rustc: "1.96.0"})
+	db := rustabi.Database{}
+	err := db.CheckCompiler(rustabi.Build{Arch: "amd64", Rustc: "1.96.0"})
 	controller.commit(pid, target, rustAttachment{}, err)
 
 	require.Contains(t, logs.String(), "level=INFO")

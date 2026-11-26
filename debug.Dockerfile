@@ -17,7 +17,8 @@ COPY .git/ .git/
 COPY bpf/ bpf/
 COPY cmd/ cmd/
 COPY internal/config/ internal/config/
-COPY internal/rustexec/ internal/rustexec/
+COPY internal/dwarfutil/ internal/dwarfutil/
+COPY internal/rustabi/ internal/rustabi/
 COPY internal/tools/debug/ internal/tools/debug/
 COPY pkg/ pkg/
 COPY go.mod go.mod

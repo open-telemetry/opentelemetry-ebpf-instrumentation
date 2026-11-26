@@ -82,5 +82,5 @@ func (e *rustExecutable) analyze(target *os.File) {
 		return
 	}
 
-	e.err = checkRustCompiler(f)
+	e.err = e.resolveABI(f)
 }

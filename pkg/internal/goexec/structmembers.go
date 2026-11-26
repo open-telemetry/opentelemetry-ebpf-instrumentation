@@ -15,6 +15,7 @@ import (
 	"github.com/grafana/go-offsets-tracker/pkg/offsets"
 	"github.com/hashicorp/go-version"
 
+	"go.opentelemetry.io/obi/internal/dwarfutil"
 	"go.opentelemetry.io/obi/internal/goabi"
 )
 
@@ -1241,35 +1242,14 @@ func resolveNestedStructOffsets(
 	if err != nil {
 		return
 	}
-	parent, ok := typeInfo.(*dwarf.StructType)
-	if !ok {
-		return
-	}
 	for _, field := range fields {
-		parentField := dwarfStructFieldByName(parent, field.parentField)
-		if parentField == nil {
+		offset, _, err := dwarfutil.FieldPath(typeInfo, field.parentField, field.childField)
+		if err != nil {
 			continue
 		}
-		child, ok := parentField.Type.(*dwarf.StructType)
-		if !ok {
-			continue
-		}
-		childField := dwarfStructFieldByName(child, field.childField)
-		if childField == nil {
-			continue
-		}
-		offsets[field.offset] = uint64(parentField.ByteOffset + childField.ByteOffset)
+		offsets[field.offset] = uint64(offset)
 		delete(expectedReturns, field.offset)
 	}
-}
-
-func dwarfStructFieldByName(structType *dwarf.StructType, name string) *dwarf.StructField {
-	for _, field := range structType.Field {
-		if field.Name == name {
-			return field
-		}
-	}
-	return nil
 }
 
 type dwarfReader interface {
