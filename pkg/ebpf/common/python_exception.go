@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
 	"strconv"
 	"strings"
@@ -58,6 +59,23 @@ const (
 	pythonRecursiveCutoff = 3
 )
 
+// PyLongObject: ob_size, or lv_tag on 3.12+, then 30-bit digits in u32s.
+const (
+	pythonLongValueSize    = 8
+	pythonLongDigitSize    = 4
+	pythonLongShift        = 30
+	pythonLongTaggedMinor  = 12
+	pythonLongTagShift     = 3
+	pythonLongSignMask     = 3
+	pythonLongSignNegative = 2
+)
+
+// What traceback prints between an exception and the one linked from it.
+var pythonChainSeparators = map[BpfPythonExceptionRelation]string{
+	BpfPythonExceptionRelationK_pythonExceptionCause:   "\nThe above exception was the direct cause of the following exception:\n\n",
+	BpfPythonExceptionRelationK_pythonExceptionContext: "\nDuring handling of the above exception, another exception occurred:\n\n",
+}
+
 // CPython 3.11+ type and dict layout, the same on every 3.11-3.14 build; the
 // heap type's __qualname__ moved in 3.12. Python classes on 3.9 and 3.10 keep
 // their __name__.
@@ -93,7 +111,9 @@ var (
 
 const pythonFramesOffset = int(unsafe.Offsetof(BpfPythonExceptionPayloadT{}.Frames))
 
-var pythonFrameSize = int(unsafe.Sizeof(BpfPythonExceptionPayloadT{}.Frames[0]))
+const pythonLinkSize = int(unsafe.Sizeof(BpfPythonExceptionPayloadT{}.Links[0]))
+
+const pythonFrameSize = int(unsafe.Sizeof(BpfPythonExceptionPayloadT{}.Frames[0]))
 
 // decodePythonException reads the type name and the frames' code objects from
 // the raising process and formats a CPython-style traceback.
@@ -106,35 +126,73 @@ func decodePythonException(payload []byte, event *exceptions.Event) error {
 }
 
 func describePythonException(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, event *exceptions.Event) error {
-	module, qualname := pythonTypeName(memory, record)
+	module, qualname := pythonTypeName(memory, record, record.Type)
 	event.Type = pythonQualifiedName(module, qualname, "builtins")
-	if record.MessageKind != 0 {
-		message, err := decodePythonMessage(record.Message[:record.MessageLen], record.MessageKind)
-		if err == nil {
-			event.Message = pythonExceptionMessage(module, qualname, message,
-				record.Flags&BpfPythonExceptionFlagsK_pythonExceptionMessageTruncated != 0)
-		}
-	}
+	event.Message = pythonMessage(&record.Message, record.Text[:], record.Layout.Minor)
 	if event.Type == "" && event.Message == "" {
 		return fmt.Errorf("%w: unreadable type", errPythonExceptionPayload)
 	}
 
-	last := pythonQualifiedName(module, qualname, "builtins", "__main__")
-	if event.Message != "" {
-		if last != "" {
-			last += ": "
-		}
-		last += event.Message
+	var stacktrace strings.Builder
+	for _, link := range slices.Backward(pythonLinks(memory, record)) {
+		stacktrace.WriteString(link)
 	}
-	event.Stacktrace = pythonTraceback(memory, record) + last + "\n"
+	stacktrace.WriteString(pythonTraceback(memory, record, record.Frames[:record.FrameCount], record.Flags))
+	stacktrace.WriteString(pythonExceptionLine(module, qualname, event.Message))
+	event.Stacktrace = stacktrace.String()
 	event.SeverityNumber = int32(plog.SeverityNumberError)
 	return nil
 }
 
+// pythonLinks renders the chain newest first. It ends at an unreadable link,
+// since the older links' separators name their relation to it.
+func pythonLinks(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT) []string {
+	links := make([]string, 0, record.LinkCount)
+	for i := range int(record.LinkCount) {
+		link := pythonLink(memory, record, &record.Links[i])
+		if link == "" {
+			break
+		}
+		links = append(links, link)
+	}
+	return links
+}
+
+// pythonLink writes an exception of the cause or context chain, oldest first,
+// and the line traceback prints before the exception linked from it.
+func pythonLink(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, link *BpfPythonExceptionLinkT) string {
+	module, qualname := pythonTypeName(memory, record, link.Type)
+	message := pythonMessage(&link.Message, link.Text[:], record.Layout.Minor)
+	if qualname == "" && message == "" {
+		return ""
+	}
+
+	var text strings.Builder
+	// An exception that was never raised has no traceback.
+	if link.FrameCount > 0 || link.Flags&BpfPythonExceptionFlagsK_pythonExceptionTruncated != 0 {
+		text.WriteString(pythonTraceback(memory, record, link.Frames[:link.FrameCount], link.Flags))
+	}
+	text.WriteString(pythonExceptionLine(module, qualname, message))
+	text.WriteString(pythonChainSeparators[link.Relation])
+	return text.String()
+}
+
+// pythonExceptionLine is the line traceback ends an exception with.
+func pythonExceptionLine(module, qualname, message string) string {
+	line := pythonQualifiedName(module, qualname, "builtins", "__main__")
+	if message != "" {
+		if line != "" {
+			line += ": "
+		}
+		line += message
+	}
+	return line + "\n"
+}
+
 // pythonTypeName returns a type's __module__ and __qualname__. A static type
 // names its module in tp_name, as "module.Name", and builtins have none.
-func pythonTypeName(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT) (string, string) {
-	layout, object := &record.Layout, record.Type
+func pythonTypeName(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, object uint64) (string, string) {
+	layout := &record.Layout
 	name := memory.StringPtr(libpf.Address(object + pythonTypeNameOffset))
 	flags := memory.Uint64(libpf.Address(object + pythonTypeFlagsOffset))
 	qualnameOffset, known := pythonHeapTypeQualname[layout.Minor]
@@ -241,19 +299,108 @@ func pythonQualifiedName(module, qualname string, implicit ...string) string {
 	return module + "." + qualname
 }
 
-// pythonExceptionMessage writes the message as str() does: KeyError quotes
-// its key. A message cut by the probe ends in "...".
-func pythonExceptionMessage(module, qualname, message string, truncated bool) string {
-	if module == "builtins" && qualname == "KeyError" {
-		message = pythonRepr(message)
-		if truncated {
-			message = message[:len(message)-1]
+// pythonMessage renders the stored arguments as str() does: one argument as
+// itself, a KeyError's str key quoted, and several as their tuple. A str cut
+// by the probe, or arguments it did not record, end the message in "...".
+func pythonMessage(message *BpfPythonExceptionMessageT, text []byte, minor uint8) string {
+	count := int(message.Count)
+	if count == 0 {
+		return ""
+	}
+	part := pythonArgCapacity(message, len(text))
+	tuple := pythonArgsTuple(message)
+	quote := tuple || message.QuoteSingleString != 0
+
+	args := make([]string, 0, count+1)
+	for i := range count {
+		data := text[i*part:][:message.Len[i]]
+		arg, err := pythonArg(message.Kind[i], data, minor, quote)
+		if err != nil {
+			return ""
 		}
+		if message.TruncatedArgsMask&(1<<i) != 0 {
+			if quote {
+				arg = arg[:len(arg)-1]
+			}
+			args = append(args, arg+"...")
+			return pythonArgs(args, tuple, false)
+		}
+		args = append(args, arg)
 	}
-	if truncated {
-		message += "..."
+	if message.HasOmittedArgs != 0 {
+		return pythonArgs(append(args, "..."), tuple, false)
 	}
-	return message
+	return pythonArgs(args, tuple, true)
+}
+
+// pythonArgsTuple reports whether str() renders the arguments as their tuple.
+func pythonArgsTuple(message *BpfPythonExceptionMessageT) bool {
+	return message.Count > 1 || message.HasOmittedArgs != 0
+}
+
+// pythonArgCapacity is the buffer part of each argument: all of it for a lone one.
+func pythonArgCapacity(message *BpfPythonExceptionMessageT, size int) int {
+	if !pythonArgsTuple(message) {
+		return size
+	}
+	return size / len(message.Len)
+}
+
+// pythonArgs joins several arguments as their tuple; a cut one ends it.
+func pythonArgs(args []string, tuple, complete bool) string {
+	if !tuple {
+		return args[0]
+	}
+	text := "(" + strings.Join(args, ", ")
+	if complete {
+		text += ")"
+	}
+	return text
+}
+
+func pythonArg(kind BpfPythonExceptionArgKind, data []byte, minor uint8, quote bool) (string, error) {
+	if kind == BpfPythonExceptionArgKindK_pythonArgInt {
+		return pythonInt(data, minor)
+	}
+	text, err := decodePythonMessage(data, uint8(kind))
+	if err != nil || !quote {
+		return text, err
+	}
+	return pythonRepr(text), nil
+}
+
+// pythonInt formats an int stored as its ob_size, or 3.12+ lv_tag, and digits.
+func pythonInt(data []byte, minor uint8) (string, error) {
+	if len(data) < pythonLongValueSize || (len(data)-pythonLongValueSize)%pythonLongDigitSize != 0 {
+		return "", errPythonObject
+	}
+	word := binary.LittleEndian.Uint64(data)
+	digits := data[pythonLongValueSize:]
+	count := uint64(len(digits) / pythonLongDigitSize)
+
+	var negative bool
+	var stored uint64
+	if minor >= pythonLongTaggedMinor {
+		negative = word&pythonLongSignMask == pythonLongSignNegative
+		stored = word >> pythonLongTagShift
+	} else {
+		size := int64(word)
+		negative = size < 0
+		stored = uint64(max(size, -size))
+	}
+	if stored != count {
+		return "", errPythonObject
+	}
+
+	value := new(big.Int)
+	for i := len(digits) - pythonLongDigitSize; i >= 0; i -= pythonLongDigitSize {
+		value.Lsh(value, pythonLongShift)
+		value.Or(value, big.NewInt(int64(binary.LittleEndian.Uint32(digits[i:]))))
+	}
+	if negative {
+		value.Neg(value)
+	}
+	return value.String(), nil
 }
 
 // pythonRepr quotes a str as Python's repr() does.
@@ -298,33 +445,59 @@ func parsePythonExceptionPayload(payload []byte) (*BpfPythonExceptionPayloadT, e
 	if len(payload) < pythonFramesOffset {
 		return nil, errPythonExceptionPayload
 	}
-	full := make([]byte, unsafe.Sizeof(BpfPythonExceptionPayloadT{}))
-	copy(full, payload)
 	record := &BpfPythonExceptionPayloadT{}
+	frameCount := int(payload[unsafe.Offsetof(record.FrameCount)])
+	linkCount := int(payload[unsafe.Offsetof(record.LinkCount)])
+	framesEnd := pythonFramesOffset + frameCount*pythonFrameSize
+	if frameCount > len(record.Frames) || linkCount > len(record.Links) ||
+		len(payload) != framesEnd+linkCount*pythonLinkSize {
+		return nil, errPythonExceptionPayload
+	}
+
+	// The probe packs links immediately after the populated frames.
+	full := make([]byte, unsafe.Sizeof(*record))
+	copy(full, payload[:framesEnd])
+	copy(full[unsafe.Offsetof(record.Links):], payload[framesEnd:])
 	if err := binary.Read(bytes.NewReader(full), binary.LittleEndian, record); err != nil {
 		return nil, err
 	}
-	if int(record.FrameCount) > len(record.Frames) ||
-		len(payload) != pythonFramesOffset+int(record.FrameCount)*pythonFrameSize ||
-		int(record.MessageLen) > len(record.Message) {
+	if !pythonMessageFits(&record.Message, len(record.Text)) {
 		return nil, errPythonExceptionPayload
+	}
+	for _, link := range record.Links[:record.LinkCount] {
+		if int(link.FrameCount) > len(link.Frames) || !pythonMessageFits(&link.Message, len(link.Text)) {
+			return nil, errPythonExceptionPayload
+		}
 	}
 	return record, nil
 }
 
+func pythonMessageFits(message *BpfPythonExceptionMessageT, size int) bool {
+	count := int(message.Count)
+	if count > len(message.Len) {
+		return false
+	}
+	part := pythonArgCapacity(message, size)
+	for _, length := range message.Len[:count] {
+		if int(length) > part {
+			return false
+		}
+	}
+	return true
+}
+
 // pythonTraceback writes the frames outermost first, as traceback.format_exception
 // does, without source lines.
-func pythonTraceback(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT) string {
+func pythonTraceback(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, frames []BpfPythonExceptionFrameT, flags BpfPythonExceptionFlags) string {
 	var traceback strings.Builder
 	traceback.WriteString("Traceback (most recent call last):\n")
-	if record.Flags&BpfPythonExceptionFlagsK_pythonExceptionTruncated != 0 {
+	if flags&BpfPythonExceptionFlagsK_pythonExceptionTruncated != 0 {
 		traceback.WriteString("  ... frames omitted\n")
 	}
 
 	var last string
 	repeated := 0
-	for i := int(record.FrameCount) - 1; i >= 0; i-- {
-		frame := record.Frames[i]
+	for _, frame := range slices.Backward(frames) {
 		file, line, function, err := pythonFrame(memory, record, frame.Code, frame.Instr)
 		if errors.Is(err, errPythonNoLocation) {
 			continue

@@ -70,6 +70,8 @@ int GUARDED_PROG(obi_uprobe_python_err_set_object, struct pt_regs *, ctx) {
         pending->latest.propagated |=
             python_exception_propagated(proc, value, pending->latest.payload.type);
     }
+    python_exception_chain(
+        proc, tstate, value, pending->latest.exception != 0, &pending->latest.payload);
 
     return 0;
 }
