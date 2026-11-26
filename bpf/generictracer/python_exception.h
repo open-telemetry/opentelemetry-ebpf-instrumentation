@@ -46,6 +46,16 @@ enum {
     k_python_traceback_next = 16,
     k_python_traceback_frame = 24,
     k_python_traceback_lasti = 32,
+    k_python_type_str = 136,
+    // ob_size, or lv_tag on 3.12+, followed by the int's digits
+    k_python_long_value = 16,
+};
+
+// PyLongObject digits: 30 bits in a u32 on 64-bit builds.
+enum {
+    k_python_long_digit_size = 4,
+    // lv_tag keeps the sign and flags below the digit count
+    k_python_long_tag_shift = 3,
 };
 
 // PEP 393 str state bits.
@@ -71,6 +81,10 @@ typedef struct python_exception_proc {
     u64 stop_iteration;
     u64 stop_async_iteration;
     u64 generator_exit;
+    u64 long_type;
+    // tp_str of BaseException and KeyError, whose str() OBI renders
+    u64 base_exception_str;
+    u64 key_error_str;
     python_exception_layout_t layout;
     u16 code_adaptive;
     u8 type_flags;
@@ -87,6 +101,8 @@ typedef struct python_exception_proc {
     u8 frame_owner_cstack;
     u8 tuple_items;
     u8 exception_traceback;
+    // ints keep lv_tag instead of ob_size, from 3.12
+    u8 long_tagged;
     // bytes of each frame to read, at most k_python_frame_buf_size
     u8 frame_read_size;
     // 3.9 and 3.10 frames are PyFrameObjects with an int f_lasti, in bytes on 3.9
@@ -98,7 +114,7 @@ typedef struct python_exception_proc {
     u8 tstate_exc_info;
     u8 err_item_value;
     u8 err_item_previous;
-    u8 _pad[3];
+    u8 _pad[7];
 } python_exception_proc_t;
 
 typedef struct python_exception_key {
@@ -441,46 +457,14 @@ static __always_inline void python_exception_keep(const python_exception_proc_t 
     replacement->capture_ns = 0;
 }
 
-// The message is `value` when a str was raised, else the instance's args[0] if it is a str.
-static __always_inline u64 python_exception_text(const python_exception_proc_t *proc,
-                                                 const u64 value,
-                                                 const u64 value_type) {
-    if (!value_type) {
-        return 0;
-    }
-    if (value_type == proc->unicode_type) {
-        return value;
-    }
-
-    u64 args = value;
-    if (value_type != proc->tuple_type) {
-        args = python_read_ptr(value + k_python_exception_args);
-        if (python_object_type(args) != proc->tuple_type) {
-            return 0;
-        }
-    }
-
-    if ((s64)python_read_ptr(args + k_python_var_object_size) < 1) {
-        return 0;
-    }
-
-    const u64 first = python_read_ptr(args + proc->tuple_items);
-    return python_object_type(first) == proc->unicode_type ? first : 0;
-}
-
-static __always_inline void python_exception_message(const python_exception_proc_t *proc,
-                                                     const u64 value,
-                                                     const u64 value_type,
-                                                     python_exception_payload_t *payload) {
-    payload->message_len = 0;
-    payload->message_kind = 0;
-    __builtin_memset(payload->message, 0, sizeof(payload->message));
-
-    const u64 text = python_exception_text(proc, value, value_type);
-    if (!text) {
-        return;
-    }
-
+// Stores a compact str; a longer one is cut to `capacity` whole code units.
+static __always_inline enum python_exception_arg_kind
+python_exception_str(const python_exception_proc_t *proc,
+                     const u64 text,
+                     unsigned char *dst,
+                     const u32 capacity,
+                     u16 *len,
+                     bool *truncated) {
     u32 state = 0;
     bpf_probe_read_user(&state, sizeof(state), (const void *)(text + k_python_unicode_state));
     const u8 kind = (state >> k_python_unicode_kind_shift) & k_python_unicode_kind_mask;
@@ -488,25 +472,141 @@ static __always_inline void python_exception_message(const python_exception_proc
     if (!(state & k_python_unicode_compact) ||
         (kind != k_python_unicode_1byte_kind && kind != k_python_unicode_2byte_kind &&
          kind != k_python_unicode_4byte_kind)) {
-        return;
+        return k_python_arg_none;
     }
 
     const u64 length = python_read_ptr(text + k_python_unicode_length);
     u64 size = length * kind;
-    if (size > sizeof(payload->message)) {
-        size = sizeof(payload->message) / kind * kind;
-        payload->flags |= k_python_exception_message_truncated;
+    if (size > capacity) {
+        size = capacity / kind * kind;
+        *truncated = true;
     }
-    bpf_clamp_umax(size, sizeof(payload->message));
+    bpf_clamp_umax(size, capacity);
 
     const u8 data_offset = (state & k_python_unicode_ascii) ? proc->layout.unicode_ascii_data
                                                             : proc->layout.unicode_compact_data;
-    if (size && bpf_probe_read_user(payload->message, size, (const void *)(text + data_offset))) {
+    if (size && bpf_probe_read_user(dst, size, (const void *)(text + data_offset))) {
+        return k_python_arg_none;
+    }
+
+    *len = size;
+    return (enum python_exception_arg_kind)kind;
+}
+
+// Stores an int whole, or not at all.
+static __always_inline enum python_exception_arg_kind
+python_exception_int(const python_exception_proc_t *proc,
+                     const u64 number,
+                     unsigned char *dst,
+                     const u32 capacity,
+                     u16 *len) {
+    const u64 value = python_read_ptr(number + k_python_long_value);
+    const s64 ob_size = (s64)value;
+    const u64 digits = proc->long_tagged ? value >> k_python_long_tag_shift
+                                         : (u64)(ob_size < 0 ? -ob_size : ob_size);
+    if (digits > (capacity - sizeof(value)) / k_python_long_digit_size) {
+        return k_python_arg_none;
+    }
+
+    u64 size = sizeof(value) + digits * k_python_long_digit_size;
+    bpf_clamp_umax(size, capacity);
+    if (bpf_probe_read_user(dst, size, (const void *)(number + k_python_long_value))) {
+        return k_python_arg_none;
+    }
+
+    *len = size;
+    return k_python_arg_int;
+}
+
+// Stores argument `index` of a message, a str or, when `ints` is set, an int.
+static __always_inline bool python_exception_arg(const python_exception_proc_t *proc,
+                                                 python_exception_message_t *message,
+                                                 u32 index,
+                                                 const u64 arg,
+                                                 const bool ints,
+                                                 unsigned char *dst,
+                                                 const u32 capacity) {
+    const u64 type = python_object_type(arg);
+    u16 len = 0;
+    bool truncated = false;
+    enum python_exception_arg_kind kind = k_python_arg_none;
+    if (type == proc->unicode_type) {
+        kind = python_exception_str(proc, arg, dst, capacity, &len, &truncated);
+    } else if (ints && type == proc->long_type) {
+        kind = python_exception_int(proc, arg, dst, capacity, &len);
+    }
+    if (kind == k_python_arg_none) {
+        return false;
+    }
+
+    bpf_clamp_umax(index, k_python_exception_max_args - 1);
+    message->kind[index] = kind;
+    message->len[index] = len;
+    if (truncated) {
+        message->truncated |= 1 << index;
+    }
+    return true;
+}
+
+// Whether str() of an exception of this type joins its arguments as
+// BaseException.__str__ does, or quotes a lone one as KeyError.__str__ does.
+static __always_inline bool python_exception_default_str(const python_exception_proc_t *proc,
+                                                         const u64 type) {
+    const u64 str = python_read_ptr(type + k_python_type_str);
+    return str && (str == proc->base_exception_str || str == proc->key_error_str);
+}
+
+// Records the arguments str() renders: `value` itself when C code raised a
+// str or another non-tuple, else the instance's args or the raised tuple. An
+// exception type with its own __str__ keeps only a str first argument. Of
+// several arguments, those before one that cannot be stored are kept.
+static __always_inline void python_exception_message(const python_exception_proc_t *proc,
+                                                     const u64 type,
+                                                     const u64 value,
+                                                     const u64 value_type,
+                                                     python_exception_message_t *message,
+                                                     unsigned char *text,
+                                                     const u32 capacity) {
+    // User space reads only the stored lengths of `text`.
+    __builtin_memset(message, 0, sizeof(*message));
+    if (!value_type) {
         return;
     }
 
-    payload->message_len = size;
-    payload->message_kind = kind;
+    const bool default_str = python_exception_default_str(proc, type);
+    u64 args = value;
+    if (value_type != proc->tuple_type) {
+        if (!python_exception_instance(proc, value_type)) {
+            message->count =
+                python_exception_arg(proc, message, 0, value, default_str, text, capacity);
+            return;
+        }
+        args = python_read_ptr(value + k_python_exception_args);
+        if (python_object_type(args) != proc->tuple_type) {
+            return;
+        }
+    }
+
+    const s64 count = (s64)python_read_ptr(args + k_python_var_object_size);
+    const u64 items = args + proc->tuple_items;
+    if (count < 1) {
+        return;
+    }
+    if (count == 1 || !default_str) {
+        message->count = python_exception_arg(
+            proc, message, 0, python_read_ptr(items), default_str, text, capacity);
+        return;
+    }
+
+    const u32 part = capacity / k_python_exception_max_args;
+    for (u32 i = 0; i < k_python_exception_max_args && i < count; i++) {
+        const u64 item = python_read_ptr(items + i * sizeof(u64));
+        if (!python_exception_arg(proc, message, i, item, true, text + i * part, part)) {
+            break;
+        }
+        message->count = i + 1;
+    }
+    message->more = message->count < count;
 }
 
 static __always_inline u64 python_exception_first_frame(const python_exception_proc_t *proc,
@@ -676,7 +776,14 @@ static __always_inline void python_exception_capture(const python_exception_proc
     payload->flags = 0;
     __builtin_memset(payload->_pad, 0, sizeof(payload->_pad));
     payload->layout = proc->layout;
-    python_exception_message(proc, value, value_type, payload);
+    python_exception_message(proc,
+                             instance ? value_type : type,
+                             value,
+                             value_type,
+                             &payload->message,
+                             payload->text,
+                             sizeof(payload->text));
+
     const u64 traceback = instance ? python_read_ptr(value + proc->exception_traceback) : 0;
     python_exception_capture_frames(proc, tstate, traceback, payload);
 }
@@ -803,14 +910,14 @@ python_exception_emit(const u32 host_pid, const tp_info_t *tp, const u64 request
     record->hdr.runtime = k_exception_runtime_python;
     record->hdr.owner = candidate->owner;
     python_exception_payload_t *payload = (void *)record->payload;
-    __builtin_memcpy(payload, &candidate->payload, sizeof(*payload));
+    bpf_probe_read_kernel(payload, sizeof(*payload), &candidate->payload);
     if (live_exception) {
         const u64 traceback = python_read_ptr(live_exception + proc->exception_traceback);
         if (traceback) {
             payload->flags &= ~k_python_exception_truncated;
             python_traceback_walk(proc, traceback, payload);
             if (!payload->frame_count) {
-                __builtin_memcpy(payload, &candidate->payload, sizeof(*payload));
+                bpf_probe_read_kernel(payload, sizeof(*payload), &candidate->payload);
             }
         }
     }

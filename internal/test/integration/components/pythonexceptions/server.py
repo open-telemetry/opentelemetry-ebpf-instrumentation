@@ -40,6 +40,10 @@ def leaf(case, token):
         raise CustomError(token)
     if case == "multiarg":
         raise ValueError(token, 42)
+    if case == "mixedarg":
+        raise Exception(token, 2, {"a": 1})
+    if case == "int":
+        raise ValueError(404)
     if case == "group":
         raise ExceptionGroup(token, [ValueError("child")])
     if case == "native":
@@ -171,18 +175,35 @@ def invoke(case, token):
         outer(case, token)
 
 
+def message(error):
+    """The message OBI renders: str(error) for str and int arguments of an
+    exception that keeps BaseException.__str__ or KeyError.__str__, or the start
+    of the tuple of several arguments up to the first other one, else a str
+    first argument when it is the only one or the type has its own __str__."""
+    args = error.args
+    default = type(error).__str__ in (BaseException.__str__, KeyError.__str__)
+    if default and len(args) <= 4 and all(type(arg) in (str, int) for arg in args):
+        return str(error)
+    if default and len(args) > 1:
+        stored = []
+        for arg in args[:4]:
+            if type(arg) not in (str, int):
+                break
+            stored.append(repr(arg))
+        if stored:
+            return "(" + ", ".join(stored) + ", ..."
+    if args and type(args[0]) is str and (len(args) == 1 or not default):
+        return args[0]
+    return ""
+
+
 def ground_truth(error):
-    """What OBI reports: the SDK's exception.type, args[0] when it is a str
-    (quoted for KeyError, as str() does) and the traceback's frames."""
     kind = type(error)
     name = kind.__qualname__ if kind.__module__ == "builtins" else f"{kind.__module__}.{kind.__qualname__}"
-    message = error.args[0] if error.args and isinstance(error.args[0], str) else ""
-    if kind is KeyError and message:
-        message = repr(message)
     return {
         "type": name,
         "line_type": kind.__qualname__ if kind.__module__ in ("builtins", "__main__") else name,
-        "message": message,
+        "message": message(error),
         "frames": [
             {"file": frame.f_code.co_filename, "line": line, "function": frame.f_code.co_name}
             for frame, line in traceback.walk_tb(error.__traceback__)

@@ -105,6 +105,8 @@ func TestLegacyExceptionLayoutCompatibility(t *testing.T) {
 			CodeAdaptive: 192, CodeFilename: 112, CodeName: 120, CodeLinetable: 136, CodeFirstlineno: 68,
 			TupleItems: 24, UnicodeASCIIData: 40, UnicodeCompactData: 56, ExceptionTraceback: exceptionTracebackOffset, interpretersMain: 48,
 			TstateExcInfo: 104, ErrItemValue: errItemValueOffset, ErrItemPrevious: errItemPreviousOffset,
+
+			LongTagged: true,
 		},
 	}
 	for minor, want := range expected {

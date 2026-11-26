@@ -6,6 +6,7 @@ package ebpfcommon
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"testing"
 	"unsafe"
 
@@ -197,8 +198,9 @@ func fakePythonRecord(exceptionType uint64, message string, frames ...uint64) *B
 	record.Layout.UnicodeAsciiData = fakeASCIIData
 	record.Layout.UnicodeCompactData = fakeCompactData
 	if message != "" {
-		record.MessageKind = 1
-		record.MessageLen = uint16(copy(record.Message[:], message))
+		record.Message.Count = 1
+		record.Message.Kind[0] = BpfPythonExceptionArgKindK_pythonArgStr1
+		record.Message.Len[0] = uint16(copy(record.Text[:], message))
 	}
 	for i, code := range frames {
 		record.Frames[i].Code = code
@@ -272,7 +274,7 @@ func TestDescribePythonExceptionType(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			record := fakePythonRecord(tc.object, tc.message)
 			if tc.truncated {
-				record.Flags = BpfPythonExceptionFlagsK_pythonExceptionMessageTruncated
+				record.Message.Truncated = 1
 			}
 			event := exceptions.Event{}
 			require.NoError(t, describePythonException(process.remote(), record, &event))
@@ -325,9 +327,10 @@ func TestDescribePythonExceptionWithSurrogateMessage(t *testing.T) {
 	process := newFakePythonProcess()
 	handler := process.code("/app/server.py", "get", 10, []byte{128, 0})
 	record := fakePythonRecord(process.exceptionType("ValueError"), "", handler)
-	record.MessageKind = 2
-	record.MessageLen = 2
-	record.Message[0], record.Message[1] = 0, 0xd8
+	record.Message.Count = 1
+	record.Message.Kind[0] = BpfPythonExceptionArgKindK_pythonArgStr2
+	record.Message.Len[0] = 2
+	record.Text[0], record.Text[1] = 0, 0xd8
 
 	event := exceptions.Event{}
 	require.NoError(t, describePythonException(process.remote(), record, &event))
@@ -362,14 +365,24 @@ func TestParsePythonExceptionPayload(t *testing.T) {
 	parsed, err := parsePythonExceptionPayload(encode(record))
 	require.NoError(t, err)
 	assert.Equal(t, record.Frames[:2], parsed.Frames[:2])
-	assert.Equal(t, "message", string(parsed.Message[:parsed.MessageLen]))
+	assert.Equal(t, "message", string(parsed.Text[:parsed.Message.Len[0]]))
 
 	_, err = parsePythonExceptionPayload(encode(record)[:pythonFramesOffset+pythonFrameSize])
 	require.ErrorIs(t, err, errPythonExceptionPayload, "a payload shorter than its frames")
 
-	record.MessageLen = uint16(len(record.Message) + 1)
-	_, err = parsePythonExceptionPayload(encode(record))
-	require.ErrorIs(t, err, errPythonExceptionPayload)
+	for name, corrupt := range map[string]func(*BpfPythonExceptionPayloadT){
+		"message length": func(r *BpfPythonExceptionPayloadT) { r.Message.Len[0] = uint16(len(r.Text) + 1) },
+		"argument part": func(r *BpfPythonExceptionPayloadT) {
+			r.Message.Count = 2
+			r.Message.Len[1] = uint16(len(r.Text)/len(r.Message.Len) + 1)
+		},
+		"argument count": func(r *BpfPythonExceptionPayloadT) { r.Message.Count = uint8(len(r.Message.Len) + 1) },
+	} {
+		corrupted := *record
+		corrupt(&corrupted)
+		_, err = parsePythonExceptionPayload(encode(&corrupted))
+		require.ErrorIs(t, err, errPythonExceptionPayload, name)
+	}
 
 	_, err = parsePythonExceptionPayload(make([]byte, pythonFramesOffset-1))
 	require.ErrorIs(t, err, errPythonExceptionPayload)
@@ -416,4 +429,96 @@ func TestDescribePythonLegacyHeapType(t *testing.T) {
 			require.ErrorIs(t, err, errPythonObject)
 		}
 	}
+}
+
+// fakePythonArgs stores arguments as the probe does: one fills the buffer,
+// several take equal parts of it.
+func fakePythonArgs(message *BpfPythonExceptionMessageT, text []byte, args ...any) {
+	fakePythonPartialArgs(message, text, false, args...)
+}
+
+// fakePythonPartialArgs stores arguments followed, when `more` is set, by
+// ones the probe did not record.
+func fakePythonPartialArgs(message *BpfPythonExceptionMessageT, text []byte, more bool, args ...any) {
+	*message = BpfPythonExceptionMessageT{Count: uint8(len(args))}
+	if more {
+		message.More = 1
+	}
+	part := pythonArgCapacity(message, len(text))
+	for i, arg := range args {
+		var data []byte
+		switch arg := arg.(type) {
+		case string:
+			message.Kind[i] = BpfPythonExceptionArgKindK_pythonArgStr1
+			data = []byte(arg)
+		case []byte:
+			message.Kind[i] = BpfPythonExceptionArgKindK_pythonArgInt
+			data = arg
+		}
+		message.Len[i] = uint16(copy(text[i*part:][:part], data))
+	}
+}
+
+// pythonLong encodes an int as CPython 3.11 (ob_size) or 3.12+ (lv_tag) stores it.
+func pythonLong(minor uint8, negative bool, digits ...uint32) []byte {
+	data := make([]byte, pythonLongValueSize+len(digits)*pythonLongDigitSize)
+	count := uint64(len(digits))
+	word := count
+	switch {
+	case minor >= pythonLongTaggedMinor:
+		word = count << pythonLongTagShift
+		if negative {
+			word |= pythonLongSignNegative
+		} else if count == 0 {
+			word |= 1
+		}
+	case negative:
+		word = uint64(-int64(count))
+	}
+	binary.LittleEndian.PutUint64(data, word)
+	for i, digit := range digits {
+		binary.LittleEndian.PutUint32(data[pythonLongValueSize+i*pythonLongDigitSize:], digit)
+	}
+	return data
+}
+
+func TestPythonMessageArguments(t *testing.T) {
+	for _, minor := range []uint8{11, 12} {
+		for _, tc := range []struct {
+			name, qualname, want string
+			args                 []any
+			truncated            uint8
+			more                 bool
+		}{
+			{"int", "ValueError", "404", []any{pythonLong(minor, false, 404)}, 0, false},
+			{"zero", "SystemExit", "0", []any{pythonLong(minor, false)}, 0, false},
+			{"negative", "ValueError", "-7", []any{pythonLong(minor, true, 7)}, 0, false},
+			// 2**30 + 5 spans two 30-bit digits
+			{"two digits", "ValueError", "1073741829", []any{pythonLong(minor, false, 5, 1)}, 0, false},
+			{"key error int", "KeyError", "404", []any{pythonLong(minor, false, 404)}, 0, false},
+			{"tuple", "Exception", "('first', 2)", []any{"first", pythonLong(minor, false, 2)}, 0, false},
+			{"key error tuple", "KeyError", "('a', 'b')", []any{"a", "b"}, 0, false},
+			{"truncated tuple", "Exception", "('first', 'sec...", []any{"first", "sec", "third"}, 2, false},
+			{"truncated last", "Exception", "('first', 'sec...", []any{"first", "sec"}, 2, false},
+			{"unsupported argument", "ValueError", "('invalid order id', ...", []any{"invalid order id"}, 0, true},
+			{"more than stored", "Exception", "('a', 'b', 'c', 'd', ...", []any{"a", "b", "c", "d"}, 0, true},
+			{"truncated before more", "Exception", "('first', 'sec...", []any{"first", "sec"}, 2, true},
+		} {
+			t.Run(fmt.Sprintf("3.%d/%s", minor, tc.name), func(t *testing.T) {
+				var message BpfPythonExceptionMessageT
+				text := make([]byte, 256)
+				fakePythonPartialArgs(&message, text, tc.more, tc.args...)
+				message.Truncated = tc.truncated
+				assert.Equal(t, tc.want, pythonMessage("builtins", tc.qualname, &message, text, minor))
+			})
+		}
+	}
+
+	var message BpfPythonExceptionMessageT
+	text := make([]byte, 256)
+	fakePythonArgs(&message, text, pythonLong(12, false, 1, 2))
+	message.Len[0] -= pythonLongDigitSize
+	assert.Empty(t, pythonMessage("builtins", "ValueError", &message, text, 12), "digits missing from the stored int")
+	fakePythonArgs(&message, text, "a", []byte{1})
+	assert.Empty(t, pythonMessage("builtins", "ValueError", &message, text, 12), "a short int")
 }

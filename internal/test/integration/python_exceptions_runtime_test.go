@@ -47,7 +47,7 @@ func TestPythonExceptions(t *testing.T) {
 
 	modes := map[string][]string{"flask": {"sync"}, "fastapi": {"await", "task", "thread", "sync"}, "http": {"sync"}}
 	cases := []string{
-		"ascii", "empty", "unicode", "long", "key", "os", "custom", "multiarg",
+		"ascii", "empty", "unicode", "long", "key", "os", "custom", "multiarg", "mixedarg", "int",
 		"native", "native-int", "deep", "reraise", "raise_error", "latest", "chained",
 		"implicit_replacement", "nested_cleanup", "double_nested_cleanup", "with_traceback", "error_page", "error_page_reraise", "cleanup", "finally", "open",
 	}
