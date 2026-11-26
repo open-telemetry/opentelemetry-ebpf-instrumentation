@@ -57,8 +57,9 @@ func ExtractPythonRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarveste
 func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult, error) {
 	log := slog.With("component", "route.harvester.python")
 	e := pythonExtractor{
-		routes:       map[string]struct{}{},
-		djangoRoutes: map[string][]djangoRoute{},
+		completeRoutes: map[string]struct{}{},
+		partialRoutes:  map[string]struct{}{},
+		djangoRoutes:   map[string][]djangoRoute{},
 	}
 	kind := PartialRoutes
 	err := walkPythonFiles(ctx, dir, func(path string) error {
@@ -77,20 +78,50 @@ func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult
 	if err != nil {
 		return nil, fmt.Errorf("scan Python directory: %w", err)
 	}
+	if kind != CompleteRoutes && e.hasFalconRoutes && !e.hasPartialRoutes {
+		kind = CompleteRoutes
+	}
 
-	if err := resolveDjangoRoutes(ctx, dir, e.djangoRoutes, e.routes); err != nil {
+	if err := resolveDjangoRoutes(ctx, dir, e.djangoRoutes, e.completeRoutes); err != nil {
 		return nil, err
 	}
 
-	result := make([]string, 0, len(e.routes))
-	for route := range e.routes {
+	complete := make([]string, 0, len(e.completeRoutes))
+	partial := make([]string, 0, len(e.partialRoutes))
+	all := make(map[string]struct{}, len(e.completeRoutes)+len(e.partialRoutes))
+
+	for route := range e.completeRoutes {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		complete = append(complete, route)
+		all[route] = struct{}{}
+	}
+
+	for route := range e.partialRoutes {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		partial = append(partial, route)
+		all[route] = struct{}{}
+	}
+
+	result := make([]string, 0, len(all))
+	for route := range all {
 		result = append(result, route)
 	}
+
+	sort.Strings(complete)
+	sort.Strings(partial)
 	sort.Strings(result)
-	return &RouteHarvesterResult{Routes: result, Kind: kind}, nil
+
+	return &RouteHarvesterResult{
+		Routes:            result,
+		Kind:              kind,
+		Complete:          complete,
+		Partial:           partial,
+		HasSeparateRoutes: true,
+	}, nil
 }
 
 func walkPythonFiles(ctx context.Context, root string, fn func(string) error) error {
@@ -153,8 +184,36 @@ func skipPythonDir(name string) bool {
 }
 
 type pythonExtractor struct {
-	routes       map[string]struct{}
-	djangoRoutes map[string][]djangoRoute
+	completeRoutes   map[string]struct{}
+	partialRoutes    map[string]struct{}
+	djangoRoutes     map[string][]djangoRoute
+	hasFalconRoutes  bool
+	hasPartialRoutes bool
+}
+
+type pythonStatementScanner struct {
+	completeRoutes  map[string]struct{}
+	partialRoutes   map[string]struct{}
+	hasFalcon       bool
+	hasFalconRoutes bool
+}
+
+func (s *pythonStatementScanner) scan(stmt string) {
+	if falconImportPattern.MatchString(stmt) {
+		s.hasFalcon = true
+	}
+
+	scanFastAPI(stmt, s.partialRoutes)
+	scanFlask(stmt, s.partialRoutes)
+
+	if s.hasFalcon && scanFalcon(stmt, s.completeRoutes) {
+		s.hasFalconRoutes = true
+	}
+}
+
+func (s *pythonStatementScanner) starts(line string) bool {
+	return startsFastAPI(line) || startsFlask(line) ||
+		s.hasFalcon && startsFalcon(line)
 }
 
 func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
@@ -169,10 +228,18 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 
 	var djangoRoutes []djangoRoute
 	djangoLists := map[string]*djangoList{}
+	pythonScanner := pythonStatementScanner{
+		completeRoutes: e.completeRoutes,
+		partialRoutes:  e.partialRoutes,
+	}
 	djangoAliases := map[string]string{}
 	hasDjangoPath := false
 	scanStmt := func(text string) {
-		scanPythonStmt(text, e.routes)
+		if startsFastAPI(text) || startsFlask(text) {
+			e.hasPartialRoutes = true
+		}
+		pythonScanner.scan(text)
+		e.hasFalconRoutes = e.hasFalconRoutes || pythonScanner.hasFalconRoutes
 		if match := djangoFromImportAliasPattern.FindStringSubmatch(text); match != nil {
 			djangoAliases[match[3]] = match[1] + "." + match[2]
 		} else if match := djangoImportAliasPattern.FindStringSubmatch(text); match != nil {
@@ -200,14 +267,14 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		line := strings.TrimSpace(scan.Text())
+		line := strings.TrimSpace(stripPythonComment(scan.Text()))
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 
 		if stmt.Len() == 0 {
 			depth = parenDelta(line)
-			startsStmt := startsFastAPI(line) || startsFlask(line) ||
+			startsStmt := pythonScanner.starts(line) ||
 				djangoImportStart.MatchString(line) ||
 				hasDjangoPath && (djangoPathStart.MatchString(line) || djangoI18nStart.MatchString(line) ||
 					djangoListAssignmentPattern.MatchString(line))
@@ -244,9 +311,30 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 	return ctx.Err()
 }
 
-func scanPythonStmt(stmt string, routes map[string]struct{}) {
-	scanFastAPI(stmt, routes)
-	scanFlask(stmt, routes)
+// stripPythonComment removes a Python comment without changing quoted strings.
+func stripPythonComment(line string) string {
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		if quote != 0 {
+			if ch == '\\' {
+				i++
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+
+		switch ch {
+		case '\'', '"':
+			quote = ch
+		case '#':
+			return line[:i]
+		}
+	}
+	return line
 }
 
 // parenDelta returns opening minus closing parentheses and square brackets on a

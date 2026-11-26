@@ -48,8 +48,11 @@ const (
 )
 
 type RouteHarvesterResult struct {
-	Routes []string
-	Kind   RouteHarvesterResultKind
+	Routes            []string
+	Kind              RouteHarvesterResultKind
+	Complete          []string
+	Partial           []string
+	HasSeparateRoutes bool
 }
 
 // HarvestError represents an error that occurred during route harvesting
@@ -240,6 +243,10 @@ func routeValues(result *RouteHarvesterResult) []string {
 }
 
 func RouteMatcherFromResult(r RouteHarvesterResult) route.Matcher {
+	if r.HasSeparateRoutes {
+		return route.NewCombinedRouteMatcher(r.Complete, r.Partial)
+	}
+
 	switch r.Kind {
 	case CompleteRoutes:
 		return route.NewMatcher(r.Routes)

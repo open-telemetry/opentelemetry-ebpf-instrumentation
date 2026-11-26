@@ -33,8 +33,9 @@ urlpatterns = [
 `), 0o644))
 
 	e := pythonExtractor{
-		routes:       map[string]struct{}{},
-		djangoRoutes: map[string][]djangoRoute{},
+		completeRoutes: map[string]struct{}{},
+		partialRoutes:  map[string]struct{}{},
+		djangoRoutes:   map[string][]djangoRoute{},
 	}
 	err := e.scanFile(t.Context(), file)
 
