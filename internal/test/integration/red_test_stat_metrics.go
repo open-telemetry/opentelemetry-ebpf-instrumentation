@@ -143,6 +143,16 @@ func testStatMetricsTCPResetsAfterShutdownGo(t *testing.T) {
 	assert.Empty(t, results)
 }
 
+func testStatMetricsCIDRGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		// client and server share the compose network, a private range
+		results, err := pq.Query(`obi_stat_tcp_failed_connections_total{dst_port="19999",src_cidr="private",dst_cidr="private"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+	}, testTimeout, 100*time.Millisecond)
+}
+
 func testStatMetricsTCPRetransmitsGo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {

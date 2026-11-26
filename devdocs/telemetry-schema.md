@@ -201,6 +201,11 @@ section empty once drained.
   at the fetch that took it, instead of a trace per call. Spans and metrics are unchanged; the
   client spans of a job gain a parent. A Config v2 rule turns it off with
   `refine.group_job_spans: false`. See [Queue Job Traces](queue-job-traces.md).
+- With `stats.cidrs` configured, the stat metrics (`obi.stat.tcp.*`, `obi_stat_tcp_*` in
+  Prometheus) carry `src.cidr` and `dst.cidr` (`src_cidr`, `dst_cidr`) by default, as the
+  stats configuration documents. Deployments that set `stats.cidrs` only for `filter.stats`
+  get the attributes too, and their series split by range when more than one range is
+  exported. `attributes.select` can exclude them.
 
 ## Hosting notes
 
