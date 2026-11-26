@@ -38,8 +38,9 @@ request capture waits for a server response with status 500 or higher.
 OpenTelemetry SDK writes it, so parsers built for that format read it unchanged.
 
 - The stacktrace starts with the runtime's header line, for example `Type: message`.
-- Causes and inner exceptions keep the runtime's notation, down to the root cause.
-  When space runs out, frames are dropped before causes.
+- Causes and inner exceptions keep the runtime's notation, down to the root cause
+  or the depth a runtime's capture documents. When space runs out, frames are
+  dropped before causes.
 - A shortened stacktrace ends frames on line boundaries and UTF-8 characters on
   character boundaries. Dropped frames become one line, `... N frames omitted`, or
   `... frames omitted` when the count is unknown, indented like the frames around

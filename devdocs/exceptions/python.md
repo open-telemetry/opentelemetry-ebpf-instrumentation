@@ -61,17 +61,33 @@ Traceback propagation does not establish that an exception caused the response.
 | Python code / behavior | Record | `exception.message` |
 |---|---|---|
 | Handler raises `ValueError("bad input")` and the framework responds 500 | `ValueError`, severity ERROR | `bad input` |
+| Handler raises `ValueError(404)` | `ValueError` | `404` |
+| Handler raises `Exception("first", 2)` | `Exception` | `('first', 2)` |
+| Handler raises `Exception("first", 2, {"a": 1})` | `Exception` | empty |
 | Handler catches the exception locally and returns 500 | none in the integration fixture | |
 | Handler responds successfully | none | |
 | Standalone uncaught exception | none | |
 | Standalone caught exception | none | |
 
 Records use the shared `exception.type`, `exception.message` and
-`exception.stacktrace` attributes. BPF captures up to 256 bytes of Python string
-storage. Python uses one-, two- or four-byte Unicode code units; user space
-converts these to UTF-8. OBI reads stored exception arguments and does not execute
-custom `__str__` methods. Message rendering can therefore differ from Python's
-rendering for custom exceptions and unsupported argument shapes.
+`exception.stacktrace` attributes. OBI reads the stored exception arguments and
+does not execute `__str__`:
+
+- An exception whose type keeps `BaseException.__str__` or `KeyError.__str__`
+  gets what `str()` returns for no arguments, one `str` or `int` argument, or
+  up to four `str` and `int` arguments, which render as their tuple. Of several
+  arguments, those before the fifth or before one of another type render as the
+  start of their tuple, ending in `...`. Other argument shapes give an empty
+  message.
+- An exception whose type defines its own `__str__` gets its first argument when
+  that is a `str`, and an empty message otherwise. Its rendering can therefore
+  differ from Python's.
+
+BPF keeps up to 256 bytes of argument data for the reported exception and 128
+bytes for the chained one; several arguments take equal parts. Python stores a
+`str` in one-, two- or four-byte code units, chosen by its widest character, so
+256 bytes hold 256, 128 or 64 characters. User space converts them to UTF-8
+and ends a cut `str` in `...`. An `int` is kept only when all of its digits fit.
 
 ## Stack traces
 
@@ -92,10 +108,45 @@ Traceback (most recent call last):
 ValueError: bad input
 ```
 
+### Exception chains
+
+An exception raised with `raise ... from` has a `__cause__`, and one raised while
+another is being handled has a `__context__`, unless `__suppress_context__` hides
+it, as `raise ... from None` does. The probe records the exception printed
+directly before the reported one, with its type, message and the innermost 8
+frames of its traceback. User space prints it before the reported exception, as
+`traceback.format_exception` does:
+
+```text
+Traceback (most recent call last):
+  File "/app/storage.py", line 12, in load
+KeyError: 'user_id'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/server.py", line 42, in handler
+StorageError: lookup failed
+```
+
+The chain is read when the reported exception is raised. `__cause__` is set
+before `_PyErr_SetObject` runs; `__context__` is the exception the thread is
+handling, which `_PyErr_SetObject` sets after probe entry. An exception that was
+never raised prints without a traceback, as in CPython.
+
+| Payload part | Budget |
+|---|---|
+| Reported exception | type, 256-byte message, 24 frames |
+| Chained exception, at most 1 | type, 128-byte message, 8 frames |
+| Record payload | at most 968 bytes, 672 before chains |
+
+Each request keeps three candidates in a 512-entry map allocated when Python
+exception capture is enabled. The map values use about 1.5 MiB in total.
+
 ### Known limits
 
-- Cause chains and nested exception groups are not expanded into separate
-  tracebacks.
+- A chain deeper than two exceptions ends at the second, without a marker.
+- Nested exception groups are not expanded into separate tracebacks.
 - Decoding requires readable target memory. Process exit or object reclamation
   before decoding can lose type or frame information. PID reuse and decoding
   after exit require further lifecycle work.
