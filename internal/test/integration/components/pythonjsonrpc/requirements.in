@@ -1,2 +1,2 @@
 json-rpc==1.15.0
-jsonrpcclient==4.0.3
+jsonrpcclient==4.2.1
