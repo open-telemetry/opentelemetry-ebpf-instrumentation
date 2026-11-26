@@ -281,6 +281,11 @@ func assertPythonSection(t *testing.T, section string, truth pythonExceptionLink
 	}
 	assertPythonMessage(t, truth.Message, message, limit)
 
+	if truth.Relation != "" && len(truth.Frames) == 0 {
+		require.Len(t, lines, 1, section)
+		return
+	}
+
 	require.Equal(t, "Traceback (most recent call last):", lines[0], section)
 	captured := lines[1 : len(lines)-1]
 	// Outer frames beyond the ones the probe keeps are dropped.
