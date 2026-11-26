@@ -197,6 +197,13 @@ section empty once drained.
   hosts with context propagation enabled, in both OTLP and Prometheus. Kernel TLS sends are
   counted too, and on kernels before 6.5 every sendpage path: `sendfile()`, splice, and
   in-kernel senders such as NFS, NVMe/TCP, iSCSI, Ceph and ESP-in-TCP.
+- The BPF map metrics (`ebpf` metrics feature and internal metrics) cover every map type
+  instead of only LRU hash maps. `bpf_map_max_entries`, `obi.bpf.map.max_entries` and
+  `obi_bpf_map_max_entries` gain series for every type except global-data maps (`.rodata`,
+  `.data`, `.bss`, `.kconfig`), and `bpf_map_entries`, `obi.bpf.map.entries` and
+  `obi_bpf_map_entries` gain series for `Hash`, `PerCPUHash` and `LRUCPUHash` maps. The
+  internal map metrics cover only the maps OBI holds: series of other eBPF tools' maps on the
+  node disappear.
 
 ## Hosting notes
 

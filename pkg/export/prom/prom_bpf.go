@@ -5,11 +5,11 @@ package prom // import "go.opentelemetry.io/obi/pkg/export/prom"
 
 import (
 	"context"
-	"encoding"
 	"errors"
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -57,11 +57,12 @@ type cachedProgram struct {
 }
 
 type cachedMap struct {
-	supported  bool
-	mapType    string
-	mapName    string
-	mapID      string
-	maxEntries int
+	reported      bool
+	countsEntries bool
+	mapType       string
+	mapName       string
+	mapID         string
+	maxEntries    int
 }
 
 type BPFProgram struct {
@@ -87,6 +88,7 @@ type BpfMapMetrics struct {
 	mapID      string
 	maxEntries int
 	entries    uint64
+	hasEntries bool
 }
 
 const ringbufWriteStatsMapName = "ringbuf_write_stats_storage"
@@ -138,10 +140,10 @@ var (
 	newInternalBPFCollectorFn = newInternalBPFCollector
 )
 
-// programWalkMu serializes the program walks of all collectors in the process. The node
-// walk briefly holds descriptors of programs OBI did not load, and the internal walk
-// must not read them from /proc/self/fdinfo as OBI's own.
-var programWalkMu sync.Mutex
+// bpfObjectWalkMu serializes the program and map walks of all collectors in the process.
+// The node walks briefly hold descriptors of programs and maps OBI did not load, and the
+// internal walks must not read them from /proc/self/fdinfo as OBI's own.
+var bpfObjectWalkMu sync.Mutex
 
 func internalMetricsEnabled(internalMetrics imetrics.Reporter) bool {
 	if internalMetrics == nil || imetrics.IsBuiltinNoopReporter(internalMetrics) {
@@ -163,7 +165,7 @@ func newBPFCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *
 	return newCollector(ctxInfo, cfg, mpCfg, true)
 }
 
-// newInternalBPFCollector reports how OBI is doing, so it covers only OBI's own programs.
+// newInternalBPFCollector reports how OBI is doing, so it covers only OBI's own programs and maps.
 func newInternalBPFCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig) *BPFCollector {
 	c := newCollector(ctxInfo, cfg, mpCfg, false)
 	c.obiOnly = true
@@ -285,7 +287,9 @@ func (bc *BPFCollector) collectInternalMetrics(ctx context.Context) {
 			}
 
 			for _, metric := range mapMetrics {
-				bc.ctxInfo.Metrics.BpfMapEntries(metric.mapID, metric.mapName, metric.mapType, int(metric.entries))
+				if metric.hasEntries {
+					bc.ctxInfo.Metrics.BpfMapEntries(metric.mapID, metric.mapName, metric.mapType, int(metric.entries))
+				}
 				bc.ctxInfo.Metrics.BpfMapMaxEntries(metric.mapID, metric.mapName, metric.mapType, metric.maxEntries)
 			}
 
@@ -357,14 +361,16 @@ func (bc *BPFCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	mapMetrics := bc.mapMetrics()
 	for _, metric := range mapMetrics {
-		ch <- prometheus.MustNewConstMetric(
-			bc.mapSizeDesc,
-			prometheus.GaugeValue,
-			float64(metric.entries),
-			metric.mapID,
-			metric.mapName,
-			metric.mapType,
-		)
+		if metric.hasEntries {
+			ch <- prometheus.MustNewConstMetric(
+				bc.mapSizeDesc,
+				prometheus.GaugeValue,
+				float64(metric.entries),
+				metric.mapID,
+				metric.mapName,
+				metric.mapType,
+			)
+		}
 		ch <- prometheus.MustNewConstMetric(
 			bc.mapMaxSizeDesc,
 			prometheus.GaugeValue,
@@ -388,8 +394,8 @@ func (bc *BPFCollector) collectMetrics() ([]ProbeMetrics, []BpfMapMetrics) {
 }
 
 func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
-	programWalkMu.Lock()
-	defer programWalkMu.Unlock()
+	bpfObjectWalkMu.Lock()
+	defer bpfObjectWalkMu.Unlock()
 
 	ids, completeWalk := bc.programIDs()
 	probeMetrics := make([]ProbeMetrics, 0, len(ids))
@@ -527,47 +533,34 @@ func getFuncName(info *ebpf.ProgramInfo, id ebpf.ProgramID, log *slog.Logger) st
 }
 
 func (bc *BPFCollector) getMapMetrics() []BpfMapMetrics {
-	mapMetrics := make([]BpfMapMetrics, 0, len(bc.mapCache))
-	seen := make(map[ebpf.MapID]struct{}, len(bc.mapCache))
-	completeWalk := false
+	bpfObjectWalkMu.Lock()
+	defer bpfObjectWalkMu.Unlock()
 
-	for id := ebpf.MapID(0); ; {
-		nextID, err := ebpf.MapGetNextID(id)
-		if err != nil {
-			completeWalk = errors.Is(err, os.ErrNotExist)
-			break
-		}
-		id = nextID
+	ids, completeWalk := bc.mapIDs()
+	mapMetrics := make([]BpfMapMetrics, 0, len(ids))
+	seen := make(map[ebpf.MapID]struct{}, len(ids))
+
+	for _, id := range ids {
 		seen[id] = struct{}{}
 
 		cached, ok := bc.mapCache[id]
 		if !ok {
 			cached = bc.cacheMap(id)
 		}
-		if cached == nil || !cached.supported {
+		if cached == nil || !cached.reported {
 			continue
 		}
 
-		m, err := ebpf.NewMapFromID(id)
-		if err != nil {
-			bc.log.Debug("failed to load map for entry iteration", "ID", id, "error", err)
-			continue
-		}
-		count, err := countMapEntries(m)
-		if closeErr := m.Close(); closeErr != nil {
-			bc.log.Debug("failed to close map", "ID", id, "error", closeErr)
-		}
-		if err != nil {
-			continue
-		}
-
-		mapMetrics = append(mapMetrics, BpfMapMetrics{
+		metric := BpfMapMetrics{
 			mapType:    cached.mapType,
 			mapName:    cached.mapName,
 			mapID:      cached.mapID,
 			maxEntries: cached.maxEntries,
-			entries:    count,
-		})
+		}
+		if cached.countsEntries {
+			metric.entries, metric.hasEntries = bc.mapEntries(id)
+		}
+		mapMetrics = append(mapMetrics, metric)
 	}
 
 	if completeWalk {
@@ -579,6 +572,32 @@ func (bc *BPFCollector) getMapMetrics() []BpfMapMetrics {
 	}
 
 	return mapMetrics
+}
+
+// mapIDs returns the maps to report and whether the list is complete, so that maps
+// missing from it can be evicted from the cache.
+func (bc *BPFCollector) mapIDs() ([]ebpf.MapID, bool) {
+	if !bc.obiOnly {
+		return nodeMapIDs()
+	}
+
+	ids, err := ownedMapIDs(bc.fdinfoDir)
+	if err != nil {
+		bc.log.Debug("failed to list OBI maps", "error", err)
+	}
+	return ids, err == nil
+}
+
+func nodeMapIDs() ([]ebpf.MapID, bool) {
+	var ids []ebpf.MapID
+	for id := ebpf.MapID(0); ; {
+		nextID, err := ebpf.MapGetNextID(id)
+		if err != nil {
+			return ids, errors.Is(err, os.ErrNotExist)
+		}
+		id = nextID
+		ids = append(ids, id)
+	}
 }
 
 func (bc *BPFCollector) cacheMap(id ebpf.MapID) *cachedMap {
@@ -598,25 +617,84 @@ func (bc *BPFCollector) cacheMap(id ebpf.MapID) *cachedMap {
 	}
 
 	cached := &cachedMap{
-		supported:  info.Type == ebpf.LRUHash,
-		mapType:    info.Type.String(),
-		mapName:    info.Name,
-		mapID:      strconv.FormatUint(uint64(id), 10),
-		maxEntries: int(info.MaxEntries),
+		reported:      !isGlobalDataMap(info.Type, info.Name),
+		countsEntries: countsEntries(info.Type),
+		mapType:       info.Type.String(),
+		mapName:       info.Name,
+		mapID:         strconv.FormatUint(uint64(id), 10),
+		maxEntries:    int(info.MaxEntries),
 	}
 	bc.mapCache[id] = cached
 	return cached
 }
 
-func countMapEntries(m *ebpf.Map) (uint64, error) {
-	var count uint64
-	throwawayKey := discardEncoding{}
-	throwawayValues := make(sliceDiscardEncoding, 0)
-	iter := m.Iterate()
-	for iter.Next(&throwawayKey, &throwawayValues) {
-		count++
+// isGlobalDataMap reports the maps that hold a program's global variables. Loaders name
+// them after their ELF section: cilium/ebpf as ".rodata", libbpf as "<object>.rodata".
+// They are one-slot arrays whose size never changes.
+func isGlobalDataMap(mapType ebpf.MapType, name string) bool {
+	if mapType != ebpf.Array {
+		return false
 	}
-	return count, iter.Err()
+
+	for _, section := range []string{".rodata", ".data", ".bss", ".kconfig"} {
+		if strings.Contains(name, section) {
+			return true
+		}
+	}
+	return false
+}
+
+// countsEntries reports the map types whose entries are counted: the hash maps, whose key
+// walk returns only the keys in use. The walk of an array returns every index.
+func countsEntries(mapType ebpf.MapType) bool {
+	switch mapType {
+	case ebpf.Hash, ebpf.LRUHash, ebpf.PerCPUHash, ebpf.LRUCPUHash:
+		return true
+	default:
+		return false
+	}
+}
+
+func (bc *BPFCollector) mapEntries(id ebpf.MapID) (uint64, bool) {
+	m, err := ebpf.NewMapFromID(id)
+	if err != nil {
+		bc.log.Debug("failed to load map for entry iteration", "ID", id, "error", err)
+		return 0, false
+	}
+
+	count, err := countMapEntries(m)
+	if closeErr := m.Close(); closeErr != nil {
+		bc.log.Debug("failed to close map", "ID", id, "error", closeErr)
+	}
+	if err != nil {
+		bc.log.Debug("failed to count map entries", "ID", id, "error", err)
+		return 0, false
+	}
+	return count, true
+}
+
+// countMapEntries walks the map's keys without reading their values: a per-CPU value
+// lookup copies one value per possible CPU for every key.
+func countMapEntries(m *ebpf.Map) (uint64, error) {
+	// Converted to an interface once: each conversion of a slice allocates.
+	var key any = make([]byte, m.KeySize())
+
+	err := m.NextKey(nil, key)
+	var count uint64
+	for count <= uint64(m.MaxEntries()) {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return count, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+		count++
+		err = m.NextKey(key, key)
+	}
+
+	// The kernel restarts the walk when the current key is deleted, so a map that changes
+	// during the walk can yield more keys than it holds.
+	return 0, ebpf.ErrIterationAborted
 }
 
 func (bp *BPFProgram) calculateStats() (float64, uint64) {
@@ -656,24 +734,4 @@ func (bp *BPFProgram) cumulativeBuckets() map[float64]uint64 {
 	}
 
 	return buckets
-}
-
-// Assert that discardEncoding implements the correct interfaces for map iterators.
-var (
-	_ encoding.BinaryUnmarshaler = (*discardEncoding)(nil)
-	_ encoding.BinaryUnmarshaler = (*sliceDiscardEncoding)(nil)
-)
-
-// discardEncoding implements encoding.BinaryMarshaler for eBPF map values such that everything is discarded.
-type discardEncoding struct{}
-
-func (de *discardEncoding) UnmarshalBinary(_ []byte) error {
-	return nil
-}
-
-// sliceDiscardEncoding implements encoding.BinaryMarshaler for eBPF per-cpu map values such that everything is discarded.
-type sliceDiscardEncoding []discardEncoding
-
-func (sde *sliceDiscardEncoding) UnmarshalBinary(_ []byte) error {
-	return nil
 }

@@ -112,13 +112,10 @@ func TestBPFMetricsCollectsInternalMetricsForPrometheusReporter(t *testing.T) {
 				}}
 			},
 			mapMetrics: func() []BpfMapMetrics {
-				return []BpfMapMetrics{{
-					mapType:    "hash",
-					mapName:    "connections",
-					mapID:      "3",
-					maxEntries: 16,
-					entries:    4,
-				}}
+				return []BpfMapMetrics{
+					{mapType: "hash", mapName: "connections", mapID: "3", maxEntries: 16, entries: 4, hasEntries: true},
+					{mapType: "ringbuf", mapName: "events", mapID: "4", maxEntries: 4096},
+				}
 			},
 		}
 	}
@@ -152,14 +149,29 @@ func TestBPFMetricsCollectsInternalMetricsForPrometheusReporter(t *testing.T) {
 			"bpf_map_type": "hash",
 		})
 
-		if probeExecutionsMetric == nil || probeLatencySumMetric == nil || mapEntriesMetric == nil || mapMaxEntriesMetric == nil {
+		ringbufMaxEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_max_entries", map[string]string{
+			"bpf_map_id":   "4",
+			"bpf_map_name": "events",
+			"bpf_map_type": "ringbuf",
+		})
+
+		if probeExecutionsMetric == nil || probeLatencySumMetric == nil || mapEntriesMetric == nil ||
+			mapMaxEntriesMetric == nil || ringbufMaxEntriesMetric == nil {
 			return false
 		}
+
+		// A map without an entry count reports only its maximum entries.
+		require.Nil(t, gatheredMetric(t, registry, "obi_bpf_map_entries", map[string]string{
+			"bpf_map_id":   "4",
+			"bpf_map_name": "events",
+			"bpf_map_type": "ringbuf",
+		}))
 
 		return probeExecutionsMetric.GetCounter().GetValue() == 3 &&
 			probeLatencySumMetric.GetCounter().GetValue() == 0.75 &&
 			mapEntriesMetric.GetGauge().GetValue() == 4 &&
-			mapMaxEntriesMetric.GetGauge().GetValue() == 16
+			mapMaxEntriesMetric.GetGauge().GetValue() == 16 &&
+			ringbufMaxEntriesMetric.GetGauge().GetValue() == 4096
 	}, time.Second, 10*time.Millisecond)
 }
 
@@ -234,6 +246,7 @@ func TestBPFMetricsCollectsInternalMetricsWhenPrometheusEndpointEnabled(t *testi
 					mapID:      "3",
 					maxEntries: 16,
 					entries:    4,
+					hasEntries: true,
 				}}
 			},
 		}
@@ -269,6 +282,7 @@ func TestBPFMetricsCollectsInternalMetricsWhenPrometheusEndpointEnabled(t *testi
 					mapID:      "3",
 					maxEntries: 16,
 					entries:    4,
+					hasEntries: true,
 				}}
 			},
 		}
@@ -507,6 +521,7 @@ func TestBPFCollectorRegistersMapMetrics(t *testing.T) {
 			mapID:      "3",
 			maxEntries: 16,
 			entries:    4,
+			hasEntries: true,
 		}}
 	}
 
@@ -647,4 +662,98 @@ func TestInternalProgramIDsComeFromFDInfo(t *testing.T) {
 	ids, complete = collector.programIDs()
 	assert.Equal(t, []ebpf.ProgramID{12}, ids, "readable descriptors are still reported")
 	assert.False(t, complete, "an unreadable descriptor must not evict cached programs")
+}
+
+func TestInternalMapIDsComeFromFDInfo(t *testing.T) {
+	fdinfoDir := t.TempDir()
+	writeFDInfo(t, fdinfoDir, map[string]string{
+		"3": "pos:\t0\nflags:\t02000002\nprog_id:\t12\n",
+		"4": "pos:\t0\nflags:\t02000002\nmap_id:\t30\n",
+	})
+	collector := &BPFCollector{obiOnly: true, fdinfoDir: fdinfoDir, log: slog.Default()}
+
+	ids, complete := collector.mapIDs()
+	assert.Equal(t, []ebpf.MapID{30}, ids)
+	assert.True(t, complete)
+
+	collector.fdinfoDir = filepath.Join(fdinfoDir, "missing")
+	ids, complete = collector.mapIDs()
+	assert.Empty(t, ids)
+	assert.False(t, complete, "a failed listing must not evict cached maps")
+
+	collector.fdinfoDir = fdinfoDir
+	require.NoError(t, os.Mkdir(filepath.Join(fdinfoDir, "5"), 0o700))
+	ids, complete = collector.mapIDs()
+	assert.Equal(t, []ebpf.MapID{30}, ids, "readable descriptors are still reported")
+	assert.False(t, complete, "an unreadable descriptor must not evict cached maps")
+}
+
+func TestBPFCollectorOmitsUncountedMapEntries(t *testing.T) {
+	collector := newCollector(
+		&global.ContextInfo{Metrics: imetrics.NoopReporter{}},
+		&PrometheusConfig{},
+		&perapp.GlobalMetricsConfig{},
+		false,
+	)
+	t.Cleanup(collector.close)
+
+	collector.probeMetrics = func() []ProbeMetrics { return nil }
+	collector.mapMetrics = func() []BpfMapMetrics {
+		return []BpfMapMetrics{
+			{mapType: "Hash", mapName: "connections", mapID: "3", maxEntries: 16, entries: 4, hasEntries: true},
+			{mapType: "RingBuf", mapName: "events", mapID: "4", maxEntries: 4096},
+		}
+	}
+
+	registry := prometheus.NewPedanticRegistry()
+	require.NoError(t, registry.Register(collector))
+	families, err := registry.Gather()
+	require.NoError(t, err)
+
+	series := map[string][]string{}
+	for _, family := range families {
+		for _, metric := range family.GetMetric() {
+			for _, label := range metric.GetLabel() {
+				if label.GetName() == "bpf_map_id" {
+					series[family.GetName()] = append(series[family.GetName()], label.GetValue())
+				}
+			}
+		}
+	}
+
+	assert.ElementsMatch(t, []string{"3"}, series["bpf_map_entries"])
+	assert.ElementsMatch(t, []string{"3", "4"}, series["bpf_map_max_entries"])
+}
+
+func TestIsGlobalDataMap(t *testing.T) {
+	for _, tc := range []struct {
+		mapType ebpf.MapType
+		name    string
+		want    bool
+	}{
+		{ebpf.Array, ".rodata", true},
+		{ebpf.Array, ".rodata.str1.1", true},
+		{ebpf.Array, ".data.custom", true},
+		{ebpf.Array, ".bss", true},
+		{ebpf.Array, "pid_iter.rodata", true},
+		{ebpf.Array, "my_obje.kconfig", true},
+		{ebpf.Array, "data_events", false},
+		{ebpf.Array, "rodata", false},
+		{ebpf.Hash, ".rodata", false},
+		{ebpf.LRUHash, "ongoing_http", false},
+	} {
+		assert.Equal(t, tc.want, isGlobalDataMap(tc.mapType, tc.name), "%s %q", tc.mapType, tc.name)
+	}
+}
+
+func TestCountsEntries(t *testing.T) {
+	for _, mapType := range []ebpf.MapType{ebpf.Hash, ebpf.LRUHash, ebpf.PerCPUHash, ebpf.LRUCPUHash} {
+		assert.True(t, countsEntries(mapType), mapType.String())
+	}
+	for _, mapType := range []ebpf.MapType{
+		ebpf.Array, ebpf.PerCPUArray, ebpf.ProgramArray, ebpf.PerfEventArray,
+		ebpf.RingBuf, ebpf.LPMTrie, ebpf.HashOfMaps, ebpf.InodeStorage,
+	} {
+		assert.False(t, countsEntries(mapType), mapType.String())
+	}
 }
