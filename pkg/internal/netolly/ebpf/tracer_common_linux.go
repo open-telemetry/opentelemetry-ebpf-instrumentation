@@ -27,6 +27,7 @@ func lookupPacketStats(m *ebpf.Map) (NetPacketCount, error) {
 	for _, pc := range perCPUCounts {
 		sum.Total += pc.Total
 		sum.Ignored += pc.Ignored
+		sum.Collisions += pc.Collisions
 	}
 	return sum, nil
 }

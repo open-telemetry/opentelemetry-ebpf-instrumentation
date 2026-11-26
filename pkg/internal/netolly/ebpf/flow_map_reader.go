@@ -15,7 +15,6 @@ type flowMapLegacyReader[IT mapIterator] struct {
 	log          *slog.Logger
 	flowMap      ebpfMap[IT]
 	cacheMaxSize int
-	lastReadNS   uint64
 }
 
 type ebpfMap[IT mapIterator] interface {
@@ -37,43 +36,14 @@ type mapIterator interface {
 // Race conditions here causes that some flows might be lost in high-load scenarios
 func (fmd *flowMapLegacyReader[IT]) lookupAndDeleteMap() (map[NetFlowId]*NetFlowMetrics, error) {
 	flows := make(map[NetFlowId]*NetFlowMetrics, fmd.cacheMaxSize)
-	oldestFlow := uint64(0)
 
 	id := NetFlowId{}
-	var metrics []NetFlowMetrics
+	var metrics NetFlowMetrics
 	for iterator := fmd.flowMap.Iterate(); iterator.Next(&id, &metrics); {
 		if err := fmd.flowMap.Delete(id); err != nil {
 			fmd.log.Debug("couldn't delete flow entry", "flowId", id, "error", err)
 		}
-
-		perCPUAggregated := &NetFlowMetrics{}
-		for i := range metrics {
-			mt := &metrics[i]
-			// eBPF hashmap values are not zeroed when the entry is removed. That causes that we
-			// might receive entries from previous collect-eviction timeslots.
-			// We need to check the flow time and discard old flows.
-			if mt.StartMonoTimeNs <= fmd.lastReadNS || mt.EndMonoTimeNs <= fmd.lastReadNS {
-				continue
-			}
-			perCPUAggregated.Accumulate(mt)
-			oldestFlow = max(oldestFlow, mt.EndMonoTimeNs)
-		}
-		if perCPUAggregated.EndMonoTimeNs == 0 {
-			// no recent flows were accounted, skip
-			continue
-		}
-
-		// We observed that eBFP PerCPU map might insert multiple times the same key in the map
-		// (probably due to race conditions) so we need to re-join metrics again at userspace
-		if stored, ok := flows[id]; ok {
-			stored.Accumulate(perCPUAggregated)
-		} else {
-			flows[id] = perCPUAggregated
-		}
-		metrics = nil
-	}
-	if oldestFlow != 0 {
-		fmd.lastReadNS = oldestFlow
+		addFlow(flows, id, &metrics)
 	}
 	return flows, nil
 }
