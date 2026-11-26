@@ -1,0 +1,33 @@
+name: Go API compatibility comment
+
+on: # zizmor: ignore[dangerous-triggers] checks out only the trusted default-branch SHA and treats check annotations as escaped, bounded data; no PR code is evaluated
+  workflow_run:
+    workflows: [PR checks]
+    types: [completed]
+
+concurrency:
+  group: go-api-comment-${{ github.event.workflow_run.head_repository.id }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  comment:
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Process completed compatibility report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EVENT_PATH: ${{ github.event_path }}
+        run: python3 scripts/report-go-api-compatibility.py "$EVENT_PATH"

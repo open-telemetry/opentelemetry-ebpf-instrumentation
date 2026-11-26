@@ -96,7 +96,13 @@ done < "$tmp/shared-packages"
 if [[ -s "$tmp/incompatibilities" ]]; then
   echo '### Potential incompatibilities' >> "$GITHUB_STEP_SUMMARY"
   cat "$tmp/incompatibilities" >> "$GITHUB_STEP_SUMMARY"
-  printf '::warning title=Go API incompatibility::Potential public Go API incompatibilities found; see job summary\n'
+  report="$(head -c 2800 "$tmp/incompatibilities")"
+  [[ $(wc -c < "$tmp/incompatibilities") -le 2800 ]] || report+=$'\n[report truncated]'
+  report="${report//'%'/'%25'}"
+  report="${report//$'\r'/'%0D'}"
+  report="${report//$'\n'/'%0A'}"
+  printf '::warning title=obi-go-api-compatibility-report::%s\n' "$report"
 else
   echo 'No incompatible API changes detected in the compared packages.' >> "$GITHUB_STEP_SUMMARY"
+  printf '::notice title=obi-go-api-compatibility-report::No incompatible API changes detected.\n'
 fi

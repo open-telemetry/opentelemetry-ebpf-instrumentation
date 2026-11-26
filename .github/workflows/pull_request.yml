@@ -304,3 +304,6 @@ jobs:
         env:
           GOTOOLCHAIN: local
         run: ./head/scripts/check-go-api-compatibility.sh ./base ./head
+
+      - name: Test Go API compatibility comment helper
+        run: python3 head/scripts/test/report_go_api_compatibility_test.py
