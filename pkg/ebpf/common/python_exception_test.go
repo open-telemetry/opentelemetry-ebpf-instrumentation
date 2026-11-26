@@ -259,20 +259,22 @@ func TestDescribePythonExceptionType(t *testing.T) {
 		name, message, wantType, wantMessage, wantLast string
 		object                                         uint64
 		truncated                                      bool
+		quoteSingle                                    uint8
 	}{
-		{"builtin", "boom", "ValueError", "boom", "ValueError: boom", process.exceptionType("ValueError"), false},
-		{"extension", "", "decimal.InvalidOperation", "", "decimal.InvalidOperation", process.exceptionType("decimal.InvalidOperation"), false},
+		{"builtin", "boom", "ValueError", "boom", "ValueError: boom", process.exceptionType("ValueError"), false, 0},
+		{"extension", "", "decimal.InvalidOperation", "", "decimal.InvalidOperation", process.exceptionType("decimal.InvalidOperation"), false, 0},
 		{
 			"class", "declined", "cases.Billing.Declined", "declined", "cases.Billing.Declined: declined",
-			process.heapType("Declined", "Billing.Declined", "cases"), false,
+			process.heapType("Declined", "Billing.Declined", "cases"), false, 0,
 		},
-		{"main class", "x", "__main__.CustomError", "x", "CustomError: x", process.heapType("CustomError", "CustomError", "__main__"), false},
-		{"key error", "user_id", "KeyError", "'user_id'", "KeyError: 'user_id'", process.exceptionType("KeyError"), false},
-		{"truncated", "aaaa", "ValueError", "aaaa...", "ValueError: aaaa...", process.exceptionType("ValueError"), true},
-		{"truncated key", "aaaa", "KeyError", "'aaaa...", "KeyError: 'aaaa...", process.exceptionType("KeyError"), true},
+		{"main class", "x", "__main__.CustomError", "x", "CustomError: x", process.heapType("CustomError", "CustomError", "__main__"), false, 0},
+		{"key error", "user_id", "KeyError", "'user_id'", "KeyError: 'user_id'", process.exceptionType("KeyError"), false, 1},
+		{"truncated", "aaaa", "ValueError", "aaaa...", "ValueError: aaaa...", process.exceptionType("ValueError"), true, 0},
+		{"truncated key", "aaaa", "KeyError", "'aaaa...", "KeyError: 'aaaa...", process.exceptionType("KeyError"), true, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			record := fakePythonRecord(tc.object, tc.message)
+			record.Message.QuoteSingle = tc.quoteSingle
 			if tc.truncated {
 				record.Message.Truncated = 1
 			}
@@ -493,31 +495,33 @@ func pythonLong(minor uint8, negative bool, digits ...uint32) []byte {
 func TestPythonMessageArguments(t *testing.T) {
 	for _, minor := range []uint8{11, 12} {
 		for _, tc := range []struct {
-			name, qualname, want string
-			args                 []any
-			truncated            uint8
-			more                 bool
+			name, want  string
+			quoteSingle uint8
+			args        []any
+			truncated   uint8
+			more        bool
 		}{
-			{"int", "ValueError", "404", []any{pythonLong(minor, false, 404)}, 0, false},
-			{"zero", "SystemExit", "0", []any{pythonLong(minor, false)}, 0, false},
-			{"negative", "ValueError", "-7", []any{pythonLong(minor, true, 7)}, 0, false},
+			{"int", "404", 0, []any{pythonLong(minor, false, 404)}, 0, false},
+			{"zero", "0", 0, []any{pythonLong(minor, false)}, 0, false},
+			{"negative", "-7", 0, []any{pythonLong(minor, true, 7)}, 0, false},
 			// 2**30 + 5 spans two 30-bit digits
-			{"two digits", "ValueError", "1073741829", []any{pythonLong(minor, false, 5, 1)}, 0, false},
-			{"key error int", "KeyError", "404", []any{pythonLong(minor, false, 404)}, 0, false},
-			{"tuple", "Exception", "('first', 2)", []any{"first", pythonLong(minor, false, 2)}, 0, false},
-			{"key error tuple", "KeyError", "('a', 'b')", []any{"a", "b"}, 0, false},
-			{"truncated tuple", "Exception", "('first', 'sec...", []any{"first", "sec", "third"}, 2, false},
-			{"truncated last", "Exception", "('first', 'sec...", []any{"first", "sec"}, 2, false},
-			{"unsupported argument", "ValueError", "('invalid order id', ...", []any{"invalid order id"}, 0, true},
-			{"more than stored", "Exception", "('a', 'b', 'c', 'd', ...", []any{"a", "b", "c", "d"}, 0, true},
-			{"truncated before more", "Exception", "('first', 'sec...", []any{"first", "sec"}, 2, true},
+			{"two digits", "1073741829", 0, []any{pythonLong(minor, false, 5, 1)}, 0, false},
+			{"key error int", "404", 1, []any{pythonLong(minor, false, 404)}, 0, false},
+			{"tuple", "('first', 2)", 0, []any{"first", pythonLong(minor, false, 2)}, 0, false},
+			{"key error tuple", "('a', 'b')", 1, []any{"a", "b"}, 0, false},
+			{"truncated tuple", "('first', 'sec...", 0, []any{"first", "sec", "third"}, 2, false},
+			{"truncated last", "('first', 'sec...", 0, []any{"first", "sec"}, 2, false},
+			{"unsupported argument", "('invalid order id', ...", 0, []any{"invalid order id"}, 0, true},
+			{"more than stored", "('a', 'b', 'c', 'd', ...", 0, []any{"a", "b", "c", "d"}, 0, true},
+			{"truncated before more", "('first', 'sec...", 0, []any{"first", "sec"}, 2, true},
 		} {
 			t.Run(fmt.Sprintf("3.%d/%s", minor, tc.name), func(t *testing.T) {
 				var message BpfPythonExceptionMessageT
 				text := make([]byte, 256)
 				fakePythonPartialArgs(&message, text, tc.more, tc.args...)
 				message.Truncated = tc.truncated
-				assert.Equal(t, tc.want, pythonMessage("builtins", tc.qualname, &message, text, minor))
+				message.QuoteSingle = tc.quoteSingle
+				assert.Equal(t, tc.want, pythonMessage(&message, text, minor))
 			})
 		}
 	}
@@ -526,9 +530,9 @@ func TestPythonMessageArguments(t *testing.T) {
 	text := make([]byte, 256)
 	fakePythonArgs(&message, text, pythonLong(12, false, 1, 2))
 	message.Len[0] -= pythonLongDigitSize
-	assert.Empty(t, pythonMessage("builtins", "ValueError", &message, text, 12), "digits missing from the stored int")
+	assert.Empty(t, pythonMessage(&message, text, 12), "digits missing from the stored int")
 	fakePythonArgs(&message, text, "a", []byte{1})
-	assert.Empty(t, pythonMessage("builtins", "ValueError", &message, text, 12), "a short int")
+	assert.Empty(t, pythonMessage(&message, text, 12), "a short int")
 }
 
 func TestDescribePythonExceptionChain(t *testing.T) {
@@ -539,11 +543,12 @@ func TestDescribePythonExceptionChain(t *testing.T) {
 	record := fakePythonRecord(process.heapType("ServiceError", "ServiceError", "__main__"), "outer", outer)
 	record.LinkCount = 1
 	cause := &record.Links[0]
-	cause.Type = process.exceptionType("KeyError")
+	cause.Type = process.heapType("Missing", "Missing", "__main__")
 	cause.Relation = BpfPythonExceptionRelationK_pythonExceptionCause
 	cause.FrameCount = 1
 	cause.Frames[0].Code = inner
-	fakePythonArgs(&cause.Message, cause.Text[:], "k")
+	fakePythonArgs(&cause.Message, cause.Text[:], "user_id")
+	cause.Message.QuoteSingle = 1
 
 	event := exceptions.Event{}
 	require.NoError(t, describePythonException(process.remote(), record, &event))
@@ -551,7 +556,7 @@ func TestDescribePythonExceptionChain(t *testing.T) {
 	assert.Equal(t, "outer", event.Message)
 	assert.Equal(t, "Traceback (most recent call last):\n"+
 		"  File \"/app/storage.py\", line 20, in inner_fn\n"+
-		"KeyError: 'k'\n"+
+		"Missing: 'user_id'\n"+
 		"\n"+
 		"The above exception was the direct cause of the following exception:\n"+
 		"\n"+
@@ -564,7 +569,7 @@ func TestDescribePythonExceptionChain(t *testing.T) {
 	cause.FrameCount = 0
 	event = exceptions.Event{}
 	require.NoError(t, describePythonException(process.remote(), record, &event))
-	assert.Equal(t, "KeyError: 'k'\n"+
+	assert.Equal(t, "Missing: 'user_id'\n"+
 		"\n"+
 		"During handling of the above exception, another exception occurred:\n"+
 		"\n"+

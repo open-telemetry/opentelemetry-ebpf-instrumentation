@@ -64,7 +64,7 @@ func TestPythonExceptions(t *testing.T) {
 		"ascii", "empty", "unicode", "long", "key", "os", "custom", "multiarg", "mixedarg", "int",
 		"native", "native-int", "deep", "reraise", "raise_error", "latest", "chained",
 		"implicit_replacement", "nested_cleanup", "double_nested_cleanup", "with_traceback", "error_page", "error_page_reraise", "cleanup", "finally", "open",
-		"context", "suppressed", "chain3", "chain4",
+		"chained_key_subclass", "context", "suppressed", "reraised_suppressed", "chain3", "chain4",
 	}
 	if pythonMinor(t) >= 11 {
 		cases = append(cases, "group")

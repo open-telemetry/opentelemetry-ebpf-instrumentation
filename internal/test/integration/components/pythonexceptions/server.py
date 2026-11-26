@@ -25,6 +25,10 @@ class CustomError(Exception):
     pass
 
 
+class Missing(KeyError):
+    pass
+
+
 def leaf(case, token):
     if case == "empty":
         raise ValueError()
@@ -137,6 +141,8 @@ def invoke(case, token):
             outer("ascii", token)
         except ValueError as error:
             raise RuntimeError(token) from error
+    elif case == "chained_key_subclass":
+        raise RuntimeError(token) from Missing("user_id")
     elif case == "implicit_replacement":
         try:
             outer("ascii", token)
@@ -181,6 +187,11 @@ def invoke(case, token):
             outer("ascii", token)
         except ValueError:
             raise RuntimeError(token) from None
+    elif case == "reraised_suppressed":
+        try:
+            invoke("context", token)
+        except RuntimeError as error:
+            raise error from None
     elif case == "chain3":
         try:
             try:

@@ -126,7 +126,7 @@ func decodePythonException(payload []byte, event *exceptions.Event) error {
 func describePythonException(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, event *exceptions.Event) error {
 	module, qualname := pythonTypeName(memory, record, record.Type)
 	event.Type = pythonQualifiedName(module, qualname, "builtins")
-	event.Message = pythonMessage(module, qualname, &record.Message, record.Text[:], record.Layout.Minor)
+	event.Message = pythonMessage(&record.Message, record.Text[:], record.Layout.Minor)
 	if event.Type == "" && event.Message == "" {
 		return fmt.Errorf("%w: unreadable type", errPythonExceptionPayload)
 	}
@@ -160,7 +160,7 @@ func pythonLinks(memory remotememory.RemoteMemory, record *BpfPythonExceptionPay
 // and the line traceback prints before the exception linked from it.
 func pythonLink(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, link *BpfPythonExceptionLinkT) string {
 	module, qualname := pythonTypeName(memory, record, link.Type)
-	message := pythonMessage(module, qualname, &link.Message, link.Text[:], record.Layout.Minor)
+	message := pythonMessage(&link.Message, link.Text[:], record.Layout.Minor)
 	if qualname == "" && message == "" {
 		return ""
 	}
@@ -300,14 +300,14 @@ func pythonQualifiedName(module, qualname string, implicit ...string) string {
 // pythonMessage renders the stored arguments as str() does: one argument as
 // itself, a KeyError's str key quoted, and several as their tuple. A str cut
 // by the probe, or arguments it did not record, end the message in "...".
-func pythonMessage(module, qualname string, message *BpfPythonExceptionMessageT, text []byte, minor uint8) string {
+func pythonMessage(message *BpfPythonExceptionMessageT, text []byte, minor uint8) string {
 	count := int(message.Count)
 	if count == 0 {
 		return ""
 	}
 	part := pythonArgCapacity(message, len(text))
 	tuple := pythonArgsTuple(message)
-	quote := tuple || (module == "builtins" && qualname == "KeyError")
+	quote := tuple || message.QuoteSingle != 0
 
 	args := make([]string, 0, count+1)
 	for i := range count {

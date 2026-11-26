@@ -55,7 +55,7 @@ typedef struct python_exception_message {
     u8 truncated;
     // arguments after the stored ones were not recorded
     u8 more;
-    u8 _pad;
+    u8 quote_single; // Use repr() for a lone string argument.
 } python_exception_message_t;
 
 // PyCodeObject and str offsets that user space needs to symbolize the frames.

@@ -505,8 +505,12 @@ python_exception_int(const python_exception_proc_t *proc,
                      u16 *len) {
     const u64 value = python_read_ptr(number + k_python_long_value);
     const s64 ob_size = (s64)value;
-    const u64 digits = proc->long_tagged ? value >> k_python_long_tag_shift
-                                         : (u64)(ob_size < 0 ? -ob_size : ob_size);
+    u64 digits;
+    if (proc->long_tagged) {
+        digits = value >> k_python_long_tag_shift;
+    } else {
+        digits = ob_size < 0 ? -value : value;
+    }
     if (digits > (capacity - sizeof(value)) / k_python_long_digit_size) {
         return k_python_arg_none;
     }
@@ -551,14 +555,6 @@ static __always_inline bool python_exception_arg(const python_exception_proc_t *
     return true;
 }
 
-// Whether str() of an exception of this type joins its arguments as
-// BaseException.__str__ does, or quotes a lone one as KeyError.__str__ does.
-static __always_inline bool python_exception_default_str(const python_exception_proc_t *proc,
-                                                         const u64 type) {
-    const u64 str = python_read_ptr(type + k_python_type_str);
-    return str && (str == proc->base_exception_str || str == proc->key_error_str);
-}
-
 // Records the arguments str() renders: `value` itself when C code raised a
 // str or another non-tuple, else the instance's args or the raised tuple. An
 // exception type with its own __str__ keeps only a str first argument. Of
@@ -576,7 +572,9 @@ static __always_inline void python_exception_message(const python_exception_proc
         return;
     }
 
-    const bool default_str = python_exception_default_str(proc, type);
+    const u64 str = python_read_ptr(type + k_python_type_str);
+    message->quote_single = str && str == proc->key_error_str;
+    const bool default_str = message->quote_single || (str && str == proc->base_exception_str);
     u64 args = value;
     if (value_type != proc->tuple_type) {
         if (!python_exception_instance(proc, value_type)) {
@@ -891,7 +889,6 @@ static __always_inline void python_exception_capture(const python_exception_proc
 
     const u64 traceback = instance ? python_read_ptr(value + proc->exception_traceback) : 0;
     python_exception_capture_frames(proc, tstate, traceback, payload);
-    python_exception_chain(proc, tstate, value, instance, payload);
 }
 
 // The request's candidates, updated in place; a request's first raise creates
