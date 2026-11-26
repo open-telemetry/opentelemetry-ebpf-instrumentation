@@ -1460,7 +1460,7 @@ capture_sock_buf(struct __sk_buff *skb, connection_info_t *conn, const protocol_
         read_skb_bytes(
             skb, tcp->hdr_len, (void *)capture_buf, k_backup_buffer_len, k_backup_buffer_len);
 
-        bpf_d_printk("captured fallback buffer %s", capture_buf);
+        bpf_d_printk("captured fallback buf=[%s]", capture_buf);
     }
 
     return 0;

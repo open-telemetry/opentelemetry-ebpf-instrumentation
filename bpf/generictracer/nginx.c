@@ -48,10 +48,10 @@ static __always_inline void get_sock_info(u64 id, void *conn_ptr, connection_inf
         void *sockaddr_ptr = 0;
         bpf_probe_read(&sockaddr_ptr, sizeof(void *), conn_ptr + ngx_connection_s_sockaddr);
 
-        bpf_dbg_printk("sock_addr %llx", sockaddr_ptr);
+        bpf_dbg_printk("sock_addr=%llx", sockaddr_ptr);
         if (sockaddr_ptr) {
             parse_sockaddr_info(host_pid, (struct sockaddr *)sockaddr_ptr, part);
-            bpf_dbg_printk("connection port %d", part->port);
+            bpf_dbg_printk("connection port=%d", part->port);
         }
     }
 }

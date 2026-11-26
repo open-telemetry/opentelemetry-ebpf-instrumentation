@@ -555,7 +555,7 @@ int GUARDED_PROG(obi_uprobe_readMimeHeader, struct pt_regs *, ctx) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe/readMimeHeader === ");
+    bpf_dbg_printk("=== uprobe/readMimeHeader ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
