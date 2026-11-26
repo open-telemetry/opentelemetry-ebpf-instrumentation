@@ -31,7 +31,7 @@ on:
         type: string
 
 concurrency:
-  group: pr-checks-${{ github.head_ref || github.run_id }}
+  group: pr-checks-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -247,14 +247,27 @@ jobs:
 
   generate-api-base-bpf:
     name: Generate BPF for API base
+    outputs:
+      base-sha: ${{ steps.base.outputs.sha }}
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 2
           persist-credentials: false
+
+      - name: Check out the base actually tested by this merge
+        id: base
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
+          base_sha="$(git rev-parse HEAD^1)"
+          git checkout --detach "$base_sha"
+          echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
 
       - uses: $/.github/actions/generate-bpf
         with:
@@ -275,7 +288,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ needs.generate-api-base-bpf.outputs.base-sha }}
           path: base
           persist-credentials: false
 
@@ -303,6 +316,9 @@ jobs:
       - name: Check public Go API compatibility (report only)
         env:
           GOTOOLCHAIN: local
+          COMPARISON_PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMPARISON_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          COMPARISON_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: ./head/scripts/check-go-api-compatibility.sh ./base ./head
 
       - name: Test Go API compatibility comment helper

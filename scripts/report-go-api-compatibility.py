@@ -19,6 +19,7 @@ SOURCE_NAME = "PR checks"
 JOB_NAME = "Public Go API compatibility (report only)"
 REPORT_TITLE = "obi-go-api-compatibility-report"
 ADDITIONS_TITLE = "obi-go-api-additions-report"
+IDENTITY_TITLE = "obi-go-api-comparison-identity"
 MARKER = "<!-- obi-go-api-compatibility -->"
 MAX_REPORT = 3000
 
@@ -78,10 +79,11 @@ def read_report(gh, run):
     if not check_run_id.isdecimal() or not str(job.get("id", "")).isdecimal():
         return None
     annotations = gh.pages(f"/repos/{REPOSITORY}/check-runs/{check_run_id}/annotations")
-    reports = [annotation for annotation in annotations if annotation.get("title") in (REPORT_TITLE, ADDITIONS_TITLE)]
+    reports = [annotation for annotation in annotations if annotation.get("title") in (REPORT_TITLE, ADDITIONS_TITLE, IDENTITY_TITLE)]
     compatibility = [annotation for annotation in reports if annotation.get("title") == REPORT_TITLE]
     additions = [annotation for annotation in reports if annotation.get("title") == ADDITIONS_TITLE]
-    if len(compatibility) != 1 or len(additions) > 1:
+    identities = [annotation for annotation in reports if annotation.get("title") == IDENTITY_TITLE]
+    if len(compatibility) != 1 or len(additions) > 1 or len(identities) != 1:
         return None
     annotation = compatibility[0]
     if annotation.get("annotation_level") not in ("warning", "notice"):
@@ -99,26 +101,75 @@ def read_report(gh, run):
         if (addition.get("annotation_level") != "notice" or not isinstance(addition_message, str)
                 or not addition_message.strip() or len(addition_message.encode("utf-8")) > MAX_REPORT):
             return None
-    return (message if incompatible else None), addition_message, job
+    identity = identities[0]
+    identity_message = identity.get("message", "")
+    if identity.get("annotation_level") != "notice" or not isinstance(identity_message, str) or len(identity_message) > 512:
+        return None
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate comparison identity field")
+            result[key] = value
+        return result
+
+    fields = json.loads(identity_message, object_pairs_hook=unique_object)
+    if (not isinstance(fields, dict) or set(fields) != {"pr", "base_ref", "base_sha", "head_sha", "merge_sha"}
+            or not isinstance(fields["pr"], str) or not fields["pr"].isdecimal() or int(fields["pr"]) <= 0
+            or not isinstance(fields["base_ref"], str) or not fields["base_ref"]
+            or any(not isinstance(fields[key], str) or len(fields[key]) != 40
+                   or any(c not in "0123456789abcdef" for c in fields[key])
+                   for key in ("base_sha", "head_sha", "merge_sha"))):
+        return None
+    return (message if incompatible else None), addition_message, job, fields
 
 
-def find_current_pr(gh, run):
+def find_current_pr(run, identity):
     head_repo = run.get("head_repository") or {}
     head_owner = (head_repo.get("owner") or {}).get("login")
     head_ref = run.get("head_branch")
-    if not head_owner or not head_ref or not head_repo.get("full_name"):
+    if (not head_owner or not head_ref or not head_repo.get("full_name")
+            or head_repo["full_name"].split("/", 1)[0].casefold() != head_owner.casefold()):
         return None
-    query = urllib.parse.urlencode({"state": "open", "head": f"{head_owner}:{head_ref}"})
-    candidates = gh.request("GET", f"/repos/{REPOSITORY}/pulls?{query}")
-    matches = [
-        pr for pr in candidates
-        if pr.get("state") == "open"
-        and pr.get("base", {}).get("repo", {}).get("full_name") == REPOSITORY
-        and pr.get("head", {}).get("repo", {}).get("full_name") == head_repo.get("full_name")
-        and pr.get("head", {}).get("ref") == head_ref
-        and pr.get("head", {}).get("sha") == run["head_sha"]
-    ]
-    return (matches[0], head_repo, head_ref) if len(matches) == 1 else None
+    pr_number = int(identity["pr"])
+    if run.get("head_sha") != identity["head_sha"]:
+        return None
+    if "pull_requests" in run:
+        metadata = run["pull_requests"]
+        if not isinstance(metadata, list):
+            return None
+        if metadata and not any(
+            isinstance(item, dict)
+            and item.get("number") == pr_number
+            and isinstance(item.get("base"), dict)
+            and item["base"].get("ref") == identity["base_ref"]
+            and isinstance(item.get("head"), dict)
+            and item["head"].get("ref") == head_ref
+            and item["head"].get("sha") == identity["head_sha"]
+            for item in metadata
+        ):
+            return None
+    return (pr_number, head_repo, head_ref, identity)
+
+
+def current_pull_request(gh, selected):
+    number, head_repo, head_ref, identity = selected
+    latest = gh.request("GET", f"/repos/{REPOSITORY}/pulls/{number}")
+    ref = urllib.parse.quote(identity["base_ref"], safe="")
+    base_tip = gh.request("GET", f"/repos/{REPOSITORY}/git/ref/heads/{ref}")
+    merge = gh.request("GET", f"/repos/{REPOSITORY}/git/commits/{identity['merge_sha']}")
+    parents = [parent.get("sha") for parent in merge.get("parents", []) if isinstance(parent, dict)]
+    return (
+        latest.get("number") == number and latest.get("state") == "open"
+        and latest.get("base", {}).get("repo", {}).get("full_name") == REPOSITORY
+        and latest.get("base", {}).get("ref") == identity["base_ref"]
+        and latest.get("head", {}).get("repo", {}).get("full_name") == head_repo.get("full_name")
+        and latest.get("head", {}).get("ref") == head_ref
+        and latest.get("head", {}).get("sha") == identity["head_sha"]
+        and base_tip.get("object", {}).get("sha") == identity["base_sha"]
+        and latest.get("merge_commit_sha") == identity["merge_sha"]
+        and parents == [identity["base_sha"], identity["head_sha"]]
+    )
 
 
 def main():
@@ -148,12 +199,14 @@ def main():
     if workflow.get("path") != SOURCE_WORKFLOW or workflow.get("name") != SOURCE_NAME:
         return 0
     report = read_report(gh, run)
-    selected_pr = find_current_pr(gh, run) if report else None
+    selected_pr = find_current_pr(run, report[3]) if report else None
     if not selected_pr:
         return 0
-    incompatible_message, additions_message, job = report
-    pr, head_repo, head_ref = selected_pr
-    issue_path = f"/repos/{REPOSITORY}/issues/{pr['number']}/comments"
+    incompatible_message, additions_message, job, _ = report
+    pr_number, head_repo, head_ref, identity = selected_pr
+    if not current_pull_request(gh, selected_pr):
+        return 0
+    issue_path = f"/repos/{REPOSITORY}/issues/{pr_number}/comments"
     existing = [
         comment for comment in gh.pages(issue_path)
         if comment.get("body", "").startswith(MARKER)
@@ -187,8 +240,7 @@ def main():
         body = "".join(sections)
         if existing and existing[0].get("body") == body:
             return 0
-        latest = gh.request("GET", f"/repos/{REPOSITORY}/pulls/{pr['number']}")
-        if not current_pull_request(latest, pr, run, head_repo, head_ref):
+        if not current_pull_request(gh, selected_pr):
             return 0
         if existing:
             gh.request("PATCH", f"/repos/{REPOSITORY}/issues/comments/{existing[0]['id']}", {"body": body})
@@ -199,22 +251,10 @@ def main():
     if existing:
         cleared = f"{MARKER}\n> The Go API compatibility check completed with neither public API additions nor potential incompatibilities for the current head.\n<!-- /obi-go-api-compatibility -->"
         if existing[0].get("body") != cleared:
-            latest = gh.request("GET", f"/repos/{REPOSITORY}/pulls/{pr['number']}")
-            if not current_pull_request(latest, pr, run, head_repo, head_ref):
+            if not current_pull_request(gh, selected_pr):
                 return 0
             gh.request("PATCH", f"/repos/{REPOSITORY}/issues/comments/{existing[0]['id']}", {"body": cleared})
     return 0
-
-
-def current_pull_request(latest, selected, run, head_repo, head_ref):
-    return (
-        latest.get("number") == selected.get("number")
-        and latest.get("state") == "open"
-        and latest.get("base", {}).get("repo", {}).get("full_name") == REPOSITORY
-        and latest.get("head", {}).get("repo", {}).get("full_name") == head_repo.get("full_name")
-        and latest.get("head", {}).get("ref") == head_ref
-        and latest.get("head", {}).get("sha") == run["head_sha"]
-    )
 
 
 if __name__ == "__main__":

@@ -103,6 +103,16 @@ emit_annotation() {
   printf '::%s title=%s::%s\n' "$level" "$title" "$message"
 }
 
+if [[ -n "${COMPARISON_PR_NUMBER:-}${COMPARISON_BASE_REF:-}${COMPARISON_HEAD_SHA:-}" ]]; then
+  : "${COMPARISON_PR_NUMBER:?missing pull request number}"
+  : "${COMPARISON_BASE_REF:?missing pull request base ref}"
+  : "${COMPARISON_HEAD_SHA:?missing pull request head SHA}"
+  base_sha="$(git -C "$base_dir" rev-parse HEAD)"
+  merge_sha="$(git -C "$head_dir" rev-parse HEAD)"
+  identity="$(jq -cn --arg pr "$COMPARISON_PR_NUMBER" --arg base_ref "$COMPARISON_BASE_REF" --arg base_sha "$base_sha" --arg head_sha "$COMPARISON_HEAD_SHA" --arg merge_sha "$merge_sha" '{pr:$pr,base_ref:$base_ref,base_sha:$base_sha,head_sha:$head_sha,merge_sha:$merge_sha}')"
+  emit_annotation notice obi-go-api-comparison-identity "$identity"
+fi
+
 if [[ -s "$tmp/additions" ]]; then
   echo '### Public API additions' >> "$GITHUB_STEP_SUMMARY"
   cat "$tmp/additions" >> "$GITHUB_STEP_SUMMARY"

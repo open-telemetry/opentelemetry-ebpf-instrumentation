@@ -12,6 +12,9 @@ from unittest.mock import patch
 
 
 SCRIPT = os.path.join(os.path.dirname(__file__), "..", "report-go-api-compatibility.py")
+HEAD_SHA = "a" * 40
+BASE_SHA = "b" * 40
+MERGE_SHA = "e" * 40
 SPEC = importlib.util.spec_from_file_location("report", SCRIPT)
 report = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(report)
@@ -25,6 +28,12 @@ class FakeGitHub:
         self.current_sha = current_sha
         self.conclusion = conclusion
         self.writes = []
+        self.base_sha = BASE_SHA
+        self.base_ref = "main"
+        self.base_lookups = 0
+        self.advance_base_after_first_lookup = False
+        self.open_fork_prs = [self.pull(), self.pull(number=10, base_ref="release-1.0")]
+        self.pr_reads = []
 
     def request(self, method, path, body=None):
         if path.endswith("/actions/workflows/7"):
@@ -33,12 +42,24 @@ class FakeGitHub:
             return []
         if path.endswith("/actions/workflows/7"):
             return {"path": report.SOURCE_WORKFLOW, "name": report.SOURCE_NAME}
-        if path.endswith("/pulls?state=open&head=contrib%3Atopic"):
-            return [self.pull()]
-        if path.endswith("/pulls/9"):
-            pr = self.pull()
+        if "/pulls/" in path:
+            number = int(path.rsplit("/", 1)[1])
+            self.pr_reads.append(number)
+            pr = next((item for item in self.open_fork_prs if item["number"] == number), None)
+            if pr is None:
+                raise AssertionError(path)
+            pr = dict(pr)
+            pr["base"] = dict(pr["base"])
+            pr["head"] = dict(pr["head"])
             pr["head"]["sha"] = self.current_sha
             return pr
+        if "/git/ref/heads/" in path:
+            self.base_lookups += 1
+            if self.advance_base_after_first_lookup and self.base_lookups > 1:
+                return {"object": {"sha": "c" * 40}}
+            return {"object": {"sha": self.base_sha}}
+        if path.endswith("/git/commits/" + MERGE_SHA):
+            return {"parents": [{"sha": BASE_SHA}, {"sha": HEAD_SHA}]}
         if method in ("POST", "PATCH"):
             self.writes.append((method, path, body))
             return {}
@@ -50,16 +71,20 @@ class FakeGitHub:
                      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "conclusion": self.conclusion, "id": 88,
                      "check_run_url": "https://api.github.com/repos/x/check-runs/77"}]
         if "/check-runs/77/annotations" in path:
-            return ([] if self.annotation is None else [self.annotation]) + self.additional_annotations
+            return ([] if self.annotation is None else [self.annotation]) + self.additional_annotations + [
+                {"title": report.IDENTITY_TITLE, "annotation_level": "notice",
+                 "message": json.dumps({"pr": "9", "base_ref": "main", "base_sha": BASE_SHA,
+                                        "head_sha": HEAD_SHA, "merge_sha": MERGE_SHA})}
+            ]
         if "/issues/9/comments" in path:
             return self.comments
         raise AssertionError(path)
 
-    @staticmethod
-    def pull():
-        return {"number": 9, "state": "open",
-                "base": {"repo": {"full_name": report.REPOSITORY}},
-                "head": {"repo": {"full_name": "contrib/repo"}, "ref": "topic", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+    def pull(self, number=9, base_ref=None):
+        return {"number": number, "state": "open",
+                "base": {"repo": {"full_name": report.REPOSITORY}, "ref": base_ref or self.base_ref, "sha": BASE_SHA},
+                "merge_commit_sha": MERGE_SHA,
+                "head": {"repo": {"full_name": "contrib/repo"}, "ref": "topic", "sha": HEAD_SHA}}
 
 
 class ReportTest(unittest.TestCase):
@@ -80,11 +105,28 @@ class ReportTest(unittest.TestCase):
             )
             (head / "newpkg").mkdir()
             (head / "newpkg/new.go").write_text("package newpkg\nfunc New() {}\n", encoding="utf-8")
+            for checkout, subject in ((base, "base"), (head, "head")):
+                subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+                subprocess.run(["git", "-C", str(checkout), "config", "user.email", "test@example.com"], check=True)
+                subprocess.run(["git", "-C", str(checkout), "config", "user.name", "Test"], check=True)
+                subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
+                subprocess.run(["git", "-C", str(checkout), "commit", "-qm", subject], check=True)
             summary = root / "summary.md"
             result = subprocess.run(
                 ["bash", str(repository / "scripts/check-go-api-compatibility.sh"), str(base), str(head)],
-                env=dict(os.environ, GITHUB_STEP_SUMMARY=str(summary)), capture_output=True, text=True, check=True,
+                env=dict(os.environ, GITHUB_STEP_SUMMARY=str(summary), COMPARISON_PR_NUMBER="9",
+                         COMPARISON_BASE_REF="main", COMPARISON_HEAD_SHA="a" * 40),
+                capture_output=True, text=True, check=True,
             )
+            identity_line = next(line for line in result.stdout.splitlines()
+                                 if line.startswith("::notice title=obi-go-api-comparison-identity::"))
+            identity = json.loads(identity_line.split("::", 2)[2])
+            self.assertEqual(identity["pr"], "9")
+            self.assertEqual(identity["base_ref"], "main")
+            self.assertEqual(identity["base_sha"], subprocess.check_output(
+                ["git", "-C", str(base), "rev-parse", "HEAD"], text=True).strip())
+            self.assertEqual(identity["merge_sha"], subprocess.check_output(
+                ["git", "-C", str(head), "rev-parse", "HEAD"], text=True).strip())
             self.assertIn("::notice title=obi-go-api-additions-report::", result.stdout)
             self.assertIn("::warning title=obi-go-api-compatibility-report::", result.stdout)
             self.assertIn("### Public API additions", summary.read_text(encoding="utf-8"))
@@ -98,11 +140,14 @@ class ReportTest(unittest.TestCase):
             self.assertEqual(github.pages("/jobs"), [{"id": 2}])
             request.assert_called_once_with("GET", "/jobs?per_page=100&page=1")
 
-    def run_helper(self, annotation, fake):
+    def run_helper(self, annotation, fake, pull_requests=None):
         event = {"workflow_run": {"id": 41, "workflow_id": 7, "run_attempt": 2,
                  "event": "pull_request", "repository": {"full_name": report.REPOSITORY},
                  "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "head_branch": "topic",
-                 "head_repository": {"full_name": "contrib/repo", "owner": {"login": "contrib", "id": 2}}}}
+                 "head_repository": {"full_name": "contrib/repo", "owner": {"login": "contrib", "id": 2}},
+                 "pull_requests": []}}
+        if pull_requests is not None:
+            event["workflow_run"]["pull_requests"] = pull_requests
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as file:
             json.dump(event, file)
             file.flush()
@@ -121,6 +166,10 @@ class ReportTest(unittest.TestCase):
         self.assertIn("&lt;/pre&gt;", body["body"])
         self.assertIn("&#64;everyone", body["body"])
         self.assertIn("/actions/runs/41/job/88", body["body"])
+        self.assertEqual(fake.pr_reads, [9, 9])
+        self.assertEqual([pr["base"]["ref"] for pr in fake.open_fork_prs], ["main", "release-1.0"])
+        self.assertEqual([(pr["head"]["ref"], pr["head"]["sha"]) for pr in fake.open_fork_prs],
+                         [("topic", HEAD_SHA), ("topic", HEAD_SHA)])
 
     def test_additions_only_posts_informational_comment(self):
         fake = FakeGitHub(
@@ -160,6 +209,32 @@ class ReportTest(unittest.TestCase):
     def test_stale_head_does_not_post(self):
         fake = FakeGitHub({"title": report.REPORT_TITLE, "annotation_level": "warning", "message": "API break"}, current_sha="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
         self.run_helper(fake.annotation, fake)
+        self.assertEqual(fake.writes, [])
+
+    def test_stale_base_with_same_head_does_not_post(self):
+        fake = FakeGitHub({"title": report.REPORT_TITLE, "annotation_level": "warning", "message": "API break"})
+        fake.base_sha = "d" * 40
+        self.run_helper(fake.annotation, fake)
+        self.assertEqual(fake.writes, [])
+
+    def test_base_retarget_does_not_post(self):
+        fake = FakeGitHub({"title": report.REPORT_TITLE, "annotation_level": "warning", "message": "API break"})
+        fake.base_ref = "release-1.0"
+        fake.open_fork_prs[0]["base"]["ref"] = fake.base_ref
+        self.run_helper(fake.annotation, fake)
+        self.assertEqual(fake.writes, [])
+
+    def test_base_advance_between_lookup_and_write_does_not_post(self):
+        fake = FakeGitHub({"title": report.REPORT_TITLE, "annotation_level": "warning", "message": "API break"})
+        fake.advance_base_after_first_lookup = True
+        self.run_helper(fake.annotation, fake)
+        self.assertEqual(fake.writes, [])
+
+    def test_workflow_run_pull_request_metadata_must_match_identity(self):
+        fake = FakeGitHub({"title": report.REPORT_TITLE, "annotation_level": "warning", "message": "API break"})
+        metadata = [{"number": 10, "base": {"ref": "release-1.0"},
+                     "head": {"ref": "topic", "sha": HEAD_SHA}}]
+        self.run_helper(fake.annotation, fake, metadata)
         self.assertEqual(fake.writes, [])
 
     def test_clean_report_only_clears_existing_bot_comment(self):
