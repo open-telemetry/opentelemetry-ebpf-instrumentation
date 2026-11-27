@@ -1,0 +1,14 @@
+services:
+  route-client:
+    image: busybox:musl@sha256:80e38f9a1b39188b8bdb28879178edb322a4402b081a9aedda1924609decd6f6
+    depends_on:
+      - testserver
+    # Keep sending requests while OATS waits for the tracer and the Java route harvester.
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          wget -q -T 2 -O /dev/null --header 'Accept: application/json' http://testserver:8085/greeting123/obitest
+          sleep 1
+        done

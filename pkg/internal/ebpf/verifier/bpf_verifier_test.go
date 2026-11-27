@@ -69,8 +69,8 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 		t.Parallel()
 		spec := cachedSpec(t, loadFn)
 
-		// On kernels < 5.17, replace obi_protocol_http (which uses bpf_loop)
-		// with obi_protocol_http_legacy, matching what the production loader does.
+		// On kernels < 5.17, replace the programs that use bpf_loop with their
+		// _legacy twins, matching what the production loader does.
 		if spec.Programs["obi_protocol_http"] != nil {
 			ebpfcommon.FixupSpec(spec, false)
 		}
@@ -231,6 +231,8 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		// pinned on, not paired: before the gate existed this code was live in
 		// every combination below, and pairing it here would double the matrix
 		{"g_traces_ctx_v1_enabled", []any{true}},
+		// pinned on like g_traces_ctx_v1_enabled; the smaller matrices below leave it off
+		{"g_job_traces_enabled", []any{true}},
 	})
 	forEachCombination(t, "generictracer/BpfRingbufMetrics", generictracerbpf.LoadBpf, []constOption{
 		{"ringbuf_metrics_enabled", []any{true, false}},
@@ -305,6 +307,10 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		// pinned on, not paired: see the generictracer matrix above
 		{"g_traces_ctx_v1_enabled", []any{true}},
 	})
+	forEachCombination(t, "gotracer/BpfExceptions", gotracerbpf.LoadBpf, []constOption{
+		{"g_exceptions_enabled", []any{true}},
+		{"pid_ns_mode", pidNamespaceModes},
+	})
 	forEachCombination(t, "gotracer/BpfRingbufMetrics", gotracerbpf.LoadBpf, []constOption{
 		{"ringbuf_metrics_enabled", []any{true, false}},
 	})
@@ -344,6 +350,8 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 		{"enroll_instrumented_only", []any{true, false}},
+		// pinned on; tpinjector/BpfPidNamespace leaves it off
+		{"g_job_traces_enabled", []any{true}},
 	})
 	forEachCombination(t, "tpinjector/BpfPidNamespace", tpinjectorbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},

@@ -1,9 +1,9 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Shadows common/trace_parent.h, whose real include chain pulls in the Go
-// tracer and fourteen map definitions. Parent-trace resolution is not
-// exercised by the host tests, so find_trace_* always reports no match.
+// Shadows common/trace_parent.h, whose real include chain pulls in
+// shared map definitions. Parent-trace resolution is not exercised by
+// the host tests, so find_trace_* always reports no match.
 
 #pragma once
 

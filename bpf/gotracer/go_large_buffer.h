@@ -153,7 +153,7 @@ static __always_inline void ship_large_request(void *buf,
         if (is_http == k_http_not) {
             void *parent_go = (void *)find_parent_goroutine_in_chain(g_key);
 
-            bpf_d_printk("parent_go %llx", parent_go);
+            bpf_d_printk("parent_go=%llx", parent_go);
 
             if (parent_go) {
                 go_addr_key_t parent_g = {};
@@ -163,7 +163,7 @@ static __always_inline void ship_large_request(void *buf,
                 // invocation contains our traceparent info. For HTTP2 clients this is a must
                 // since there are more than one request multiplexed on the same connection.
                 if (invocation) {
-                    bpf_d_printk("found client go on parent %llx", parent_go);
+                    bpf_d_printk("found client go on parent=%llx", parent_go);
                     event_type = k_lb_event_type_client;
                     is_http = k_http_request;
                 }
@@ -180,7 +180,7 @@ static __always_inline void ship_large_request(void *buf,
         }
     }
 
-    bpf_d_printk("event type = %d, is_http = %d", event_type, is_http);
+    bpf_d_printk("event_type=%d, is_http=%d", event_type, is_http);
 
     if ((event_type == k_lb_event_type_server && direction == TCP_SEND) ||
         (event_type == k_lb_event_type_client && direction == TCP_RECV)) {
@@ -196,7 +196,7 @@ static __always_inline void ship_large_request(void *buf,
         }
     }
 
-    bpf_d_printk("event_type %d, packet_type %d, is_http %d", event_type, packet_type, is_http);
+    bpf_d_printk("event_type=%d, packet_type=%d, is_http=%d", event_type, packet_type, is_http);
 
     large_buf->type = k_event_type_tcp_large_buffer;
     large_buf->packet_type = packet_type;

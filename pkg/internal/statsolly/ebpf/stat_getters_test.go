@@ -41,6 +41,31 @@ func TestTCPResetCauseIsOmittedWhenNotInferred(t *testing.T) {
 	}
 }
 
+func TestTCPHandshakeRoleOnTCPIo(t *testing.T) {
+	otelGetter, ok := StatGetters(attr.NetworkTCPHandshakeRole)
+	require.True(t, ok)
+	promGetter, ok := StatStringGetters(attr.NetworkTCPHandshakeRole)
+	require.True(t, ok)
+
+	for _, tc := range []struct {
+		role NetworkTCPHandshakeRoleCode
+		want NetworkTCPHandshakeRoleType
+	}{
+		{role: CodeRoleClient, want: RoleClient},
+		{role: CodeRoleServer, want: RoleServer},
+		{role: CodeRoleUnknown, want: RoleUnknown},
+	} {
+		t.Run(string(tc.want), func(t *testing.T) {
+			stat := &Stat{
+				Type:  StatTypeTCPIo,
+				TCPIo: &TCPIo{Direction: uint8(CodeDirectionTransmit), Role: uint8(tc.role), Bytes: 100},
+			}
+			assert.Equal(t, attribute.String(string(attr.NetworkTCPHandshakeRole), string(tc.want)), otelGetter(stat))
+			assert.Equal(t, string(tc.want), promGetter(stat))
+		})
+	}
+}
+
 func resetStat(cause TCPResetCauseCode) *Stat {
 	return &Stat{
 		Type: StatTypeTCPReset,

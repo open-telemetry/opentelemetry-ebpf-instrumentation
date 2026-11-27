@@ -21,8 +21,8 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-var splitSuites = map[string]bool{
-	"ai": true, "http": true, "kafka": true, "sql": true,
+var suiteShards = map[string]int{
+	"ai": 2, "http": 3, "kafka": 2, "sql": 2,
 }
 
 var safeCaseName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*$`)
@@ -319,10 +319,7 @@ func hasRelativePath(node *yaml.Node) bool {
 }
 
 func assignGroups(suite string, groups []fixtureGroup) []shard {
-	count := 1
-	if splitSuites[suite] && len(groups) > 1 {
-		count = 2
-	}
+	count := max(1, min(suiteShards[suite], len(groups)))
 	assignments := make([][]fixtureGroup, count)
 	weights := make([]int, count)
 	ordered := append([]fixtureGroup(nil), groups...)

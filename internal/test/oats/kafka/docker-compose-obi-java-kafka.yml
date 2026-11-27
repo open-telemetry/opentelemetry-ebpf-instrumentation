@@ -13,7 +13,7 @@ services:
       - "2181:2181"
 
   kafka:
-    image: confluentinc/cp-kafka:7.9.11@sha256:900c8308578371e874892eb6b121d15cc2f6a0a1f1be50f319746fb36d052bf6
+    image: confluentinc/cp-kafka:7.9.11@sha256:f7a89f291c0e151783240d3a87f1469b0cdbffd32a18330d5a0ecd3efb120305
     depends_on:
       zookeeper:
         condition: service_healthy

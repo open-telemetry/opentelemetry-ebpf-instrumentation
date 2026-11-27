@@ -12,14 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	testBatchLen     = 2
-	testPossibleCPUs = 2
-)
+const testBatchLen = 2
 
 func TestLookupAndDelete(t *testing.T) {
 	expectedAggregation := map[NetFlowId]*NetFlowMetrics{
-		{IfIndex: 1}: {Packets: 6, StartMonoTimeNs: 101, EndMonoTimeNs: 103},
+		{IfIndex: 1}: {Packets: 3, StartMonoTimeNs: 101, EndMonoTimeNs: 103},
+		{IfIndex: 2}: {Packets: 5, StartMonoTimeNs: 10, EndMonoTimeNs: 130},
 		{IfIndex: 3}: {Packets: 35, StartMonoTimeNs: 101, EndMonoTimeNs: 125},
 		{IfIndex: 4}: {Packets: 22, StartMonoTimeNs: 101, EndMonoTimeNs: 110},
 	}
@@ -28,14 +26,12 @@ func TestLookupAndDelete(t *testing.T) {
 		flows, err := fmd.lookupAndDeleteMap()
 		require.NoError(t, err)
 		assert.Equal(t, expectedAggregation, flows)
-		assert.EqualValues(t, 125, fmd.lastReadNS)
 	})
 	t.Run("batch", func(t *testing.T) {
 		fmd := batchReader()
 		flows, err := fmd.lookupAndDeleteMap()
 		require.NoError(t, err)
 		assert.Equal(t, expectedAggregation, flows)
-		assert.EqualValues(t, 125, fmd.lastReadNS)
 	})
 	t.Run("auto", func(t *testing.T) {
 		fmd := flowMapReaderChooser[*fakeMapIterator]{legacy: legacyReader(), batch: batchReader()}
@@ -45,6 +41,51 @@ func TestLookupAndDelete(t *testing.T) {
 	})
 }
 
+func TestLookupAndDelete_FlowReadTwice(t *testing.T) {
+	// the programs create a flow again after the reader deleted it, and the reader finds it again
+	input := func() fakeBPFMap {
+		return []entry{
+			{k: NetFlowId{IfIndex: 1}, v: NetFlowMetrics{Packets: 3, Bytes: 30, StartMonoTimeNs: 101, EndMonoTimeNs: 103}},
+			{k: NetFlowId{IfIndex: 2}, v: NetFlowMetrics{Packets: 1, StartMonoTimeNs: 110, EndMonoTimeNs: 110}},
+			{k: NetFlowId{IfIndex: 1}, v: NetFlowMetrics{Packets: 4, Bytes: 40, StartMonoTimeNs: 120, EndMonoTimeNs: 125}},
+		}
+	}
+	expected := map[NetFlowId]*NetFlowMetrics{
+		{IfIndex: 1}: {Packets: 7, Bytes: 70, StartMonoTimeNs: 101, EndMonoTimeNs: 125},
+		{IfIndex: 2}: {Packets: 1, StartMonoTimeNs: 110, EndMonoTimeNs: 110},
+	}
+	t.Run("legacy", func(t *testing.T) {
+		reader := &flowMapLegacyReader[*fakeMapIterator]{log: slog.Default(), flowMap: input()}
+		flows, err := reader.lookupAndDeleteMap()
+		require.NoError(t, err)
+		assert.Equal(t, expected, flows)
+	})
+	t.Run("batch", func(t *testing.T) {
+		flowMap := input()
+		reader := &flowMapBatchReader{
+			flowMap:      &flowMap,
+			cachedKeys:   make([]NetFlowId, testBatchLen),
+			cachedValues: make([]NetFlowMetrics, testBatchLen),
+		}
+		flows, err := reader.lookupAndDeleteMap()
+		require.NoError(t, err)
+		assert.Equal(t, expected, flows)
+	})
+}
+
+func TestBatchReaderForwardsOptions(t *testing.T) {
+	opts := &ebpf.BatchOptions{ElemFlags: uint64(ebpf.LookupLock)}
+	flowMap := &ebpfMapMock{}
+	flowMap.On("BatchLookupAndDelete", mock.Anything, mock.Anything, mock.Anything, opts).
+		Return(0, ebpf.ErrKeyNotExist)
+
+	reader := &flowMapBatchReader{flowMap: flowMap, opts: opts}
+	_, err := reader.lookupAndDeleteMap()
+	require.NoError(t, err)
+
+	flowMap.AssertExpectations(t)
+}
+
 func TestAutoChoose_BatchSupported(t *testing.T) {
 	// using a mock to verify that once if the BatchLookupAndDelete function works,
 	// the legacy iteration functions are not called
@@ -52,7 +93,7 @@ func TestAutoChoose_BatchSupported(t *testing.T) {
 	iter := &mockedMapIterator{}
 	legacyMap.On("Iterate").Return(iter)
 	legacyMap.On("BatchLookupAndDelete", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(4, ebpf.ErrKeyNotExist)
+		Return(0, ebpf.ErrKeyNotExist)
 
 	auto := flowMapReaderChooser[*mockedMapIterator]{
 		batch:  &flowMapBatchReader{flowMap: legacyMap},
@@ -101,25 +142,12 @@ func TestAutoChoose_BatchUnsupported(t *testing.T) {
 }
 
 func inputFlows() fakeBPFMap {
-	return []entry{{
-		k: NetFlowId{IfIndex: 1},
-		v: []NetFlowMetrics{{Packets: 1, StartMonoTimeNs: 101, EndMonoTimeNs: 101}, {Packets: 2, StartMonoTimeNs: 102, EndMonoTimeNs: 103}},
-	}, {
-		// repeated entry in map, will anyway try to aggregate,
-		k: NetFlowId{IfIndex: 1},
-		// will ignore the last flow because is too old
-		v: []NetFlowMetrics{{Packets: 3, StartMonoTimeNs: 101, EndMonoTimeNs: 102}, {Packets: 4, StartMonoTimeNs: 101, EndMonoTimeNs: 80}},
-	}, {
-		// this line is too old, will be ignored
-		k: NetFlowId{IfIndex: 2},
-		v: []NetFlowMetrics{{Packets: 5, StartMonoTimeNs: 10, EndMonoTimeNs: 130}, { /* zero metric */ }},
-	}, {
-		k: NetFlowId{IfIndex: 3},
-		v: []NetFlowMetrics{{ /* zero metric */ }, {Packets: 35, StartMonoTimeNs: 101, EndMonoTimeNs: 125}},
-	}, {
-		k: NetFlowId{IfIndex: 4},
-		v: []NetFlowMetrics{{Packets: 22, StartMonoTimeNs: 101, EndMonoTimeNs: 110}, { /* zero metric */ }},
-	}}
+	return []entry{
+		{k: NetFlowId{IfIndex: 1}, v: NetFlowMetrics{Packets: 3, StartMonoTimeNs: 101, EndMonoTimeNs: 103}},
+		{k: NetFlowId{IfIndex: 2}, v: NetFlowMetrics{Packets: 5, StartMonoTimeNs: 10, EndMonoTimeNs: 130}},
+		{k: NetFlowId{IfIndex: 3}, v: NetFlowMetrics{Packets: 35, StartMonoTimeNs: 101, EndMonoTimeNs: 125}},
+		{k: NetFlowId{IfIndex: 4}, v: NetFlowMetrics{Packets: 22, StartMonoTimeNs: 101, EndMonoTimeNs: 110}},
+	}
 }
 
 func legacyReader() *flowMapLegacyReader[*fakeMapIterator] {
@@ -127,7 +155,6 @@ func legacyReader() *flowMapLegacyReader[*fakeMapIterator] {
 		log:          slog.Default(),
 		cacheMaxSize: 50_000,
 		flowMap:      inputFlows(),
-		lastReadNS:   100,
 	}
 }
 
@@ -135,11 +162,9 @@ func batchReader() *flowMapBatchReader {
 	flows := inputFlows()
 	return &flowMapBatchReader{
 		cacheMaxSize: 50_000,
-		lastReadNS:   100,
-		possibleCPUs: testPossibleCPUs,
 		flowMap:      &flows,
 		cachedKeys:   make([]NetFlowId, testBatchLen),
-		cachedValues: make([]NetFlowMetrics, testBatchLen*testPossibleCPUs),
+		cachedValues: make([]NetFlowMetrics, testBatchLen),
 	}
 }
 
@@ -147,7 +172,7 @@ type fakeBPFMap []entry
 
 type entry struct {
 	k NetFlowId
-	v []NetFlowMetrics
+	v NetFlowMetrics
 }
 
 func (f fakeBPFMap) Delete(_ any) error {
@@ -168,7 +193,7 @@ func (f *fakeMapIterator) Next(key any, val any) bool {
 		return false
 	}
 	tsKey := key.(*NetFlowId)
-	tsVal := val.(*[]NetFlowMetrics)
+	tsVal := val.(*NetFlowMetrics)
 	*tsKey = f.srcMap[0].k
 	*tsVal = f.srcMap[0].v
 	f.srcMap = f.srcMap[1:]
@@ -184,7 +209,7 @@ func (f *fakeBPFMap) BatchLookupAndDelete(_ *ebpf.MapBatchCursor, keysOut, value
 	k := 0
 	for len(*f) > 0 && k < len(keys) {
 		keys[k] = (*f)[0].k
-		copy(values[k*testPossibleCPUs:(k+1)*testPossibleCPUs], (*f)[0].v)
+		values[k] = (*f)[0].v
 		*f = (*f)[1:]
 		k++
 	}

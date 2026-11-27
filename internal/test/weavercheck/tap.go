@@ -22,6 +22,7 @@ const (
 	exporterSentPrefix          = "otelcol_exporter_sent_"
 	exporterQueueSize           = "otelcol_exporter_queue_size"
 	exporterLabel               = "exporter"
+	exporterDataTypeLabel       = "data_type"
 	receiverAcceptedPrefix      = "otelcol_receiver_accepted_"
 	receiverLabel               = "receiver"
 	// the receiver OBI exports to in every collector that taps weaver
@@ -39,11 +40,12 @@ const (
 )
 
 type TapStats struct {
-	Found    bool
-	Failed   float64
-	Queued   float64
-	Sent     float64
-	Received float64
+	Found          bool
+	Failed         float64
+	Queued         float64
+	FailedBySignal map[string]float64
+	Sent           map[string]float64
+	Received       map[string]float64
 }
 
 func (s TapStats) Settled(previous TapStats) bool {
@@ -57,7 +59,12 @@ func ParseTapStats(reader io.Reader, exporter string) (TapStats, error) {
 		return TapStats{}, fmt.Errorf("parsing exporter counters: %w", err)
 	}
 
-	var stats TapStats
+	stats := TapStats{
+		FailedBySignal: make(map[string]float64),
+		Sent:           make(map[string]float64),
+		Received:       make(map[string]float64),
+	}
+	tapSignals := make(map[string]bool)
 	for name, family := range families {
 		if strings.HasPrefix(name, receiverAcceptedPrefix) {
 			if err := stats.addReceived(name, family.Metric); err != nil {
@@ -76,12 +83,44 @@ func ParseTapStats(reader io.Reader, exporter string) (TapStats, error) {
 				continue
 			}
 			stats.Found = true
+			if signal := exporterSignal(metric.GetLabel()); signal != "" {
+				tapSignals[signal] = true
+			}
 			if err := stats.add(kind, name, metric); err != nil {
 				return TapStats{}, err
 			}
 		}
 	}
+	// The receiver can also feed pipelines that do not export to this tap.
+	if len(tapSignals) > 0 || len(stats.Sent) > 0 || len(stats.FailedBySignal) > 0 {
+		for signal := range stats.Received {
+			_, sent := stats.Sent[signal]
+			_, failed := stats.FailedBySignal[signal]
+			if !sent && !failed && !tapSignals[signal] {
+				delete(stats.Received, signal)
+			}
+		}
+	}
 	return stats, nil
+}
+
+func exporterSignal(labels []*dto.LabelPair) string {
+	for _, label := range labels {
+		if label.GetName() != exporterDataTypeLabel {
+			continue
+		}
+		switch label.GetValue() {
+		case "metrics":
+			return "metric_points"
+		case "traces":
+			return "spans"
+		case "logs":
+			return "log_records"
+		case "profiles":
+			return "profile_samples"
+		}
+	}
+	return ""
 }
 
 func exporterMetricKindOf(name string) exporterMetricKind {
@@ -106,11 +145,18 @@ func (s *TapStats) add(kind exporterMetricKind, name string, metric *dto.Metric)
 			return fmt.Errorf("exporter failure metric %s is not a counter", name)
 		}
 		s.Failed += metric.Counter.GetValue()
+		signal, found := strings.CutPrefix(name, exporterFailedSendPrefix)
+		if !found {
+			signal = strings.TrimPrefix(name, exporterFailedEnqueuePrefix)
+		}
+		signal = strings.TrimSuffix(signal, "_total")
+		s.FailedBySignal[signal] += metric.Counter.GetValue()
 	case sentExporterMetric:
 		if metric.Counter == nil {
 			return fmt.Errorf("exporter sent metric %s is not a counter", name)
 		}
-		s.Sent += metric.Counter.GetValue()
+		signal := strings.TrimSuffix(strings.TrimPrefix(name, exporterSentPrefix), "_total")
+		s.Sent[signal] += metric.Counter.GetValue()
 	case queueExporterMetric:
 		if metric.Gauge == nil {
 			return fmt.Errorf("exporter queue metric %s is not a gauge", name)
@@ -128,7 +174,8 @@ func (s *TapStats) addReceived(name string, metrics []*dto.Metric) error {
 		if metric.Counter == nil {
 			return fmt.Errorf("receiver metric %s is not a counter", name)
 		}
-		s.Received += metric.Counter.GetValue()
+		signal := strings.TrimSuffix(strings.TrimPrefix(name, receiverAcceptedPrefix), "_total")
+		s.Received[signal] += metric.Counter.GetValue()
 	}
 	return nil
 }

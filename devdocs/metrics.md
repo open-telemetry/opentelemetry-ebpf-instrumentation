@@ -99,7 +99,7 @@ To add a new application metric, follow these guidelines:
 
 **StatsO11y** is the component responsible for calculating statistical metrics — for example, TCP RTT or failed-connection counts — across all applications running on a node, regardless of which PID triggered the event. The probes live in [bpf/statsolly](../bpf/statsolly/).
 
-In [pkg/export/attributes/attr_defs.go](../pkg/export/attributes/attr_defs.go) some `AttrReportGroup` type structures are defined for stat metrics in both the k8s and non-k8s environment: `statsAttributes` and `statsKubeAttributes`. Here too, ad hoc attributes can be added for each metric. There are attributes that default to true and others to false, but which can be enabled by the user during configuration.
+In [pkg/export/attributes/attr_defs.go](../pkg/export/attributes/attr_defs.go) some `AttrReportGroup` type structures are defined for stat metrics in both the k8s and non-k8s environment: `statsAttributes` and `statsKubeAttributes`, plus `statsCIDR`, enabled when `stats.cidrs` is configured. Here too, ad hoc attributes can be added for each metric. There are attributes that default to true and others to false, but which can be enabled by the user during configuration.
 
 ### BPF program naming convention
 
@@ -129,6 +129,10 @@ To add a new metric, follow these guidelines:
 
 12. Register the metric in the schema registry: add the metric to the `metrics:` list in [schemas/obi/groups/stats/metrics.yaml](../schemas/obi/groups/stats/metrics.yaml).
 
+### `obi_stat_tcp_io_bytes_total` transmit scope
+
+Transmit counts the bytes handed to TCP for sending, at `tcp_sendmsg_locked` and, before kernel 6.5, `do_tcp_sendpages`. These cover sockets in a sockmap with an `sk_msg` program, such as those context propagation tracks, which send through `tcp_bpf_sendmsg` and never reach `tcp_sendmsg`. Kernel TLS records are counted after encryption. Before 6.5 every sendpage path is counted too: `sendfile()`, splice, and in-kernel senders such as NFS, NVMe/TCP, iSCSI, Ceph and ESP-in-TCP, which often send from a kernel worker thread.
+
 ### Known limitations
 
 #### `src.port` of sockets that are already closed
@@ -145,6 +149,15 @@ tcp_set_state(sk, TCP_CLOSE)
 Probes that can run at or after this transition read the port with `parse_full_sock_info` in [bpf/common/sockaddr.h](../bpf/common/sockaddr.h), which falls back to `inet_sport` when `skc_num` is `0`. `inet_sport` is not cleared on close and holds the port the connection used on the wire. These probes are the `inet_sock_set_state` tracepoint (`obi_stat_tcp_failed_connections_total`), the `tcp_close` kprobes (`obi_stat_tcp_rtt_seconds` and the last `obi_stat_tcp_io_bytes_total` batch), which see a closed socket when a reset arrived before the application called `close()`, and the `tcp_send_reset` tracepoint (`obi_stat_tcp_resets_total`), which sees a closed socket when the application aborts the connection.
 
 `src.port` is still `0` for a connection attempt that fails before sending its SYN, for example when no ephemeral port is free. The failed-connections probe does not fall back to `inet_sport` for these attempts, because on a socket reused with `connect(AF_UNSPEC)` it still holds the port of the previous connection. `tcp_disconnect()` resets `segs_out` and the SYN increments it, so `segs_out == 0` identifies them.
+
+#### `network.tcp.handshake.role` of connections OBI did not see open
+
+`obi_stat_tcp_rtt_seconds` and `obi_stat_tcp_io_bytes_total` read the role from the `sock_role` map. The `inet_sock_set_state` tracepoint writes it when a socket reaches `ESTABLISHED`: `client` from `SYN_SENT`, `server` from `SYN_RECV`. A `tcp_destroy_sock` tracepoint deletes it. The role is `unknown` when the socket has no entry:
+
+- The connection was established before OBI started, for example a long-lived connection pool after an OBI restart. The handshake is over, so the role cannot be recovered.
+- The entry was evicted. `sock_role` is an LRU map of 65,536 sockets by default, scaled by `ebpf.maps_config.global_scale_factor`, and shared by all these metrics.
+
+`obi_stat_tcp_successful_connections_total` takes the role from the transition itself, and `obi_stat_tcp_failed_connections_total` does the same for attempts that fail during the handshake, so neither depends on the map for those.
 
 #### `obi_stat_tcp_resets_total` scope and cause
 
@@ -165,11 +178,19 @@ The `tcp_rcv_state_process()` kprobe fixes every supported kernel without state 
 - A `kprobe` on `tcp_reset()`. It fires only on resets and reads the RST bit from its `skb` argument, but `tcp_reset()` takes the `skb` only since kernel 5.11, so 5.8 to 5.10 would keep the false `receive`. Falling back to the `tcp_rcv_state_process()` kprobe on older kernels means two mechanisms to maintain and test.
 - Pairing the two tracepoints in user space. The abort is the only case where `tcp_send_reset` answers a segment on the same socket right after `tcp_receive_reset`, so a pipeline node could hold received resets of closing sockets and drop the ones followed by that reset. It adds no kernel hook and works from 5.8, but it delays those received resets by a hold window and adds a stateful node with a timer to the stats pipeline.
 
+#### CIDR attributes on stat metrics
+
+With `stats.cidrs` configured, every stat metric carries `src.cidr` and `dst.cidr`: the name of the narrowest configured CIDR that contains each address. The configuration only names ranges; dropping traffic is the job of `filter.stats`.
+
+- The attributes name the IP range of a peer, not the path the bytes took. Whether traffic labeled as an external range went through a NAT gateway depends on the route tables, which OBI does not read. Ranges with a different route, such as VPC endpoints, need their own entries.
+- The peer is the address the socket is connected to. Traffic sent through a forward proxy, an egress gateway or a sidecar is classified by the address of that proxy.
+- An address that matches no entry gets an empty value. Add `0.0.0.0/0` and `::/0` entries for a complete split.
+
 ### Performance considerations
 
-Some stat metrics attach to kernel functions that are called very frequently (e.g. `tcp_sendmsg`, `tcp_cleanup_rbuf` for TCP IO). These probes add a small overhead on every call, so the aggregate cost is proportional to the rate of TCP sends/receives on the node. Consider:
+Some stat metrics attach to kernel functions that are called very frequently (e.g. `tcp_sendmsg_locked`, `tcp_cleanup_rbuf` for TCP IO). These probes add a small overhead on every call, so the aggregate cost is proportional to the rate of TCP sends/receives on the node. Consider:
 
-- If you need RTT, failed connections, or retransmits **without** TCP IO overhead, enable those individually (`stats_tcp_rtt`, `stats_tcp_failed_connections`, `stats_tcp_successful_connections`, `stats_tcp_retransmits`) instead of using the `stats` aggregate feature — `stats` includes `stats_tcp_io`, which fires on every `tcp_sendmsg` and `tcp_cleanup_rbuf` call.
+- If you need RTT, failed connections, or retransmits **without** TCP IO overhead, enable those individually (`stats_tcp_rtt`, `stats_tcp_failed_connections`, `stats_tcp_successful_connections`, `stats_tcp_retransmits`) instead of using the `stats` aggregate feature — `stats` includes `stats_tcp_io`, which fires on every `tcp_sendmsg_locked` (and `do_tcp_sendpages` before kernel 6.5) and `tcp_cleanup_rbuf` call.
 - `tcp_resets` attaches a `kprobe` to `tcp_rcv_state_process()`, which runs for every segment of a socket that is not `ESTABLISHED`: about three per connection on each side, during the handshake and the close. It writes its map only for segments that carry an RST, a FIN or data on a closing socket, and a `tcp_destroy_sock` raw tracepoint deletes the entry once per socket.
 - The `stats_events` ring buffer and the per-metric eBPF maps (e.g. `tcp_io_accum`) have default size limits; on nodes with a very large number of concurrent connections these can be resized via the `ebpf.*` configuration knobs if events start being dropped.
 
@@ -196,5 +217,7 @@ attributes:
         - host.type
         - k8s.pod.name
 ```
+
+To turn off the info metrics themselves, set the Config v2 option `capture.metrics.target_info.enabled: false`. The OTLP resources and the labels of other metrics, including runtime metrics, do not change. This is meant for pipelines that build `target_info` from the OTLP resource; keep the default when Prometheus scrapes OBI directly, because the info metrics are then the only series carrying the resource attributes.
 
 **Note**: a metric is defined using the `Name` type, which carries the metric's `Section`, its `OTEL` name, `Unit` and instrument `Type`, plus the `Prom` name derived from those. Subsequently, that metric can be a counter, gauge, or other type.

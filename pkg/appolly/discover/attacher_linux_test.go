@@ -150,7 +150,7 @@ func TestFailedAttachDoesNotHoldExecutableInstance(t *testing.T) {
 	}
 }
 
-// The typer folds a child into its parent's Instrumentable, but reports the child's exit with its own FileInfo
+// A grouped create event and a separate child exit must balance the executable reference count.
 func TestFoldedChildHoldsExecutableInstance(t *testing.T) {
 	tests := []struct {
 		name             string

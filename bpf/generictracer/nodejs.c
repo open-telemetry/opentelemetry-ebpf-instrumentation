@@ -201,7 +201,7 @@ static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
         return 0;
     }
 
-    bpf_dbg_printk("nodejs_async_switch: %s, pid_tgid = %llx, fd = %u", buf, pid_tgid, fd);
+    bpf_dbg_printk("nodejs switch: buf=[%s], pid_tgid=%llx, fd=%u", buf, pid_tgid, fd);
 
     const tp_info_pid_t *tp = nodejs_server_trace_for_fd(pid_tgid, fd);
     if (tp) {
@@ -262,7 +262,7 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
             }
             bpf_map_delete_elem(&node_manual_ctx_shadow, &pid_tgid);
         }
-        bpf_dbg_printk("nodejs_mspan pop: pid_tgid = %llx", pid_tgid);
+        bpf_dbg_printk("nodejs_mspan pop: pid_tgid=%llx", pid_tgid);
         return 0;
     }
 
@@ -318,7 +318,7 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
     bpf_memcpy(newlive.span_id, sentinel.span_id, SPAN_ID_SIZE_BYTES);
     bpf_map_update_elem(&traces_ctx_v1, &pid_tgid, &newlive, BPF_ANY);
 
-    bpf_dbg_printk("nodejs_mspan override: pid_tgid = %llx", pid_tgid);
+    bpf_dbg_printk("nodejs_mspan override: pid_tgid=%llx", pid_tgid);
 
     return 0;
 }
@@ -412,7 +412,7 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
 // stale request context so a manual span ending in that callback
 // (handle_node_span) is not mis-parented into the previous request's trace.
 static __always_inline int handle_ctx_clear(const u64 pid_tgid) {
-    bpf_dbg_printk("nodejs_ctx_clear: pid_tgid = %llx", pid_tgid);
+    bpf_dbg_printk("nodejs_ctx_clear: pid_tgid=%llx", pid_tgid);
     obi_ctx__del(pid_tgid);
     // As with the '-ctx' refresh: this callback re-derives the base (here, no
     // request), so any stale override shadow must go. The bridge re-applies an
@@ -486,7 +486,7 @@ static __always_inline int handle_runtime_metrics(const char *path, const u64 pi
     e->delay_p99_ns = vals[8];
     e->delay_count = vals[9];
 
-    bpf_dbg_printk("nodejs_runtime_metrics: pid_tgid=%llx idle=%llu active=%llu",
+    bpf_dbg_printk("nodejs elu: pid_tgid=%llx, idle=%llu, active=%llu",
                    pid_tgid,
                    e->elu_idle_ns,
                    e->elu_active_ns);
@@ -559,8 +559,10 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
         e->kind = kind;
         e->duration_ns = duration_ns;
 
-        bpf_dbg_printk(
-            "nodejs_v8_gc: pid_tgid=%llx kind=%u duration=%llu", pid_tgid, e->kind, e->duration_ns);
+        bpf_dbg_printk("nodejs_v8_gc: pid_tgid=%llx, kind=%u, duration=%llu",
+                       pid_tgid,
+                       e->kind,
+                       e->duration_ns);
         bpf_ringbuf_submit(e, get_flags());
         return 0;
     }
@@ -594,7 +596,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
             e->space_name[i] = payload[k_v8_heap_numbers_len + i];
         }
 
-        bpf_dbg_printk("nodejs_v8_heap: pid_tgid=%llx used=%llu name_len=%u",
+        bpf_dbg_printk("nodejs_v8_heap: pid_tgid=%llx, used=%llu, name_len=%u",
                        pid_tgid,
                        e->space_used_size,
                        e->name_len);
@@ -628,7 +630,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
             e->resource_type[i] = payload[k_v8_resource_numbers_len + i];
         }
 
-        bpf_dbg_printk("nodejs_v8_resource: pid_tgid=%llx count=%llu name_len=%u",
+        bpf_dbg_printk("nodejs_v8_resource: pid_tgid=%llx, count=%llu, name_len=%u",
                        pid_tgid,
                        e->count,
                        e->name_len);
@@ -650,7 +652,7 @@ static __always_inline int handle_fd_correlation(char *buf, const u64 pid_tgid) 
         fd2 += buf[k_fd2_offset + i] - '0';
     }
 
-    bpf_dbg_printk("nodejs_fd_correlation: %s, fd1 = %u, fd2 = %u", buf, fd1, fd2);
+    bpf_dbg_printk("nodejs_fd_correlation: buf=[%s], fd1=%u, fd2=%u", buf, fd1, fd2);
 
     const u64 key = (pid_tgid << 32) | fd2;
 
@@ -762,23 +764,4 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
     }
     // fd pair correlation: /dev/null/obi/<fd1><fd2>
     return handle_fd_correlation(buf, pid_tgid);
-}
-
-// sys_exit only sees a thread calling exit(2): a process leaving through
-// exit_group(2), as Node's process.exit() does, or through a fatal signal never
-// enters it. Every exit path converges on do_exit, which fires this tracepoint
-// once per exiting thread, so neither an override shadow nor the thread's
-// traces_ctx_v1 entry can outlive its thread and be handed to whichever thread
-// next reuses the pid_tgid. No valid_pid() check: a thread can keep an entry
-// after it stops passing the filter, like a child whose parent has exited.
-SEC("tracepoint/sched/sched_process_exit")
-int GUARDED_PROG(obi_tp_sched_process_exit, void *, ctx) {
-    (void)ctx;
-
-    const u64 pid_tgid = bpf_get_current_pid_tgid();
-    bpf_map_delete_elem(&node_manual_ctx_shadow, &pid_tgid);
-    // not obi_ctx__del(): the manual span override writes the entry even when
-    // trace context population is off
-    bpf_map_delete_elem(&traces_ctx_v1, &pid_tgid);
-    return 0;
 }

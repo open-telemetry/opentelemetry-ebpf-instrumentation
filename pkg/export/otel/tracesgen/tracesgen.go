@@ -788,6 +788,13 @@ func sqlppQueryText(statement string, sanitize bool) string {
 	return sqlprune.SanitizeSQLPP(statement)
 }
 
+func elasticsearchQueryText(body string, sanitize bool) string {
+	if !sanitize {
+		return body
+	}
+	return sanitizeElasticsearchBody(body)
+}
+
 // appendIfSet reports an attribute only when the parser determined a value for
 // it. OTLP has no absent value, so emitting the key with an empty string would
 // assert that the value is empty rather than unknown. It takes a string
@@ -989,7 +996,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = appendIfSet(attrs, request.ElasticsearchNodeName, span.Elasticsearch.NodeName)
 			attrs = appendIfSet(attrs, request.DBNamespace, span.DBNamespace)
 			if _, ok := optionalAttrs[attr.DBQueryText]; ok {
-				attrs = appendIfSet(attrs, request.DBQueryText, span.Elasticsearch.DBQueryText)
+				attrs = appendIfSet(attrs, request.DBQueryText, elasticsearchQueryText(span.Elasticsearch.DBQueryText, sanitizeDBQueryText))
 			}
 			attrs = appendIfSet(attrs, request.DBOperationName, span.Elasticsearch.DBOperationName)
 			attrs = appendIfSet(attrs, request.DBSystemName, span.Elasticsearch.DBSystemName)

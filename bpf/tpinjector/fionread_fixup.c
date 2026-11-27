@@ -124,7 +124,7 @@ int obi_fionread_fixup_exit(struct trace_event_raw_sys_exit *ctx) {
     }
 
     const long err = bpf_probe_write_user(arg, &inq, sizeof(inq));
-    bpf_dbg_printk("fionread fix inq=%d err=%ld", inq, err);
+    bpf_dbg_printk("fionread fix inq=%d, err=%ld", inq, err);
 
     return 0;
 }

@@ -35,11 +35,13 @@ func TestBuildMatrixPreservesFixtureGroupsAndCoversCasesOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Include) != 3 {
-		t.Fatalf("got %d matrix rows, want 3: %#v", len(got.Include), got.Include)
+	if len(got.Include) != 4 {
+		t.Fatalf("got %d matrix rows, want 4: %#v", len(got.Include), got.Include)
 	}
-	if got.Include[0].ID != 0 || got.Include[1].ID != 1 || got.Include[2].ID != 2 {
-		t.Fatalf("IDs are not contiguous: %#v", got.Include)
+	for index, row := range got.Include {
+		if row.ID != index {
+			t.Fatalf("IDs are not contiguous: %#v", got.Include)
+		}
 	}
 
 	var httpShards []shard
@@ -48,7 +50,7 @@ func TestBuildMatrixPreservesFixtureGroupsAndCoversCasesOnce(t *testing.T) {
 		switch row.Suite {
 		case "http":
 			httpShards = append(httpShards, row)
-			if row.Basename != "http-1" && row.Basename != "http-2" {
+			if !contains([]string{"http-1", "http-2", "http-3"}, row.Basename) {
 				t.Errorf("unexpected HTTP basename %q", row.Basename)
 			}
 			observed = append(observed, row.Cases...)
@@ -58,8 +60,8 @@ func TestBuildMatrixPreservesFixtureGroupsAndCoversCasesOnce(t *testing.T) {
 			}
 		}
 	}
-	if len(httpShards) != 2 {
-		t.Fatalf("HTTP should use two shards, got %#v", httpShards)
+	if len(httpShards) != 3 {
+		t.Fatalf("HTTP should use three shards, got %#v", httpShards)
 	}
 	sort.Strings(observed)
 	if want := []string{"oats_a.yaml", "oats_b.yaml", "oats_c.yaml", "oats_d.yaml"}; !reflect.DeepEqual(observed, want) {

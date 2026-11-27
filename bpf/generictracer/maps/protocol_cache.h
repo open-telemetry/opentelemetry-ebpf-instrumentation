@@ -8,10 +8,12 @@
 
 #include <common/connection_info.h>
 #include <common/map_sizing.h>
+#include <common/pin_internal.h>
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, connection_info_t);
     __type(value, enum protocol_type);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } protocol_cache SEC(".maps");

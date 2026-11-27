@@ -26,6 +26,10 @@ const frameOwnerNone = 0xff
 
 const (
 	typeBasicSizeOffset = 32
+	typeStrOffset       = 136
+	pointerSize         = 8
+	// PyLongObject replaced ob_size with lv_tag in 3.12.
+	longTaggedMinor = 12
 	// PyBaseExceptionObject.traceback, after PyObject_HEAD, dict, args and notes.
 	exceptionTracebackOffset = 40
 	// PyCompactUnicodeObject adds utf8_length and utf8 to PyASCIIObject on 3.12+.
@@ -53,6 +57,9 @@ type ExceptionLayout struct {
 	StopIteration      uint64
 	StopAsyncIteration uint64
 	GeneratorExit      uint64
+	LongType           uint64
+	BaseExceptionStr   uint64
+	KeyErrorStr        uint64
 
 	TstateInterp       uint8
 	TstateFrame        uint8
@@ -74,6 +81,11 @@ type ExceptionLayout struct {
 	UnicodeASCIIData   uint8
 	UnicodeCompactData uint8
 	ExceptionTraceback uint8
+
+	ExceptionContext         uint8
+	ExceptionCause           uint8
+	ExceptionSuppressContext uint8
+	LongTagged               bool
 
 	FrameReadSize    uint8
 	FrameLastiInt    bool
@@ -117,8 +129,9 @@ type debugExceptionFields struct {
 }
 
 var exceptionSymbols = []string{
-	"_PyRuntime", "Py_Version", "PyCode_Type", "PyUnicode_Type", "PyTuple_Type",
+	"_PyRuntime", "Py_Version", "PyCode_Type", "PyUnicode_Type", "PyTuple_Type", "PyLong_Type",
 	"PyExc_StopIteration", "PyExc_StopAsyncIteration", "PyExc_GeneratorExit",
+	"PyExc_BaseException", "PyExc_KeyError",
 	"_PyErr_SetObject.part.0", "_PyErr_SetObject", "PyErr_SetObject", "PyErr_SetString", "_PyErr_SetString",
 }
 
@@ -229,6 +242,7 @@ func exceptionLayout(file *elf.File, anchor uint64, version uint32) (ExceptionLa
 	if minor >= 9 && minor <= 12 {
 		layout, err := legacyExceptionLayout(parsed)
 		layout.TypeFlags = uint8(typeFlags)
+		setExceptionChainLayout(&layout)
 		return layout, err
 	}
 	positions, err := loadDebugExceptionPositions(parsed)
@@ -241,7 +255,17 @@ func exceptionLayout(file *elf.File, anchor uint64, version uint32) (ExceptionLa
 	}
 	layout, err := debugExceptionLayout(debug, minor, positions)
 	layout.TypeFlags = uint8(typeFlags)
+	setExceptionChainLayout(&layout)
 	return layout, err
+}
+
+// setExceptionChainLayout fills the fields that follow traceback in
+// PyException_HEAD on every supported version, and the int layout.
+func setExceptionChainLayout(layout *ExceptionLayout) {
+	layout.ExceptionContext = layout.ExceptionTraceback + pointerSize
+	layout.ExceptionCause = layout.ExceptionContext + pointerSize
+	layout.ExceptionSuppressContext = layout.ExceptionCause + pointerSize
+	layout.LongTagged = layout.Minor >= longTaggedMinor
 }
 
 // debugExceptionLayout reads the offsets CPython 3.13+ publishes at the start of _PyRuntime.
@@ -326,18 +350,27 @@ func resolveExceptionAddresses(layout *ExceptionLayout, pid app.PID, bias, ancho
 		}
 		return memory.Uint64(libpf.Address(at))
 	}
+	typeStr := func(object uint64) uint64 {
+		if object == 0 {
+			return 0
+		}
+		return pointer(object + typeStrOffset)
+	}
 
 	layout.CodeType = address("PyCode_Type")
 	layout.UnicodeType = address("PyUnicode_Type")
 	layout.TupleType = address("PyTuple_Type")
+	layout.LongType = address("PyLong_Type")
 	layout.StopIteration = pointer(address("PyExc_StopIteration"))
 	layout.StopAsyncIteration = pointer(address("PyExc_StopAsyncIteration"))
 	layout.GeneratorExit = pointer(address("PyExc_GeneratorExit"))
+	layout.BaseExceptionStr = typeStr(pointer(address("PyExc_BaseException")))
+	layout.KeyErrorStr = typeStr(pointer(address("PyExc_KeyError")))
 	layout.MainInterpreter = pointer(bias + anchor + layout.interpretersMain)
 
-	if layout.CodeType == 0 || layout.UnicodeType == 0 || layout.TupleType == 0 ||
+	if layout.CodeType == 0 || layout.UnicodeType == 0 || layout.TupleType == 0 || layout.LongType == 0 ||
 		layout.StopIteration == 0 || layout.StopAsyncIteration == 0 || layout.GeneratorExit == 0 ||
-		layout.MainInterpreter == 0 {
+		layout.BaseExceptionStr == 0 || layout.KeyErrorStr == 0 || layout.MainInterpreter == 0 {
 		return fmt.Errorf("%w: missing CPython exception objects", errUnsupportedLayout)
 	}
 	// On 3.11+ PyCode_Type.tp_basicsize is offsetof(PyCodeObject, co_code_adaptive).

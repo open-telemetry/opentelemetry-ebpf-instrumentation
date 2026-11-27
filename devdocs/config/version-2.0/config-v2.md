@@ -168,7 +168,7 @@ Environment-variable substitution depends on the loader. The upstream `otelconf/
 The `extensions.obi` block is divided by deployment scope:
 
 - `capture`: valid in **all** deployment modes. Contains everything OBI needs to select workloads and capture telemetry. A receiver component places the children of this block beside its own `version`; it does not retain the `capture` wrapper.
-- `enrich`, `correlation`, `daemon`: **standalone-mode only**. These sections are not valid in Collector receiver deployments. The Collector pipeline handles enrichment (via processors) and process lifecycle (logging, profiling, shutdown) in receiver mode.
+- `enrich`, `correlation`, `daemon`: **standalone-mode only**. These sections are not valid in Collector receiver deployments. The Collector pipeline handles enrichment (via processors) and process lifecycle (logging, profiling, shutdown) in receiver mode. OBI internal metrics are reported through the Collector service telemetry, with the receiver ID as the `otelcol.component.id` scope attribute. A Prometheus reader with `without_scope_info: true`, the Collector default, drops this attribute, so the internal metrics of multiple OBI receivers in one Collector cannot be told apart. The eBPF probe, map, and ring buffer metrics are not collected, because collecting them enables the kernel BPF stats host-wide.
 
 The following is a non-runnable structural sketch. It omits exporter settings
 and many values deliberately. Use the tested
@@ -459,6 +459,7 @@ Current overridable fields in `refine`:
 - `exceptions`: override global exception capture enablement, Go event selection
   (`go.panics`, `go.formatted_errors`), and Python capture (`python.enabled`).
   Omitted fields inherit global settings.
+- `group_job_spans`: group the client spans of each job the workload takes off a queue into one trace, rooted at the fetch that took the job. Redis fetches are recognized. On when omitted; `false` keeps each call of a job in a trace of its own. See [Queue Job Traces](../../queue-job-traces.md).
 - `http.routes`: refine the direction-scoped HTTP route policy for this workload.
 
 The schema reserves refinement `http.filters`, but the target runtime adapter
@@ -568,7 +569,7 @@ HTTP `payload_extraction` uses the same list-based enablement model as other ins
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
 
-`db` holds settings shared by all database protocols rather than a protocol of its own. When `db.query.text` is selected, database spans carry the query as captured. Set `db.sanitize_query_text: true` to replace literal values with `?`, following the semantic conventions. For SQL and SQL++ spans it replaces string, numeric, hexadecimal and boolean literals. In statements with bind placeholders only string literals are replaced. Generic SQL from the Go tracer also treats double-quoted text as a string literal, and `db.query.text` is omitted when the literals cannot be located reliably. For Redis spans it keeps the command and its keys, and replaces each argument value with `?`, for example `SET user:1 ?` and `HSET user:1 name ?`. Commands whose arguments are all keys, such as `GET` or `DEL`, are unchanged, and every argument of a command OBI does not recognize is replaced. As in the OpenTelemetry Java instrumentation, a few commands keep all their arguments even though some are values: `ECHO`, `CLIENT`, `SCRIPT`, the `GEO*` commands, and the script body of `EVAL`. Elasticsearch query bodies and Couchbase key-value spans are not sanitized. The setting has no v1 equivalent.
+`db` holds settings shared by all database protocols rather than a protocol of its own. When `db.query.text` is selected, database spans carry the query as captured. Set `db.sanitize_query_text: true` to replace literal values with `?`, following the semantic conventions. For SQL and SQL++ spans it replaces string, numeric, hexadecimal and boolean literals. In statements with bind placeholders only string literals are replaced. Generic SQL from the Go tracer also treats double-quoted text as a string literal, and `db.query.text` is omitted when the literals cannot be located reliably. For Redis spans it keeps the command and its keys, and replaces each argument value with `?`, for example `SET user:1 ?` and `HSET user:1 name ?`. Commands whose arguments are all keys, such as `GET` or `DEL`, are unchanged, and every argument of a command OBI does not recognize is replaced. As in the OpenTelemetry Java instrumentation, a few commands keep all their arguments even though some are values: `ECHO`, `CLIENT`, `SCRIPT`, the `GEO*` commands, and the script body of `EVAL`. For Couchbase key-value spans it replaces the document value with `?` and keeps the operation, the key and the `TTL` and `DELTA` tags, for example `SET user::42 TTL=3600 ?`. For Elasticsearch and OpenSearch spans it replaces every string, number, boolean and null in the request body with `"?"` and keeps field names and structure, for example `{"query":{"match":{"user":"?"}},"size":"?"}`. Bodies made of newline-separated JSON values, such as those of `_msearch` and `_bulk`, are sanitized one value at a time and joined with `;`. `db.query.text` is omitted when the body cannot be parsed this way, for example when it was cut short by the HTTP capture buffer. The setting has no v1 equivalent.
 
 #### HTTP query-parameter redaction
 
@@ -711,6 +712,39 @@ independently of the feature list. The existing V1 feature validation applies,
 including the requirement that `application_sizes` accompany application RED
 metrics and the conflict between the two span metric formats.
 
+### `capture.metrics.target_info`
+
+Turn off the `target.info` and `traces.target.info` metrics. For standalone OBI:
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      metrics:
+        target_info:
+          enabled: false
+```
+
+In receiver mode, place this at `metrics.target_info.enabled` in the OBI
+receiver body.
+
+`enabled` defaults to `true`. When `false`, OBI exports neither metric over
+OTLP, and the Prometheus reader exports neither `target_info` nor
+`traces_target_info`. Other metrics, including runtime metrics, keep their
+labels. Turn it off when the pipeline already derives `target_info` from the
+OTLP resource, for example an OTLP-to-Prometheus exporter, to avoid duplicate
+series.
+
+Keep the default when Prometheus scrapes OBI's Prometheus endpoint directly.
+There, `target_info` and `traces_target_info` are the only series that carry
+the resource attributes, so queries that join on them lose that data. The
+option applies to both exporters, so when OBI exports OTLP and serves a
+scraped Prometheus endpoint at the same time, keep it enabled.
+
+The declarative Prometheus exporter field `without_target_info` is not
+supported; use this option instead.
+
 ### `capture.attributes.select` Section
 
 Select optional span attributes and metric dimensions before aggregation.
@@ -752,6 +786,38 @@ semantics. A `"*"` selection matches both metrics and `traces`; use a
 metric-specific pattern to affect only metrics. Selecting an attribute does
 not enable a payload extractor or metadata resolver. `service.peer.name`
 requires an eligible client span with a peer name available to OBI.
+
+Span metrics (`traces.span.metrics.duration`, `traces.span.metrics.calls`, and
+the deprecated `traces_spanmetrics_*` families) always report their fixed
+dimensions: `service.name`, `service.namespace`, `service.instance.id`,
+`span.name`, `span.kind`, `status.code`, `source`, and
+`telemetry.sdk.language`, plus `instance` and `job` on Prometheus. Selection
+never removes them. Span metrics have no optional attributes, so include
+patterns such as `"*"` add nothing to them; only an exact include name adds a
+workload metadata key, such as `service.version` or `deployment.environment`.
+The key is looked up as written; a name written with underscores also matches
+its dotted metadata key when the literal key is missing. A key missing for a
+workload is omitted. The duration and calls metrics share one selection, as do
+the request and response size metrics, so selecting either metric of a pair
+applies to both. Pattern sections apply before exact sections, and within each
+an exclusion wins. Each selected key adds one dimension to every span metric
+series.
+
+`extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes`
+is deprecated. It still adds its keys to Prometheus span metrics, in addition
+to the selection; prefer `capture.attributes.select`, which applies to both
+exporters.
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      attributes:
+        select:
+          traces.span.metrics.*:
+            include: [service.version, k8s.namespace.name]
+```
 
 Existing standalone configurations using `enrich.attributes.select` continue
 working unchanged after upgrade. Migration emits trace and metric selection
@@ -1058,6 +1124,7 @@ Important mapping notes:
 | `network.source` | `extensions.obi.capture.network.capture.source` | Move |
 | `nodejs.enabled` | `extensions.obi.capture.runtimes.nodejs.enabled` | Move |
 | `otel_metrics_export.endpoint` | `meter_provider.readers[0].periodic.exporter.otlp_grpc.endpoint` or, with gated HTTP support, `.otlp_http.endpoint` | OTel ownership move; automatic migration emits gRPC, while HTTP requires the documented manual mapping |
+| `otel_metrics_export.extra_span_resource_attributes` | `extensions.obi.capture.attributes.select.<span metric>.include` | One selection for both exporters; migration rejects differing active OTLP and Prometheus lists |
 | `otel_metrics_export.features` | Use the effective `metrics.features` mapping | Deprecated; an enabled OTLP exporter whose deprecated `features` field is present (including `[]`) takes precedence, otherwise enabled Prometheus features may supply it |
 | `otel_metrics_export.histogram_aggregation` | `meter_provider.readers[0].periodic.exporter.otlp_grpc.default_histogram_aggregation` | OTel ownership move + declarative reader/exporter shape |
 | `otel_metrics_export.instrumentations` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` | Only protocols modeled by v2; migration rejects differing active OTLP and Prometheus lists |
@@ -1078,7 +1145,7 @@ Important mapping notes:
 | `profile_port` | `extensions.obi.daemon.profiling.port` | Move |
 | `prometheus_export.allow_service_graph_self_references` | `extensions.obi.daemon.telemetry.metrics.prometheus.allow_service_graph_self_references` | Move to daemon telemetry tuning |
 | `prometheus_export.extra_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_resource_attributes` | Move to daemon telemetry tuning |
-| `prometheus_export.extra_span_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to daemon telemetry tuning |
+| `prometheus_export.extra_span_resource_attributes` | `extensions.obi.capture.attributes.select.<span metric>.include` | One selection for both exporters; migration rejects differing active OTLP and Prometheus lists |
 | `prometheus_export.exemplar_filter` | `meter_provider.exemplar_filter` | Provider-wide; migration rejects a value that would change the active OTLP exporter's effective `trace_based` filter |
 | `prometheus_export.port` | `meter_provider.readers[1].pull.exporter.prometheus/development.port` | OTel ownership move + declarative reader/exporter shape |
 | `prometheus_export.path` | *No canonical OTel core path in current declarative schema* | Distribution-specific/unsupported in current target shape |

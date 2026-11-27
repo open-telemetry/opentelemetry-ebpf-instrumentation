@@ -57,6 +57,8 @@ const (
 )
 
 type javaHTTP1TestObjects struct {
+	RustCaps       *ebpf.Map     `ebpf:"rust_capabilities"`
+	RustThreads    *ebpf.Map     `ebpf:"rust_threads"`
 	ServerIndex    *ebpf.Map     `ebpf:"http_server_trace_index"`
 	Servers        *ebpf.Map     `ebpf:"server_traces"`
 	HTTP2          *ebpf.Map     `ebpf:"ongoing_http2_grpc"`
@@ -76,6 +78,9 @@ type javaHTTP1TestObjects struct {
 	SysConnect     *ebpf.Program `ebpf:"obi_kprobe_sys_connect"`
 	Connect        *ebpf.Program `ebpf:"obi_kprobe_tcp_connect"`
 	ConnectError   *ebpf.Program `ebpf:"obi_kprobe_sock_def_error_report"`
+	TCPClose       *ebpf.Program `ebpf:"obi_kprobe_tcp_close"`
+	TCPEventJumps  *ebpf.Map     `ebpf:"tcp_event_jump_table"`
+	ConnectInfo    *ebpf.Map     `ebpf:"cp_support_connect_info"`
 	Events         *ebpf.Map     `ebpf:"events"`
 }
 
@@ -118,6 +123,8 @@ func loadJavaHTTP1ReservationsWithLoops(t *testing.T, enabled, useBPFLoop bool) 
 	var objs javaHTTP1TestObjects
 	require.NoError(t, spec.LoadAndAssign(&objs, nil))
 	t.Cleanup(func() {
+		objs.RustCaps.Close()
+		objs.RustThreads.Close()
 		objs.ServerIndex.Close()
 		objs.Servers.Close()
 		objs.HTTP2.Close()
@@ -125,6 +132,9 @@ func loadJavaHTTP1ReservationsWithLoops(t *testing.T, enabled, useBPFLoop bool) 
 		objs.SysConnect.Close()
 		objs.Connect.Close()
 		objs.ConnectError.Close()
+		objs.TCPClose.Close()
+		objs.TCPEventJumps.Close()
+		objs.ConnectInfo.Close()
 		objs.Events.Close()
 		objs.Ioctl.Close()
 		objs.Requests.Close()

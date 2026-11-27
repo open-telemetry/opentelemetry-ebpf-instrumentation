@@ -34,7 +34,8 @@ func goExceptionRecord(t *testing.T, owner ebpfcommon.BpfExceptionOwner, payload
 		Runtime:    uint8(ebpfcommon.BpfExceptionRuntimeK_exceptionRuntimeGo),
 		Owner:      uint8(owner),
 	}
-	hdr.Pid.HostPid = 1
+	// in a nested PID namespace the kernel's PID differs from the one OBI sees
+	hdr.Pid.HostPid = 1001
 	hdr.Pid.UserPid = 1
 	hdr.Tp.TraceId = [16]uint8{1}
 	hdr.Tp.SpanId = [8]uint8{2}
@@ -46,7 +47,7 @@ func goExceptionRecord(t *testing.T, owner ebpfcommon.BpfExceptionOwner, payload
 }
 
 func goExceptionPayload(kind uint8, message string, pcs ...uint64) *BpfGoExceptionPayloadT {
-	payload := &BpfGoExceptionPayloadT{Kind: kind, ValueType: 1, ValueRead: goValueStringType, Frames: uint16(len(pcs))}
+	payload := &BpfGoExceptionPayloadT{Kind: kind, ObiPid: 1, ValueType: 1, ValueRead: goValueStringType, Frames: uint16(len(pcs))}
 	copy(payload.Message[:len(payload.Message)-1], message)
 	copy(payload.Pcs[:], pcs)
 	return payload
