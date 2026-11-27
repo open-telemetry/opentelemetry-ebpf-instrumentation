@@ -29,6 +29,10 @@
     /* TCP */                                                                                      \
     entry(k_tail_protocol_tcp, obi_protocol_tcp, void *)                                           \
     entry(k_tail_continue_protocol_tcp, obi_continue_protocol_tcp, void *)                         \
+    /* AMQP 0-9-1 */                                                                               \
+    entry(k_tail_protocol_amqp, obi_protocol_amqp, void *)                                         \
+    entry(k_tail_protocol_amqp_continue, obi_protocol_amqp_continue, void *)                       \
+    entry(k_tail_protocol_amqp_emit, obi_protocol_amqp_emit, void *)                               \
     /* Generic */                                                                                  \
     entry(k_tail_handle_buf_with_args, obi_handle_buf_with_args, void *)                           \
     /* HTTP/2 + gRPC */                                                                            \

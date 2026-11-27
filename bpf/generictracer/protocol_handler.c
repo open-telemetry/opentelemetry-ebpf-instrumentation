@@ -13,6 +13,7 @@
 #include <common/tc_common.h>
 
 #include <generictracer/protocol_aerospike.h>
+#include <generictracer/protocol_amqp.h>
 #include <generictracer/protocol_http.h>
 #include <generictracer/protocol_http2.h>
 #include <generictracer/protocol_kafka.h>
@@ -60,7 +61,11 @@ static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
 
     job_fetch_see_buffer(&args->pid_conn, args->lw_thread);
 
-    if (args->protocols.http && is_http(args->small_buf, MIN_HTTP_SIZE, &args->packet_type)) {
+    if (args->protocols.tcp && args->protocol_type == k_protocol_type_amqp) {
+        // ahead of HTTP: a frame payload read on its own can start with any text
+        preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_amqp);
+    } else if (args->protocols.http &&
+               is_http(args->small_buf, MIN_HTTP_SIZE, &args->packet_type)) {
         preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http);
     } else if ((args->protocol_type != k_protocol_type_http) &&
                (is_http2_or_grpc(args->small_buf, MIN_HTTP2_SIZE) ||
@@ -92,6 +97,12 @@ static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
             return 0;
         }
         start_http2_frames(ctx, args);
+    } else if (args->protocols.tcp && is_amqp(&args->pid_conn.conn,
+                                              (const unsigned char *)args->u_buf,
+                                              args->bytes_len,
+                                              &args->protocol_type)) {
+        bpf_dbg_printk("Found AMQP 0-9-1 connection");
+        preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_amqp);
     } else if (args->protocols.tcp && is_mysql(&args->pid_conn.conn,
                                                (const unsigned char *)args->u_buf,
                                                args->bytes_len,

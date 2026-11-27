@@ -31,6 +31,7 @@
 #include <generictracer/k_unix_sock.h>
 #include <generictracer/maps/active_accept_args.h>
 #include <generictracer/maps/active_connect_args.h>
+#include <generictracer/maps/amqp_streams.h>
 #include <generictracer/maps/java_http1_requests.h>
 #include <generictracer/maps/listening_ports.h>
 #include <generictracer/maps/sock_filter_buffers.h>
@@ -846,6 +847,7 @@ static __always_inline void finish_tcp_close(struct sock *sk) {
         info.pid = pid_from_pid_tgid(id);
         terminate_http_request_if_needed(&info, &current_key);
         finish_ongoing_tcp_req(&info);
+        bpf_map_delete_elem(&amqp_streams, &info);
         bpf_map_delete_elem(&ongoing_http2_connections, &info);
         bpf_map_delete_elem(&connection_tracker, &info.conn);
     }
