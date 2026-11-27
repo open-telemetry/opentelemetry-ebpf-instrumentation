@@ -33,6 +33,7 @@ typedef struct server_http_func_invocation {
     u64 status;
     u64 rpc_request_addr; // pointer to the jsonrpc Request
     u64 echo_context;
+    u64 request_addr;
     tp_info_t tp;
     u8 method[k_method_max_len];
     u8 path[k_path_max_len];
@@ -44,8 +45,7 @@ typedef struct server_http_func_invocation {
     u8 proto_minor;
     // set when an exception capture saw this request's goroutine panic
     bool panicked;
-    bool echo_route_matched;
-    u8 _pad[3];
+    u8 _pad[4];
 } server_http_func_invocation_t;
 
 typedef struct http2_owned_stream_ref {

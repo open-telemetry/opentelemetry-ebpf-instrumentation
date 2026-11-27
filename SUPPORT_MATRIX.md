@@ -146,8 +146,8 @@ OBI currently documents the following Go library compatibility baselines:
 | `github.com/gorilla/mux` | `>= v1.5.0` |
 | `github.com/gin-gonic/gin` | `>= v1.6.0`, `!= v1.7.5` |
 | `github.com/emicklei/go-restful/v3` | `>= v3.0.0` |
-| `github.com/labstack/echo/v4` | `v4.13.4`, built-in router route templates |
-| `github.com/labstack/echo/v5` | `v5.0.0`, built-in `DefaultRouter` route templates only; custom routers are not covered |
+| `github.com/labstack/echo/v4` | `>= v4.13.4`, built-in router route templates; offsets tracked through `v4.16.6`, runtime-tested at `v4.13.4` |
+| `github.com/labstack/echo/v5` | `>= v5.0.0`, built-in `DefaultRouter` route templates only; offsets tracked through `v5.4.7`, runtime-tested at `v5.0.0`; custom routers are not covered |
 | `google.golang.org/grpc` | `>= 1.40` |
 | `net/rpc/jsonrpc` | `>= 1.17` |
 | `database/sql` | `>= 1.17` |

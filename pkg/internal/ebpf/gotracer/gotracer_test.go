@@ -305,6 +305,27 @@ func TestMissingGoGRPCBufWriterOffsetsUseSentinel(t *testing.T) {
 	}
 }
 
+func TestEchoOffsetsUseSentinelAndPreserveZero(t *testing.T) {
+	var offTable BpfOffTableT
+	setEchoOffsets(&offTable, &goexec.Offsets{})
+	for _, field := range []goexec.GoOffset{
+		goexec.EchoV4ContextPathPos,
+		goexec.EchoV5ContextPathPos,
+		goexec.EchoV4ContextRequestPos,
+		goexec.EchoV5ContextRequestPos,
+	} {
+		assert.Equal(t, missingGoOffset, offTable.Table[field])
+	}
+	setEchoOffsets(&offTable, &goexec.Offsets{Field: goexec.FieldOffsets{
+		goexec.EchoV5ContextRequestPos: uint64(0),
+		goexec.EchoV4ContextPathPos:    uint64(88),
+	}})
+	assert.Zero(t, offTable.Table[goexec.EchoV5ContextRequestPos])
+	assert.Equal(t, uint64(88), offTable.Table[goexec.EchoV4ContextPathPos])
+	assert.Equal(t, missingGoOffset, offTable.Table[goexec.EchoV4ContextRequestPos])
+	assert.Equal(t, missingGoOffset, offTable.Table[goexec.EchoV5ContextPathPos])
+}
+
 func TestGoAutoSDKSpanContextOffsetsUseSentinelAndPreserveZero(t *testing.T) {
 	var offTable BpfOffTableT
 

@@ -23,6 +23,9 @@ func TestRoutes(t *testing.T) {
 		{"static", "GET", "/api/health", "/api/health", 200},
 		{"wildcard", "GET", "/api/files/a/b", "/api/files/*", 200},
 		{"auxiliary lookup", "GET", "/api/lookup/42", "/api/lookup/:id", 200},
+		{"pre-routing lookup", "GET", "/api/prelookup/42", "/api/prelookup/:id", 200},
+		{"request WithContext", "GET", "/api/with-context/42", "/api/with-context/:id", 200},
+		{"request Clone", "GET", "/api/clone/42", "/api/clone/:id", 200},
 		{"method mismatch", "POST", "/api/rolldice/42", "", 405},
 		{"unmatched after match", "GET", "/missing", "", 404},
 	} {

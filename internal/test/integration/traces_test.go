@@ -275,6 +275,9 @@ func testHTTPTracesEchoRoutesAt(t *testing.T, baseURL string) {
 		{"GET", "/api/health", "/api/health", http.StatusOK},
 		{"GET", "/api/files/a/b", "/api/files/*", http.StatusOK},
 		{"GET", "/api/lookup/42", "/api/lookup/:id", http.StatusOK},
+		{"GET", "/api/prelookup/42", "/api/prelookup/:id", http.StatusOK},
+		{"GET", "/api/with-context/42", "/api/with-context/42", http.StatusOK},
+		{"GET", "/api/clone/42", "/api/clone/42", http.StatusOK},
 		{"POST", "/api/rolldice/42", "/api/rolldice/:id", http.StatusMethodNotAllowed},
 		{"GET", "/missing-after-match", "/missing-after-match", http.StatusNotFound},
 	} {

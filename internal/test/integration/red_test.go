@@ -1015,6 +1015,8 @@ func testREDMetricsHTTPAutoRoutes(t *testing.T) {
 				testParts[0] == instrumentedServiceEchoV4URL+"/api" {
 				testREDMetricsRouteHarvesting(t, testParts[0], "testserver", "integration-test",
 					"/api/lookup/:id", "/lookup/4", "/lookup/42")
+				testREDMetricsRouteHarvesting(t, testParts[0], "testserver", "integration-test",
+					"/api/prelookup/:id", "/prelookup/4", "/prelookup/42")
 			}
 		})
 	}

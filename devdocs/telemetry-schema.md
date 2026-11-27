@@ -117,7 +117,7 @@ section empty once drained.
   For forward proxies, the parsed URL scheme can describe the upstream request rather than
   the client-to-proxy transport.
 
-- Echo v4.13.4 and v5.0.0 now supply declared route templates from their built-in
+- Echo versions >= v4.13.4 (v4) and >= v5.0.0 (v5) now supply declared route templates from their built-in
   routers, including group prefixes and wildcard syntax, when Go route harvesting
   is enabled.
   Server span names and `http.route` values (including Prometheus `http_route`
@@ -128,6 +128,12 @@ section empty once drained.
   and the correctness-fix allowance in `TELEMETRY.md`; no telemetry identifiers
   are renamed, so no schema transformation is required. Custom v5 routers are not
   included.
+  Route harvesting requires the Echo context to reference the captured incoming
+  request. Replacing that request before routing retains the outer-router or
+  unmatched-route fallback instead of harvesting Echo's template. Auxiliary
+  lookups on separate requests, before or after routing, do not replace its route.
+  Offsets are tracked through v4.16.6 and v5.4.7; runtime integration coverage is
+  currently at v4.13.4 and v5.0.0.
 
 - HTTP metrics support `network.protocol.version` (`network_protocol_version` in
   Prometheus). It is opt-in on the stable duration metrics to preserve existing series,

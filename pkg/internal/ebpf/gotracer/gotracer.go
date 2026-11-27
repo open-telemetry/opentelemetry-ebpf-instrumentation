@@ -576,6 +576,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	initMissingGoOffsets(&offTable, goHTTPClientRequestOffsetFields[:])
 	initMissingGoOffsets(&offTable, goAutoSDKSpanContextOffsetFields[:])
 	initMissingGoOffsets(&offTable, goGRPCBufWriterOffsetFields[:])
+	setEchoOffsets(&offTable, offsets)
 	initMissingGoOffsets(&offTable, []goexec.GoOffset{
 		goexec.ReqProtoMajorPos,
 		goexec.ReqProtoMinorPos,
@@ -697,8 +698,6 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.MuxTemplatePos,
 		goexec.GinFullpathPos,
 		goexec.RestfulRoutePathPos,
-		goexec.EchoV5ContextPathPos,
-		goexec.EchoV4ContextPathPos,
 	} {
 		if val, ok := offsets.Field[field].(uint64); ok {
 			offTable.Table[field] = val
@@ -924,6 +923,21 @@ func setFramerPaddingOffset(
 		if fn.Symbol == symbol && fn.PadStart != 0 && fn.PadOffset != 0 {
 			offTable.Table[field] = fn.PadOffset
 			return
+		}
+	}
+}
+
+func setEchoOffsets(offTable *BpfOffTableT, offsets *goexec.Offsets) {
+	fields := [...]goexec.GoOffset{
+		goexec.EchoV5ContextPathPos,
+		goexec.EchoV4ContextPathPos,
+		goexec.EchoV5ContextRequestPos,
+		goexec.EchoV4ContextRequestPos,
+	}
+	initMissingGoOffsets(offTable, fields[:])
+	for _, field := range fields {
+		if value, ok := offsets.Field[field].(uint64); ok {
+			offTable.Table[field] = value
 		}
 	}
 }

@@ -344,11 +344,23 @@
       "path": {
         "versions": {
           "oldest": "4.13.4",
-          "newest": "4.13.4"
+          "newest": "4.16.6"
         },
         "offsets": [
           {
             "offset": 88,
+            "since": "4.13.4"
+          }
+        ]
+      },
+      "request": {
+        "versions": {
+          "oldest": "4.13.4",
+          "newest": "4.16.6"
+        },
+        "offsets": [
+          {
+            "offset": 16,
             "since": "4.13.4"
           }
         ]
@@ -358,11 +370,27 @@
       "path": {
         "versions": {
           "oldest": "5.0.0",
-          "newest": "5.0.0"
+          "newest": "5.4.7"
         },
         "offsets": [
           {
             "offset": 88,
+            "since": "5.0.0"
+          },
+          {
+            "offset": 128,
+            "since": "5.2.0"
+          }
+        ]
+      },
+      "request": {
+        "versions": {
+          "oldest": "5.0.0",
+          "newest": "5.4.7"
+        },
+        "offsets": [
+          {
+            "offset": 0,
             "since": "5.0.0"
           }
         ]

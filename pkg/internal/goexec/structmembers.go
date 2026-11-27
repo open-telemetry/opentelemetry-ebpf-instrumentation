@@ -224,6 +224,8 @@ const (
 	RestfulRoutePathPos
 	EchoV5ContextPathPos
 	EchoV4ContextPathPos
+	EchoV5ContextRequestPos
+	EchoV4ContextRequestPos
 	// Go runtime metrics
 	RuntimeMemstatsNumGCPos
 	RuntimeGCControllerMemoryLimitPos
@@ -777,13 +779,15 @@ var structMembers = map[string]structInfo{
 	"github.com/labstack/echo/v5.Context": {
 		lib: "github.com/labstack/echo/v5",
 		fields: map[string]GoOffset{
-			"path": EchoV5ContextPathPos,
+			"path":    EchoV5ContextPathPos,
+			"request": EchoV5ContextRequestPos,
 		},
 	},
 	"github.com/labstack/echo/v4.context": {
 		lib: "github.com/labstack/echo/v4",
 		fields: map[string]GoOffset{
-			"path": EchoV4ContextPathPos,
+			"path":    EchoV4ContextPathPos,
+			"request": EchoV4ContextRequestPos,
 		},
 	},
 	"runtime.mstats": {

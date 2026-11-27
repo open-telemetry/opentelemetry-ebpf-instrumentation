@@ -101,6 +101,7 @@ int GUARDED_PROG(obi_uprobe_ServeHTTP, struct pt_regs *, ctx) {
 
     bpf_memset(invocation, 0, sizeof(*invocation));
     invocation->start_monotime_ns = bpf_ktime_get_ns();
+    invocation->request_addr = (u64)req;
 
     if (req) {
         server_trace_parent(goroutine_addr, &invocation->tp, decoded_tp);
@@ -321,12 +322,13 @@ int GUARDED_PROG(obi_uprobe_restfulRouteWrapRequestResponse, struct pt_regs *, c
 static __always_inline void save_echo_context(const go_addr_key_t *g_key, void *context) {
     server_http_func_invocation_t *invocation =
         bpf_map_lookup_elem(&ongoing_http_server_requests, g_key);
-    if (invocation && !invocation->echo_route_matched) {
+    if (invocation) {
         invocation->echo_context = (u64)context;
     }
 }
 
-static __always_inline void harvest_echo_route(const go_addr_key_t *g_key, const u64 path_off) {
+static __always_inline void
+harvest_echo_route(const go_addr_key_t *g_key, const u64 path_off, const u64 request_off) {
     server_http_func_invocation_t *invocation =
         bpf_map_lookup_elem(&ongoing_http_server_requests, g_key);
     if (!invocation) {
@@ -334,7 +336,13 @@ static __always_inline void harvest_echo_route(const go_addr_key_t *g_key, const
     }
     void *context = (void *)invocation->echo_context;
     invocation->echo_context = 0;
-    if (!context || path_off == 0 || path_off == (u64)-1) {
+    if (!context || path_off == (u64)-1 || request_off == (u64)-1 || !invocation->request_addr) {
+        return;
+    }
+
+    u64 request_addr = 0;
+    if (bpf_probe_read_user(&request_addr, sizeof(request_addr), context + request_off) ||
+        request_addr != invocation->request_addr) {
         return;
     }
 
@@ -358,8 +366,6 @@ static __always_inline void harvest_echo_route(const go_addr_key_t *g_key, const
 
     // Read final router state, including 405 metadata, before replacing an outer ServeMux match.
     bpf_memcpy(invocation->pattern, pattern, sizeof(scratch->pattern));
-    // Later lookups on this goroutine may belong to unrelated Echo contexts.
-    invocation->echo_route_matched = true;
 }
 
 SEC("uprobe/echoV4Find")
@@ -378,7 +384,9 @@ int GUARDED_PROG(obi_uprobe_echoV4FindReturns, struct pt_regs *, ctx) {
     go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
 
     off_table_t *ot = get_offsets_table();
-    harvest_echo_route(&g_key, go_offset_of(ot, (go_offset){.v = _echo_v4_context_path_pos}));
+    harvest_echo_route(&g_key,
+                       go_offset_of(ot, (go_offset){.v = _echo_v4_context_path_pos}),
+                       go_offset_of(ot, (go_offset){.v = _echo_v4_context_request_pos}));
     return 0;
 }
 
@@ -397,7 +405,9 @@ int GUARDED_PROG(obi_uprobe_echoV5RouteReturns, struct pt_regs *, ctx) {
     go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
 
     off_table_t *ot = get_offsets_table();
-    harvest_echo_route(&g_key, go_offset_of(ot, (go_offset){.v = _echo_v5_context_path_pos}));
+    harvest_echo_route(&g_key,
+                       go_offset_of(ot, (go_offset){.v = _echo_v5_context_path_pos}),
+                       go_offset_of(ot, (go_offset){.v = _echo_v5_context_request_pos}));
     return 0;
 }
 
