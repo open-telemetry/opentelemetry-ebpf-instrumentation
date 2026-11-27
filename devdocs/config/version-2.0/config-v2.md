@@ -1291,14 +1291,46 @@ share an address across networks in the selected resource group, that ambiguous
 address is omitted. Public IPs and Azure Container Apps are outside this source's
 scope. The source and its settings are available only in Config v2.
 
+## Layer multiple configuration files
+
+Standalone OBI takes its base file from `OTEL_EBPF_CONFIG_PATH` when nonempty,
+otherwise from `--config`. To layer files, pass `--config-override` once per
+override or list paths in `OTEL_EBPF_CONFIG_PATHS`, separated by colons.
+OBI applies the flag overrides first, followed by the environment overrides,
+in order from left to right.
+
+```sh
+OTEL_EBPF_CONFIG_PATHS=team.yml:local.yml obi --config base.yml --config-override site.yml
+```
+
+OBI loads `base.yml`, then `site.yml`, `team.yml` and `local.yml`. Each file can
+be Config v1 or Config v2. The first file sets the configuration version and its
+defaults. A later file can explicitly reset a setting to its default. For example,
+a buffer length of `50` overrides an earlier `111`. Omitting the setting keeps
+the earlier value. Within one format, YAML mappings merge by key, sequences
+replace the previous sequence, and an empty mapping clears the earlier mapping.
+
+With a v1 base, legacy environment variables override the merged file settings.
+With a v2 base, those variables only affect file values that reference them
+explicitly through environment substitution.
+
+A file in the other format can override the log level, log format, shutdown
+timeout, channel buffer length, channel send timeout and panic-on-timeout
+setting. A v1 base can also accept a v2 `tracer_provider`. A subsequent v1
+`otel_traces_export` section would overlap that provider and is rejected.
+For other cross-version overrides, OBI reports the file and YAML path.
+In particular, v1 and v2 apply different matching rules to attribute selection,
+and their protocol switches have different effects on derived metrics.
+
 ## Refresh discovery criteria at runtime
 
-Standalone OBI watches its Config v2 file when started with `--config` or
-`OTEL_EBPF_CONFIG_PATH`. It reads the path every second, including after atomic
-file replacement or ConfigMap symlink updates. A change applies once two
-consecutive reads return the same contents, so a read that lands in the middle of
-an in-place write is not applied. In containers, mount the containing
-directory so replacement files remain visible. The legacy v1 loader is unchanged.
+Standalone OBI watches its configuration files when the first file is Config v2.
+It reads all the paths every second, including after atomic file replacement or
+ConfigMap symlink updates. A change applies once two consecutive reads return the
+same contents, so a read that lands in the middle of an in-place write is not
+applied. A change in any file reloads all of them, in the same order of priority
+as at startup. In containers, mount the containing directory so replacement files
+remain visible. The legacy v1 loader is unchanged.
 
 Process and Kubernetes matching predicates can be refreshed, and definitions can
 be added or removed. OBI re-evaluates already observed processes, stops

@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/cmd/obi/internal/configload"
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -39,6 +40,10 @@ extensions:
       logging:
         debug_trace_output: text
 `, port)
+}
+
+func singleSource(path string, data []byte) []configload.Source {
+	return []configload.Source{{Path: path, Data: data}}
 }
 
 type configWatchLog struct {
@@ -74,7 +79,7 @@ func TestConfigFileWatcherStartup(t *testing.T) {
 			records := make(chan slog.Record, 10)
 			logger := slog.New(configWatchLog{records: records})
 			var refreshed []*obi.Config
-			watchConfigFile(t.Context(), path, initial, func(_ context.Context, cfg *obi.Config) error {
+			watchConfigFiles(t.Context(), singleSource(path, initial), func(_ context.Context, cfg *obi.Config) error {
 				refreshed = append(refreshed, cfg)
 				return nil
 			}, logger, ticks)
@@ -115,7 +120,7 @@ func TestConfigFileWatcherRetriesRejectedUpdate(t *testing.T) {
 			logger := slog.New(configWatchLog{records: records})
 			attempts := 0
 			var applied *obi.Config
-			watchConfigFile(t.Context(), path, initial, func(_ context.Context, cfg *obi.Config) error {
+			watchConfigFiles(t.Context(), singleSource(path, initial), func(_ context.Context, cfg *obi.Config) error {
 				attempts++
 				criteria := discover.FindingCriteria(cfg)
 				require.True(t, criteria[0].GetOpenPorts().Matches(9090))
@@ -178,7 +183,7 @@ extensions:
 	close(ticks)
 	records := make(chan slog.Record, 10)
 	attempts := 0
-	watchConfigFile(t.Context(), path, watcherConfig(8080), func(context.Context, *obi.Config) error {
+	watchConfigFiles(t.Context(), singleSource(path, watcherConfig(8080)), func(context.Context, *obi.Config) error {
 		attempts++
 		return errors.New("service settings would change for PID 10; restart OBI to apply this configuration")
 	}, slog.New(configWatchLog{records: records}), ticks)
@@ -219,7 +224,7 @@ extensions:
 `)
 	// The first rule alone is still a valid configuration.
 	partial := complete[:bytes.LastIndex(complete, []byte("        - action"))]
-	_, err := loadConfig(partial)
+	_, err := loadConfig(singleSource("partial.yml", partial))
 	require.NoError(t, err)
 
 	synctest.Test(t, func(t *testing.T) {
@@ -234,7 +239,7 @@ extensions:
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			watchConfigFile(ctx, path, initial, func(_ context.Context, cfg *obi.Config) error {
+			watchConfigFiles(ctx, singleSource(path, initial), func(_ context.Context, cfg *obi.Config) error {
 				refreshed <- cfg
 				return nil
 			}, logger, ticks)
@@ -262,7 +267,7 @@ func TestConfigFileWatcher(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "obi.yml")
 	initial := watcherConfig(8080)
 	require.NoError(t, os.WriteFile(path, initial, 0o600))
-	cfg, err := loadConfig(initial)
+	cfg, err := loadConfig(singleSource(path, initial))
 	require.NoError(t, err)
 	require.True(t, cfg.Enabled(obi.FeatureAppO11y))
 	require.False(t, cfg.Enabled(obi.FeatureNetO11y))
@@ -287,7 +292,10 @@ func TestConfigFileWatcher(t *testing.T) {
 	records := make(chan slog.Record, 10)
 	logger := slog.New(configWatchLog{records: records})
 	done := make(chan struct{})
-	go func() { defer close(done); watchConfigFile(ctx, path, initial, updater.Update, logger, ticks) }()
+	go func() {
+		defer close(done)
+		watchConfigFiles(ctx, singleSource(path, initial), updater.Update, logger, ticks)
+	}()
 	// A change applies once a second poll reads it unchanged.
 	pollChange := func() {
 		ticks <- time.Now()
@@ -359,6 +367,41 @@ extensions:
 	case <-time.After(time.Second):
 		t.Fatal("config watcher did not stop")
 	}
+}
+
+func TestConfigFileWatcherReloadsAllSources(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "base.yml")
+	override := filepath.Join(dir, "override.yml")
+	baseConfig := watcherConfig(8080)
+	overrideConfig := []byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      channels:
+        buffer_len: 123
+`)
+	require.NoError(t, os.WriteFile(base, watcherConfig(9090), 0o600))
+	require.NoError(t, os.WriteFile(override, overrideConfig, 0o600))
+	initial := []configload.Source{{Path: base, Data: baseConfig}, {Path: override, Data: overrideConfig}}
+	// A change applies once a second poll reads it unchanged.
+	ticks := make(chan time.Time, 1)
+	ticks <- time.Now()
+	close(ticks)
+	records := make(chan slog.Record, 10)
+	var refreshed []*obi.Config
+	watchConfigFiles(t.Context(), initial, func(_ context.Context, cfg *obi.Config) error {
+		refreshed = append(refreshed, cfg)
+		return nil
+	}, slog.New(configWatchLog{records: records}), ticks)
+
+	require.Len(t, refreshed, 1)
+	criteria := discover.FindingCriteria(refreshed[0])
+	require.True(t, criteria[0].GetOpenPorts().Matches(9090), "a change in a lower-priority file refreshes the criteria")
+	require.Equal(t, 123, refreshed[0].ChannelBufferLen, "the higher-priority file still overrides the changed file")
+	require.Equal(t, slog.LevelInfo, readConfigLog(t, records).Level)
+	require.Empty(t, records)
 }
 
 func readConfigLog(t *testing.T, records <-chan slog.Record) slog.Record {

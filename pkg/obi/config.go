@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -1136,6 +1137,19 @@ func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {
 // 2 - Contents of the provided file reader (nillable)
 // 3 - Environment variables
 func LoadConfig(file io.Reader) (*Config, error) {
+	if file == nil {
+		return LoadConfigYAML(nil, nil)
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("reading YAML configuration: %w", err)
+	}
+	return LoadConfigYAML(config.ReplaceEnv(data), nil)
+}
+
+// LoadConfigYAML loads legacy YAML whose environment references have already been expanded.
+// apply adds file overrides before legacy environment variables and normalization.
+func LoadConfigYAML(data []byte, apply func(*Config) error) (*Config, error) {
 	cfg := DefaultConfig
 	// Deep-copy pointer fields so YAML/env unmarshal cannot mutate DefaultConfig through shared pointers.
 	if cfg.Routes != nil {
@@ -1145,15 +1159,19 @@ func LoadConfig(file io.Reader) (*Config, error) {
 		nrCopy := *cfg.NameResolver
 		cfg.NameResolver = &nrCopy
 	}
-	if file != nil {
-		cfgBuf, err := io.ReadAll(file)
-		if err != nil {
-			return nil, fmt.Errorf("reading YAML configuration: %w", err)
-		}
-		// replaces environment variables in YAML file
-		cfgBuf = config.ReplaceEnv(cfgBuf)
-		if err := yaml.Unmarshal(cfgBuf, &cfg); err != nil {
+	labels := maps.Clone(cfg.Attributes.Kubernetes.ResourceLabels)
+	for key, values := range labels {
+		labels[key] = slices.Clone(values)
+	}
+	cfg.Attributes.Kubernetes.ResourceLabels = labels
+	if len(data) != 0 {
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return nil, fmt.Errorf("parsing YAML configuration: %w", err)
+		}
+	}
+	if apply != nil {
+		if err := apply(&cfg); err != nil {
+			return nil, err
 		}
 	}
 	if err := env.Parse(&cfg); err != nil {
