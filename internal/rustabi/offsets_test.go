@@ -126,6 +126,38 @@ func TestReadCompilerWithMalformedCrates(t *testing.T) {
 	require.Equal(t, Build{Arch: "amd64", Rustc: "1.99.0"}, build)
 }
 
+func TestReadCratesPrefersAuditableMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		source json.RawMessage
+		kind   string
+		want   map[string][]string
+	}{
+		{"local", jsonString("local"), "runtime", map[string][]string{}},
+		{"git", jsonString("git"), "runtime", map[string][]string{}},
+		{"unknown source", jsonString("other"), "runtime", map[string][]string{}},
+		{"object source", json.RawMessage(`{"Other":"unknown"}`), "runtime", map[string][]string{}},
+		{"build dependency", jsonString("registry"), "build", map[string][]string{}},
+		{"unknown dependency kind", jsonString("registry"), "unknown", map[string][]string{}},
+		{"runtime dependency", jsonString("registry"), "runtime", map[string][]string{"hyper": {"1.12.0"}}},
+		{"default runtime dependency", jsonString("crates.io"), "", map[string][]string{"hyper": {"1.12.0"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			paths := testELFSection{Name: ".rodata", Data: []byte("/vendor/hyper-1.12.0/src/lib.rs")}
+			metadata := testELFSection{Name: rustAuditableSection, Data: zlibData(t, auditableData(t,
+				rustAuditablePackage{Name: "hyper", Version: "1.12.0", Source: tc.source, Kind: tc.kind},
+			))}
+			for _, sections := range [][]testELFSection{{paths, metadata}, {metadata, paths}} {
+				t.Run(sections[0].Name+" first", func(t *testing.T) {
+					crates, err := ReadCrates(testELF(t, sections))
+					require.NoError(t, err)
+					require.Equal(t, tc.want, crates)
+				})
+			}
+		})
+	}
+}
+
 func TestReadCrates(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -142,9 +174,9 @@ func TestReadCrates(t *testing.T) {
 			want: map[string][]string{"tokio": {"1.48.0"}},
 		},
 		{
-			name: "merges and deduplicates source and auditable versions",
+			name: "auditable list overrides stale and unrecorded source paths",
 			sections: []testELFSection{
-				{Name: ".rodata", Data: []byte("/cargo/registry/src/tokio-1.48.0/src/runtime.rs")},
+				{Name: ".rodata", Data: []byte("/cargo/registry/src/tokio-1.48.0/src/runtime.rs /vendor/hyper-1.12.0/src/lib.rs /vendor/bytes-1.12.1/src/lib.rs")},
 				{Name: rustAuditableSection, Data: zlibData(t, auditableData(t,
 					rustAuditablePackage{Name: "tokio", Version: "1.48.0", Source: jsonString("crates.io"), Kind: "runtime"},
 					rustAuditablePackage{Name: "hyper", Version: "1.7.0", Source: jsonString("registry"), Kind: "runtime"},

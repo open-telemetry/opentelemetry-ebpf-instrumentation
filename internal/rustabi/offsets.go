@@ -150,11 +150,17 @@ func ReadCompiler(f *elf.File) (Build, error) {
 	return b, nil
 }
 
-// ReadCrates combines source paths and cargo-auditable metadata. An incomplete
-// list cannot safely distinguish multiple linked versions for layout selection.
+// ReadCrates uses cargo-auditable metadata when present, falling back to source
+// paths for binaries without it. Paths cannot establish a dependency's source or kind.
 func ReadCrates(f *elf.File) (map[string][]string, error) {
 	crates := map[string][]string{}
-	for _, section := range f.Sections {
+
+	sections := f.Sections
+	if metadata := f.Section(rustAuditableSection); metadata != nil {
+		sections = []*elf.Section{metadata}
+	}
+
+	for _, section := range sections {
 		if section.Name != rustAuditableSection && !hasRustSourcePaths(section) {
 			continue
 		}
@@ -235,7 +241,11 @@ func addAuditableCrateVersions(crates map[string][]string, compressed []byte) er
 			continue
 		}
 
-		if pkg.Kind == "build" || !slices.Contains(rustTrackedCrates, pkg.Name) {
+		if pkg.Kind != "" && pkg.Kind != "runtime" {
+			continue
+		}
+
+		if !slices.Contains(rustTrackedCrates, pkg.Name) {
 			continue
 		}
 
