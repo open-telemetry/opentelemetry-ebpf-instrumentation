@@ -390,6 +390,15 @@
       "schedule": ["before 6am on Thursday"]
     },
     {
+      "groupName": "Ruby",
+      "matchManagers": ["bundler"],
+      // also propose in-range lockfile bumps, e.g. rails 8.1.3.1 -> 8.1.4.1 under "~> 8.0"
+      "rangeStrategy": "update-lockfile",
+      // keep majors in the same PR, so a gem major lands with the framework release that supports it
+      "separateMajorMinor": false,
+      "schedule": ["before 6am on Thursday"]
+    },
+    {
       "description": "Disable raw pip_requirements handling for pip-compile lockfiles",
       "matchManagers": ["pip_requirements"],
       "matchFileNames": [
