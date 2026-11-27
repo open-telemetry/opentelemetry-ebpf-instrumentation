@@ -47,6 +47,7 @@ import (
 type Tracer struct {
 	pidsFilter         ebpfcommon.ServiceFilter
 	cfg                *obi.Config
+	pruneOpts          *ebpfcommon.MapPruneOptions
 	metrics            imetrics.Reporter
 	traceCtxMapEnabled bool
 	bpfObjects         BpfObjects
@@ -87,9 +88,11 @@ const (
 )
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
+	pruneOpts := cfg.MapPruneOptions()
 	tracer := &Tracer{
 		log:                tlog(),
 		cfg:                cfg,
+		pruneOpts:          &pruneOpts,
 		traceCtxMapEnabled: cfg.PopulateTraceContext(),
 		metrics:            metrics,
 		pidsFilter:         pidFilter,
@@ -252,6 +255,7 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	}
 
 	ebpfcommon.FixupSpec(spec, p.cfg.EBPF.OverrideBPFLoopEnabled)
+	ebpfcommon.ShrinkDisabledFeatureMaps(spec, p.mapPruneOptions())
 	if !p.exceptionsEnabled() {
 		ebpfcommon.ShrinkPythonExceptionMaps(spec)
 	}
@@ -317,7 +321,10 @@ func (p *Tracer) constants(eventsRingBufSize uint32) map[string]any {
 	canWriteHeaders := p.cfg.EBPF.ContextPropagation.HasHeaders() && !ebpfcommon.IntegrityModeOverride &&
 		ebpfcommon.SupportsContextPropagationWithProbe(p.log)
 	m["g_bpf_probe_write_user_enabled"] = canWriteHeaders
-	m["g_bpf_java_http1_enabled"] = p.cfg.EBPF.ContextPropagation.HasHeaders() && ebpfcommon.SupportsJavaHTTP1Propagation(p.log)
+	m["g_bpf_java_http1_enabled"] = p.cfg.EBPF.ContextPropagation.HasHeaders() && p.cfg.Java.Enabled && ebpfcommon.SupportsJavaHTTP1Propagation(p.log)
+	if !p.cfg.EBPF.ContextPropagation.HasHeaders() || !p.cfg.Java.Enabled {
+		m["java_http1_max_requests"] = uint32(1)
+	}
 	m["jvm_sampling_interval_ns"] = uint64(0)
 	if p.cfg.AppRuntimeMetricsEnabled() {
 		m["jvm_sampling_interval_ns"] = uint64(p.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds())
@@ -325,13 +332,25 @@ func (p *Tracer) constants(eventsRingBufSize uint32) map[string]any {
 	m["g_exceptions_enabled"] = p.exceptionsEnabled()
 	m["g_job_traces_enabled"] = p.cfg.JobTracesEnabled()
 	m["nodejs_runtime_metrics_enabled"] = uint64(0)
-	if p.cfg.AppRuntimeMetricsEnabled() {
+	if p.cfg.AppRuntimeMetricsEnabled() && p.cfg.NodeJS.Enabled {
 		m["nodejs_runtime_metrics_enabled"] = uint64(1)
 	}
 
 	m["g_traces_ctx_v1_enabled"] = p.traceCtxMapEnabled
 
 	return m
+}
+
+// SetMapPruneOptions overrides the map-pruning options used by LoadSpecs.
+func (p *Tracer) SetMapPruneOptions(opts ebpfcommon.MapPruneOptions) {
+	p.pruneOpts = &opts
+}
+
+func (p *Tracer) mapPruneOptions() ebpfcommon.MapPruneOptions {
+	if p.pruneOpts != nil {
+		return *p.pruneOpts
+	}
+	return p.cfg.MapPruneOptions()
 }
 
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
@@ -456,10 +475,13 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeInetCskListenStop,
 		},
-		"sys_ioctl": {
+	}
+
+	if p.cfg == nil || p.cfg.Java.Enabled {
+		kp["sys_ioctl"] = ebpfcommon.ProbeDesc{
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeSysIoctl,
-		},
+		}
 	}
 
 	if p.cfg.EBPF.ContextPropagation.IsEnabled() {
@@ -566,18 +588,6 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				End:      p.bpfObjects.ObiNgxEventConnectPeerRet,
 			}},
 		},
-		"node": {
-			"uv_fs_access": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUvFsAccess,
-			}},
-		},
-		"libuv.so": {
-			"uv_fs_access": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUvFsAccess,
-			}},
-		},
 		// Puma request-to-worker correlation. Both symbols are hot in any Ruby
 		// process, so attach only where the correlation can work: Ruby 4.0
 		// stopped routing Class#new through rb_obj_call_init_kw, and outside
@@ -659,6 +669,20 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				End:      p.bpfObjects.ObiUprobeTaskStepRet,
 			}},
 		},
+	}
+	if p.cfg == nil || p.cfg.NodeJS.Enabled {
+		m["node"] = map[string][]*ebpfcommon.ProbeDesc{
+			"uv_fs_access": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUvFsAccess,
+			}},
+		}
+		m["libuv.so"] = map[string][]*ebpfcommon.ProbeDesc{
+			"uv_fs_access": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUvFsAccess,
+			}},
+		}
 	}
 	return m
 }
@@ -858,7 +882,11 @@ func (p *Tracer) Run(
 	}
 
 	if !p.traceCtxMapEnabled {
-		ebpfconvenience.DrainTraceContextMap[BpfObiCtxInfoT](p.log, p.bpfObjects.TracesCtxV1)
+		if p.bpfObjects.TracesCtxV1 != nil && p.bpfObjects.TracesCtxV1.MaxEntries() <= 1 && p.cfg != nil && p.cfg.EBPF.BPFFSPath != "" {
+			ebpfconvenience.DrainPinnedTraceContextMap[BpfObiCtxInfoT](p.log, p.cfg.EBPF.BPFFSPath)
+		} else {
+			ebpfconvenience.DrainTraceContextMap[BpfObiCtxInfoT](p.log, p.bpfObjects.TracesCtxV1)
+		}
 	}
 
 	timeoutTicker := time.NewTicker(2 * time.Second)

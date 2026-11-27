@@ -49,5 +49,6 @@ func (p *Tracer) Run(_ context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg.Q
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 func (p *Tracer) ProcessBinary(_ *exec.FileInfo)                      {}
 func (p *Tracer) SetEventContext(_ *ebpfcommon.EBPFEventContext)      {}
+func (p *Tracer) SetMapPruneOptions(_ ebpfcommon.MapPruneOptions)     {}
 func (p *Tracer) Capabilities() ebpfcommon.TracerCapability           { return 0 }
 func (p *Tracer) Required() bool                                      { return false }

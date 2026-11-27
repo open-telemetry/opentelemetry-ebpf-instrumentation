@@ -9,6 +9,8 @@ import (
 	"encoding/binary"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -144,4 +146,26 @@ func TestDrainTraceContextMapWithoutMap(t *testing.T) {
 	require.NotPanics(t, func() {
 		DrainTraceContextMap[drainValue](discardLogger(), nil)
 	})
+}
+
+func TestDrainPinnedTraceContextMapEmptiesExistingPin(t *testing.T) {
+	drainOnce = sync.Once{}
+	t.Cleanup(func() { drainOnce = sync.Once{} })
+
+	bpffsRoot, err := os.MkdirTemp("/sys/fs/bpf", "obi-drain-test-*")
+	if err != nil {
+		t.Skipf("bpffs unavailable at /sys/fs/bpf: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(bpffsRoot) })
+
+	otelDir := filepath.Join(bpffsRoot, "otel")
+	require.NoError(t, os.MkdirAll(otelDir, 0o755))
+
+	const entries = 32
+	m := newDrainTestMap(t, entries)
+	fill(t, m, entries)
+	require.NoError(t, m.Pin(filepath.Join(otelDir, "traces_ctx_v1")))
+
+	DrainPinnedTraceContextMap[drainValue](discardLogger(), bpffsRoot)
+	require.Zero(t, countEntries(t, m))
 }

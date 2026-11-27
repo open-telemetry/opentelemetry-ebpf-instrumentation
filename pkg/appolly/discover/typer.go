@@ -56,15 +56,27 @@ func ExecTyperProvider(
 	input *msg.Queue[[]Event[ProcessMatch]],
 	output *msg.Queue[[]Event[ebpf.Instrumentable]],
 ) swarm.InstanceFunc {
+	return execTyperProvider(cfg, metrics, k8sInformer, false, input, output)
+}
+
+func execTyperProvider(
+	cfg *obi.Config,
+	metrics imetrics.Reporter,
+	k8sInformer *kube.MetadataProvider,
+	externalSpanExport bool,
+	input *msg.Queue[[]Event[ProcessMatch]],
+	output *msg.Queue[[]Event[ebpf.Instrumentable]],
+) swarm.InstanceFunc {
 	goOffsetsCache, _ := lru.New[cacheKey, goInspectionResult](100)
 
 	t := typer{
-		cfg:            cfg,
-		metrics:        metrics,
-		k8sInformer:    k8sInformer,
-		log:            slog.With("component", "discover.ExecTyper"),
-		currentPids:    map[app.PID]*exec.FileInfo{},
-		goOffsetsCache: goOffsetsCache,
+		cfg:                cfg,
+		metrics:            metrics,
+		k8sInformer:        k8sInformer,
+		externalSpanExport: externalSpanExport,
+		log:                slog.With("component", "discover.ExecTyper"),
+		currentPids:        map[app.PID]*exec.FileInfo{},
+		goOffsetsCache:     goOffsetsCache,
 	}
 	return func(_ context.Context) (swarm.RunFunc, error) {
 		// TODO: do it per executable
@@ -87,13 +99,14 @@ type goInspectionResult struct {
 }
 
 type typer struct {
-	cfg            *obi.Config
-	metrics        imetrics.Reporter
-	k8sInformer    *kube.MetadataProvider
-	log            *slog.Logger
-	currentPids    map[app.PID]*exec.FileInfo
-	allGoFunctions []string
-	goOffsetsCache *lru.Cache[cacheKey, goInspectionResult]
+	cfg                *obi.Config
+	metrics            imetrics.Reporter
+	k8sInformer        *kube.MetadataProvider
+	externalSpanExport bool
+	log                *slog.Logger
+	currentPids        map[app.PID]*exec.FileInfo
+	allGoFunctions     []string
+	goOffsetsCache     *lru.Cache[cacheKey, goInspectionResult]
 }
 
 func samplerFromConfig(s *services.SamplerConfig) trace.Sampler {
@@ -401,7 +414,7 @@ func isGoProxy(offsets *goexec.Offsets) bool {
 func (t *typer) loadAllGoFunctionNames() {
 	uniqueFunctions := map[string]struct{}{}
 	t.allGoFunctions = nil
-	for _, p := range newGoTracersGroup(nil, t.cfg, t.metrics) {
+	for _, p := range newGoTracersGroup(nil, t.cfg, t.metrics, t.externalSpanExport) {
 		for symbolName := range p.GoProbes() {
 			t.addGoFunctionName(uniqueFunctions, symbolName)
 		}
