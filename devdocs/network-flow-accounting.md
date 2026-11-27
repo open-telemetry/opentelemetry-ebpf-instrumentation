@@ -31,9 +31,9 @@ with the same size and offset in both (`FLOW_LOCK`, asserted in `flows_common.h`
 provides both variants, and `flows_sock.c` selects the second by defining `FLOW_LOCK_PLACEHOLDER`
 before including `flows_common.h`:
 
-- The default is a real `struct bpf_spin_lock`. `add_to_flow()` takes it, and the `tc` reader
-  copies entries with `BPF_F_LOCK`, so it gets a consistent snapshot of each entry.
-- The placeholder is a 4-byte field with empty lock functions. The socket filter reader must not
+- The default is a real `struct bpf_spin_lock`. `add_to_flow()` takes it, and both `tc` readers,
+  batch and legacy, copy entries with `BPF_F_LOCK`, so they get a consistent snapshot of each entry.
+- The placeholder is a 4-byte field with empty lock functions. The socket filter readers must not
   pass `BPF_F_LOCK`, which fails on a map without a lock.
 
 `packets` and `bytes` are added atomically in both programs, so they are exact in the socket filter
