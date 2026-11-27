@@ -100,7 +100,7 @@ var (
 	// Cargo registry and vendor directories follow a separator, Bazel rules_rust
 	// repositories are named <hub>__<crate>-<version>
 	rustCrateVersion = regexp.MustCompile(
-		`(?:^|[/\\ ]|__)(` + strings.Join(rustTrackedCrates, "|") + `)-([0-9]+\.[0-9]+\.[0-9]+[^/\\\x00\s]*)[/\\]`)
+		`(?:^|[/\\ \x00]|__)(` + strings.Join(rustTrackedCrates, "|") + `)-([0-9]+\.[0-9]+\.[0-9]+[^/\\\x00\s]*)[/\\]`)
 	rustCompilerVersion = regexp.MustCompile(`rustc version ([0-9]+\.[0-9]+\.[0-9]+) \(`)
 	rustCompilerCommit  = regexp.MustCompile(`[/\\]rustc[/\\]([0-9a-f]{40})[/\\]`)
 )

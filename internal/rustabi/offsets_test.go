@@ -32,6 +32,11 @@ func TestAddPathCrateVersions(t *testing.T) {
 			want: map[string][]string{"bytes": {"1.10.1"}, "reqwest": {"0.12.24"}},
 		},
 		{
+			name: "NUL-separated relative source paths",
+			data: "\x01\x00hyper-1.7.0/src/lib.rs\x00hyper-1.8.0-rc.1/src/lib.rs\x00tokio-1.54.1/src/lib.rs\x00",
+			want: map[string][]string{"hyper": {"1.7.0", "1.8.0-rc.1"}, "tokio": {"1.54.1"}},
+		},
+		{
 			name: "multiple versions and duplicates",
 			data: "/tokio-1.48.0/src /tokio-1.48.0/src /tokio-1.47.1/src",
 			want: map[string][]string{"tokio": {"1.48.0", "1.47.1"}},

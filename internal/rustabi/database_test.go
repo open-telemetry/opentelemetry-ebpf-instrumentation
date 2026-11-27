@@ -85,15 +85,14 @@ func TestDatabaseWriteDeterministicForReorderedCrateSets(t *testing.T) {
 	require.Equal(t, firstOutput, secondOutput)
 }
 
-func TestDatabaseWriteFailurePreservesExistingFile(t *testing.T) {
+func TestDatabaseRenameFailurePreservesDestination(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "rust-offsets.json")
 	original := []byte("{\n  \"profiles\": []\n}\n")
-	originalPath := filepath.Join(dir, "original.json")
-	require.NoError(t, os.WriteFile(originalPath, original, 0o600))
-
+	originalPath := filepath.Join(path, "keep")
+	// A nonempty destination directory forces the final rename to fail.
 	require.NoError(t, os.Mkdir(path, 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(path, "keep"), []byte("destination is not empty"), 0o600))
+	require.NoError(t, os.WriteFile(originalPath, original, 0o600))
 
 	database := Database{Profiles: []Profile{{Arch: "amd64", Rustc: "1.100.0"}}}
 	err := database.Write(path)
