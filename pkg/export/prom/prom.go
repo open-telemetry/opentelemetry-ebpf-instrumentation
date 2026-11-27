@@ -210,6 +210,7 @@ type metricsReporter struct {
 	attrCudaMemoryCopies           []attributes.Field[*request.Span, string]
 	attrSvcGraph                   []attributes.Field[*request.Span, string]
 	attrDNSLookupDuration          []attributes.Field[*request.Span, string]
+	attrISO8583RequestDuration     []attributes.Field[*request.Span, string]
 	attrGenAIClientDuration        []attributes.Field[*request.Span, string]
 	attrGenAIInputTokenUsage       []attributes.Field[*request.Span, string]
 	attrGenAIOutputTokenUsage      []attributes.Field[*request.Span, string]
@@ -249,8 +250,9 @@ type metricsReporter struct {
 	cudaKernelBlockSize             *Expirer[prometheus.Histogram]
 	cudaMemoryCopySize              *Expirer[prometheus.Histogram]
 
-	// dns related metrics
-	dnsLookupDuration *Expirer[prometheus.Histogram]
+	// DNS and ISO 8583
+	dnsLookupDuration      *Expirer[prometheus.Histogram]
+	iso8583RequestDuration *Expirer[prometheus.Histogram]
 
 	// genAI related metrics
 	genAIClientDuration *Expirer[prometheus.Histogram]
@@ -471,8 +473,12 @@ func newReporter(
 			attrsProvider.For(attributes.GPUCudaHostRegisterBytes))
 	}
 
-	var attrDNSLookupDuration []attributes.Field[*request.Span, string]
+	var attrISO8583RequestDuration []attributes.Field[*request.Span, string]
+	if is.ISO8583Enabled() {
+		attrISO8583RequestDuration = attributes.PrometheusGetters(attributeGetters, attrsProvider.For(attributes.ISO8583RequestDuration))
+	}
 
+	var attrDNSLookupDuration []attributes.Field[*request.Span, string]
 	if is.DNSEnabled() {
 		attrDNSLookupDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.DNSLookupDuration))
@@ -580,6 +586,7 @@ func newReporter(
 		attrCudaKernelBlockSize:        attrCudaKernelBlockSize,
 		attrCudaMemoryCopies:           attrCudaMemoryCopies,
 		attrDNSLookupDuration:          attrDNSLookupDuration,
+		attrISO8583RequestDuration:     attrISO8583RequestDuration,
 		attrGenAIClientDuration:        attrGenAIClientDuration,
 		attrGenAIInputTokenUsage:       attrGenAIInputTokenUsage,
 		attrGenAIOutputTokenUsage:      attrGenAIOutputTokenUsage,
@@ -902,6 +909,16 @@ func newReporter(
 				Help: "amount of NVIDIA GPU cuda host registered memory in bytes",
 			}, labelNames(attrCudaHostRegisterBytes)).MetricVec, timeNow, cfg.TTL)
 		}),
+		iso8583RequestDuration: optionalHistogramProvider(is.ISO8583Enabled(), func() *Expirer[prometheus.Histogram] {
+			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+				Name:                            attributes.ISO8583RequestDuration.Prom,
+				Help:                            "Duration of ISO 8583 request/response exchanges in seconds.",
+				Buckets:                         cfg.Buckets.DurationHistogram,
+				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
+				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
+				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
+			}, labelNames(attrISO8583RequestDuration)).MetricVec, timeNow, cfg.TTL)
+		}),
 		dnsLookupDuration: optionalHistogramProvider(is.DNSEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.DNSLookupDuration.Prom,
@@ -1046,6 +1063,9 @@ func newReporter(
 
 		if is.DNSEnabled() {
 			registeredMetrics = append(registeredMetrics, mr.dnsLookupDuration)
+		}
+		if is.ISO8583Enabled() {
+			registeredMetrics = append(registeredMetrics, mr.iso8583RequestDuration)
 		}
 
 		if is.GenAIEnabled() {
@@ -1281,7 +1301,7 @@ func (r *metricsReporter) otelSpanMetricsObserved(span *request.Span) bool {
 }
 
 func (r *metricsReporter) otelSpanFiltered(span *request.Span) bool {
-	return span.InternalSignal() || request.IgnoreMetrics(span)
+	return span.InternalSignal() || request.IgnoreMetricsFor(span, r.is)
 }
 
 func exemplarFilter(filter string) func(*request.Span) bool {
@@ -1553,6 +1573,10 @@ func (r *metricsReporter) observe(span *request.Span) {
 		case request.EventTypeGPUCudaHostRegister:
 			if r.is.GPUEnabled() {
 				r.addCounter(r.cudaHostRegisterBytesTotal.WithLabelValues(labelValues(span, r.attrCudaHostRegisterBytes)...).Metric, float64(span.ContentLength), span)
+			}
+		case request.EventTypeISO8583Client, request.EventTypeISO8583Server:
+			if r.is.ISO8583Enabled() {
+				r.observeHistogram(r.iso8583RequestDuration.WithLabelValues(labelValues(span, r.attrISO8583RequestDuration)...).Metric, duration, span)
 			}
 		case request.EventTypeDNS:
 			if r.is.DNSEnabled() {

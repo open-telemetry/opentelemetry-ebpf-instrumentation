@@ -2083,6 +2083,20 @@
             },
             "filters": {}
           }
+        },
+        "iso8583": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "ISO 8583 request and response instrumentation controls.",
+          "properties": {
+            "enabled": {"$ref": "#/$defs/SignalEnabled"},
+            "filters": {"$ref": "#/$defs/SignalFilters"},
+            "transmission_timezone": {
+              "type": "string",
+              "default": "UTC",
+              "description": "IANA timezone of the transmission timestamp echoed in field 7."
+            }
+          }
         }
       },
       "default": {
@@ -2156,6 +2170,14 @@
             "metrics": true
           },
           "filters": {}
+        },
+        "iso8583": {
+          "enabled": {
+            "traces": true,
+            "metrics": true
+          },
+          "filters": {},
+          "transmission_timezone": "UTC"
         }
       }
     },

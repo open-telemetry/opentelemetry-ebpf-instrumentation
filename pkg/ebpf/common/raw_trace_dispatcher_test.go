@@ -53,6 +53,8 @@ func traceRecordBoundaries() []traceRecordBoundary {
 		{"kernel-http2-request-headers", EventTypeKHTTP2RequestHeaders, int(unsafe.Sizeof(BPFHTTP2Info{}))},
 		{"kernel-http2-response-headers", EventTypeKHTTP2ResponseHeaders, int(unsafe.Sizeof(BPFHTTP2Info{}))},
 		{"tcp", EventTypeTCP, int(unsafe.Sizeof(TCPRequestInfo{}))},
+		{"tcp-multiplex", EventTypeTCPMultiplex, int(unsafe.Sizeof(TCPRequestInfo{}))},
+		{"tcp-multiplex-cont", EventTypeTCPMultiplexCont, int(unsafe.Sizeof(BpfTcpMultiplexContT{}))},
 		{"go-sarama", EventTypeGoSarama, int(unsafe.Sizeof(GoSaramaClientInfo{}))},
 		{"go-redis", EventTypeGoRedis, int(unsafe.Sizeof(GoRedisClientInfo{}))},
 		{"go-kafka", EventTypeGoKafkaGo, int(unsafe.Sizeof(GoKafkaGoClientInfo{}))},

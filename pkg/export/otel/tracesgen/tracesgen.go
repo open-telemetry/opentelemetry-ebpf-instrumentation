@@ -1796,6 +1796,23 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		attrs = appendPeerService(attrs, span, optionalAttrs)
+	case request.EventTypeISO8583Client, request.EventTypeISO8583Server:
+		attrs = []attribute.KeyValue{
+			semconv.NetworkProtocolName("iso8583"),
+			attr.ISO8583MTI.OTEL().String(span.Method),
+			attr.ISO8583DurationSource.OTEL().String(span.ISO8583DurationSource()),
+		}
+		if refs := span.ISO8583References; refs != nil {
+			attrs = appendIfSet(attrs, attr.ISO8583STAN.OTEL().String, refs.STAN)
+			attrs = appendIfSet(attrs, attr.ISO8583RRN.OTEL().String, refs.RRN)
+		}
+		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
+		if span.HostPort != 0 {
+			attrs = append(attrs, request.ServerPort(span.HostPort))
+		}
+		if span.Type == request.EventTypeISO8583Client {
+			attrs = appendPeerService(attrs, span, optionalAttrs)
+		}
 	case request.EventTypeSunRPCServer, request.EventTypeSunRPCClient:
 		// https://opentelemetry.io/docs/specs/semconv/registry/attributes/onc-rpc/
 		attrs = []attribute.KeyValue{
@@ -1967,7 +1984,7 @@ func networkPeerAttributes(span *request.Span, optionalAttrs map[attr.Name]struc
 		request.EventTypeSQLServer, request.EventTypeRedisServer,
 		request.EventTypeMemcachedServer, request.EventTypeSunRPCServer,
 		request.EventTypeKafkaServer, request.EventTypeMQTTServer,
-		request.EventTypeNATSServer:
+		request.EventTypeNATSServer, request.EventTypeISO8583Server:
 		addr, port = span.Peer, span.PeerPort
 	case request.EventTypeHTTPClient, request.EventTypeGRPCClient,
 		request.EventTypeSQLClient, request.EventTypeRedisClient,
@@ -1975,7 +1992,7 @@ func networkPeerAttributes(span *request.Span, optionalAttrs map[attr.Name]struc
 		request.EventTypeMemcachedClient, request.EventTypeAerospikeClient,
 		request.EventTypeSunRPCClient, request.EventTypeKafkaClient,
 		request.EventTypeMQTTClient, request.EventTypeNATSClient,
-		request.EventTypeAMQPClient:
+		request.EventTypeAMQPClient, request.EventTypeISO8583Client:
 		addr, port = span.Host, span.HostPort
 	default:
 		return nil
@@ -2074,9 +2091,9 @@ func spanKind(span *request.Span) trace2.SpanKind {
 	}
 
 	switch span.Type {
-	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer, request.EventTypeAerospikeServer:
+	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer, request.EventTypeAerospikeServer, request.EventTypeISO8583Server:
 		return trace2.SpanKindServer
-	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeAerospikeClient, request.EventTypeFailedConnect:
+	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeAerospikeClient, request.EventTypeFailedConnect, request.EventTypeISO8583Client:
 		return trace2.SpanKindClient
 	// A messaging span is a producer, a consumer or a client, decided by the
 	// operation rather than by the side OBI observed it from. Semantic

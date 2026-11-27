@@ -69,6 +69,11 @@ func TestInstrumentationSelection(t *testing.T) {
 	assert.False(t, is.AMQPEnabled())
 	assert.False(t, is.MQEnabled())
 	assert.True(t, is.SunRPCEnabled())
+	assert.False(t, is.ISO8583Enabled())
+
+	is = NewInstrumentationSelection([]Instrumentation{InstrumentationISO8583})
+	assert.True(t, is.ISO8583Enabled())
+	assert.False(t, is.SunRPCEnabled())
 }
 
 func TestInstrumentationSelection_All(t *testing.T) {
@@ -89,6 +94,7 @@ func TestInstrumentationSelection_All(t *testing.T) {
 	assert.True(t, is.SunRPCEnabled())
 	assert.True(t, is.DNSEnabled())
 	assert.True(t, is.GenAIEnabled())
+	assert.True(t, is.ISO8583Enabled())
 }
 
 func TestInstrumentationSelection_None(t *testing.T) {
@@ -105,4 +111,5 @@ func TestInstrumentationSelection_None(t *testing.T) {
 	assert.False(t, is.AMQPEnabled())
 	assert.False(t, is.MQEnabled())
 	assert.False(t, is.SunRPCEnabled())
+	assert.False(t, is.ISO8583Enabled())
 }

@@ -14,13 +14,14 @@
 #include <generictracer/k_send_receive.h>
 #include <generictracer/k_tracer_defs.h>
 #include <generictracer/protocol_http.h>
-#include <generictracer/protocol_tcp.h>
 
 #include <generictracer/maps/active_recv_args.h>
+#include <generictracer/maps/tcp_req_mem.h>
 
 #include <logger/bpf_dbg.h>
 
 #include <maps/active_unix_socks.h>
+#include <maps/ongoing_tcp_req.h>
 
 #include <pid/pid.h>
 
@@ -120,7 +121,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_unix_stream_recvmsg,
         tcp_req_t *existing_tcp =
             (tcp_req_t *)bpf_map_lookup_elem(&ongoing_tcp_req, &partial_p_conn);
         if (existing_tcp) {
-            tcp_req_t *req = empty_tcp_req();
+            tcp_req_t *req = tcp_req_mem();
             if (req) {
                 __builtin_memcpy(req, existing_tcp, sizeof(tcp_req_t));
                 bpf_map_delete_elem(&ongoing_tcp_req, &partial_p_conn);

@@ -879,8 +879,8 @@ func effectivePrometheusExemplarFilter(cfg *obi.Config) string {
 
 func preservesV1DerivedMetricProtocols(protocols []instrumentations.Instrumentation) bool {
 	selection := instrumentations.NewInstrumentationSelection(protocols)
-	// V1 derived metrics bypass protocol selection. DNS does not emit derived
-	// metrics; protocols without a v2 switch retain their default selection.
+	// These legacy protocols emit v1 derived metrics even when unselected.
+	// DNS has no derived metrics. ISO 8583 honors selection for all metrics.
 	for _, protocol := range []instrumentations.Instrumentation{
 		instrumentations.InstrumentationHTTP,
 		instrumentations.InstrumentationGRPC,

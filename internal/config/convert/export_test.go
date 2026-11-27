@@ -104,6 +104,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 		string(protocolDNS),
 		string(protocolGPU),
 		string(protocolAerospike),
+		string(protocolISO8583),
 	}, keys(ext.Capture.Instrumentation))
 
 	require.Equal(t, true, value(t, ext.Capture.Runtimes, "go", "enabled"))

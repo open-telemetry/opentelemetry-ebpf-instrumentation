@@ -619,7 +619,7 @@ func (mr *SvcGraphMetricsReporter) onSpan(spans []request.Span) {
 			continue
 		}
 		// If we are ignoring this span because of route patterns or features, don't do anything
-		if request.IgnoreMetrics(s) || !s.Service.Features.ServiceTopology() {
+		if request.IgnoreMetricsFor(s, mr.is) || !s.Service.Features.ServiceTopology() {
 			continue
 		}
 		reporter, err := mr.reporters.For(&s.Service)

@@ -1,0 +1,21 @@
+file_format: definition/2
+metrics:
+  - name: iso8583.request.duration
+    annotations:
+      obi:
+        upstream: none
+        upstream_reason: upstream defines no ISO 8583 response-time metric
+    instrument: histogram
+    unit: "s"
+    stability: development
+    requirement_level: recommended
+    brief: ISO 8583 response time at the observed endpoint, estimated from field 7 or measured from a captured exchange.
+    attributes:
+      - ref: mti
+        requirement_level: recommended
+      - ref: duration.source
+        requirement_level: recommended
+      - ref: request.type
+        requirement_level: recommended
+      - ref: auth.outcome
+        requirement_level: recommended

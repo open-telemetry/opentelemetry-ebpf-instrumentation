@@ -437,6 +437,14 @@ extensions:
             traces: {}
             metrics: {}
           enabled_mode: auto
+        iso8583:
+          transmission_timezone: UTC
+          enabled:
+            traces: true
+            metrics: true
+          filters:
+            traces: {}
+            metrics: {}
 
       # runtimes controls injection of language-specific runtime instrumentation mechanisms.
       # These are independent from protocol instrumentation (HTTP, gRPC, etc.) and are used

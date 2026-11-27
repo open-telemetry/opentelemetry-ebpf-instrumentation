@@ -109,6 +109,7 @@ type MetricsReporter struct {
 	attrGPUDeviceSynchronizeCalls []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGPUHostRegisterBytes      []attributes.Field[*request.Span, attribute.KeyValue]
 	attrDNSLookupDuration         []attributes.Field[*request.Span, attribute.KeyValue]
+	attrISO8583RequestDuration    []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGenAIInputTokenUsage      []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGenAIOutputTokenUsage     []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGenAIClientDuration       []attributes.Field[*request.Span, attribute.KeyValue]
@@ -170,8 +171,9 @@ type Metrics struct {
 	gpuKernelGridSize              *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	gpuKernelBlockSize             *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	gpuMemoryCopySize              *Expirer[*request.Span, instrument.Float64Histogram, float64]
-	// dns
-	dnsLookupDuration *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	// DNS and ISO 8583
+	dnsLookupDuration      *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	iso8583RequestDuration *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	// genai
 	genAIInputTokenUsage  *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	genAIOutputTokenUsage *Expirer[*request.Span, instrument.Float64Histogram, float64]
@@ -347,6 +349,10 @@ func newMetricsReporter(
 			mr.attrGetters, mr.attributes.For(attributes.GPUCudaHostRegisterBytes))
 	}
 
+	if is.ISO8583Enabled() {
+		mr.attrISO8583RequestDuration = attributes.OpenTelemetryGetters(
+			mr.attrGetters, mr.attributes.For(attributes.ISO8583RequestDuration))
+	}
 	if is.DNSEnabled() {
 		mr.attrDNSLookupDuration = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.DNSLookupDuration))
@@ -438,6 +444,9 @@ func (mr *MetricsReporter) otelMetricOptions() []metric.Option {
 		)
 	}
 
+	if mr.is.ISO8583Enabled() {
+		opts = append(opts, metric.WithView(mr.otelHistogramConfig(attributes.ISO8583RequestDuration.OTEL, mr.cfg.Buckets.DurationHistogram)))
+	}
 	if mr.is.DBEnabled() {
 		opts = append(opts,
 			metric.WithView(mr.otelHistogramConfig(attributes.DBClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
@@ -748,6 +757,14 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 			m.ctx, gpuMemoryCopySize, mr.attrGPUMemoryCopies, timeNow, mr.cfg.TTL)
 	}
 
+	if mr.is.ISO8583Enabled() {
+		histogram, err := meter.Float64Histogram(attributes.ISO8583RequestDuration.OTEL, instrument.WithUnit(attributes.ISO8583RequestDuration.Unit))
+		if err != nil {
+			return fmt.Errorf("creating ISO 8583 request duration histogram: %w", err)
+		}
+		m.iso8583RequestDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+			m.ctx, histogram, mr.attrISO8583RequestDuration, timeNow, mr.cfg.TTL)
+	}
 	if mr.is.DNSEnabled() {
 		dnsLookupDuration, err := meter.Float64Histogram(attributes.DNSLookupDuration.OTEL, instrument.WithUnit(attributes.DNSLookupDuration.Unit))
 		if err != nil {
@@ -1465,6 +1482,11 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				gmem, attrs := r.gpuHostRegisterBytesTotal.ForRecord(span)
 				gmem.Add(ctx, span.ContentLength, instrument.WithAttributeSet(attrs))
 			}
+		case request.EventTypeISO8583Client, request.EventTypeISO8583Server:
+			if measured && mr.is.ISO8583Enabled() {
+				histogram, attrs := r.iso8583RequestDuration.ForRecord(span)
+				histogram.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
 		case request.EventTypeDNS:
 			if mr.is.DNSEnabled() {
 				dnsDuration, attrs := r.dnsLookupDuration.ForRecord(span)
@@ -1707,7 +1729,7 @@ func (mr *MetricsReporter) onSpan(spans []request.Span) {
 			continue
 		}
 		// If we are ignoring this span because of route patterns or disabled features, don't do anything
-		if !s.Service.Features.AppOrSpan() || request.IgnoreMetrics(s) {
+		if !s.Service.Features.AppOrSpan() || request.IgnoreMetricsFor(s, mr.is) {
 			continue
 		}
 
@@ -1808,6 +1830,7 @@ func (r *Metrics) cleanupAllMetricsInstances() {
 	cleanupMetrics(r.ctx, r.gpuKernelBlockSize)
 	cleanupMetrics(r.ctx, r.gpuMemoryCopySize)
 	cleanupMetrics(r.ctx, r.dnsLookupDuration)
+	cleanupMetrics(r.ctx, r.iso8583RequestDuration)
 	cleanupMetrics(r.ctx, r.genAIClientDuration)
 	cleanupMetrics(r.ctx, r.genAIInputTokenUsage)
 	cleanupMetrics(r.ctx, r.genAIOutputTokenUsage)

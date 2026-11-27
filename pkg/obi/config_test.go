@@ -322,6 +322,7 @@ discovery:
 				instrumentations.InstrumentationMemcached,
 				instrumentations.InstrumentationSunRPC,
 				instrumentations.InstrumentationAerospike,
+				instrumentations.InstrumentationISO8583,
 				// no traces for DNS and GPU by default
 			},
 		},

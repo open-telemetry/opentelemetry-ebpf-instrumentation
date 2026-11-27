@@ -5,6 +5,20 @@ package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import "go.opentelemetry.io/obi/pkg/export/instrumentations"
 
+// IgnoreMetricsFor applies the exporter's protocol selection to ISO 8583,
+// including derived metrics. Older protocols retain the v1 derived metric behavior.
+func IgnoreMetricsFor(s *Span, selection instrumentations.InstrumentationSelection) bool {
+	if IgnoreMetrics(s) {
+		return true
+	}
+	switch s.Type {
+	case EventTypeISO8583Client, EventTypeISO8583Server:
+		return !selection.ISO8583Enabled()
+	default:
+		return false
+	}
+}
+
 // Instrumentation returns the instrumentation that produced the event type.
 func (t EventType) Instrumentation() (instrumentations.Instrumentation, bool) {
 	switch t {
@@ -42,6 +56,8 @@ func (t EventType) Instrumentation() (instrumentations.Instrumentation, bool) {
 		return instrumentations.InstrumentationSunRPC, true
 	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		return instrumentations.InstrumentationAerospike, true
+	case EventTypeISO8583Client, EventTypeISO8583Server:
+		return instrumentations.InstrumentationISO8583, true
 	default:
 		return "", false
 	}

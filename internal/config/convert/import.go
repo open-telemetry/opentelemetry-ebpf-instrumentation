@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
+	_ "time/tzdata" // The standalone scratch image has no system zoneinfo.
 	"unicode/utf8"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
@@ -57,6 +59,7 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	defaults.Capture.Metrics.Features = nil
 	// Check before applying defaults to distinguish omitted sources from explicit ones.
 	serviceNameSourcesOmitted := src.Enrich == nil || src.Enrich.ServiceName.Sources == nil
+	configuredISO8583 := src.Capture.Instrumentation.ISO8583
 	var complete bool
 	var err error
 	src, complete, err = src.WithDefaults(defaults)
@@ -106,6 +109,13 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	src = &normalized
 
 	cfg := runtimeConfigDefaults()
+	if iso := src.Capture.Instrumentation.ISO8583; iso != nil && iso.TransmissionTimezone != "" && iso.TransmissionTimezone != "UTC" {
+		zone, err := time.LoadLocation(iso.TransmissionTimezone)
+		if err != nil {
+			return nil, fmt.Errorf("capture.instrumentation.iso8583.transmission_timezone: %w", err)
+		}
+		cfg.EBPF.ISO8583TransmissionLocation = zone
+	}
 	cfg.Attributes.UseV2Selection = true
 	applyV2Capture(&cfg, src, policy, complete)
 	applyV2Standalone(&cfg, src, complete)
@@ -115,7 +125,7 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := applyV2CaptureAttributes(&cfg, src); err != nil {
 		return nil, err
 	}
-	if err := applyV2MetricsEnablement(&cfg, src, complete); err != nil {
+	if err := applyV2MetricsEnablement(&cfg, src, configuredISO8583, complete); err != nil {
 		return nil, err
 	}
 	cfg.Attributes.Select.Normalize()
@@ -1276,14 +1286,18 @@ func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 }
 
 func instrumentationWithDefaults(instrumentation schema.Instrumentation) schema.Instrumentation {
-	if !completeInstrumentationWithoutAerospike(instrumentation) || instrumentation.Aerospike != nil {
+	if !completeInstrumentationWithoutAerospike(instrumentation) {
 		return instrumentation
 	}
-
-	aerospike := schema.AerospikeInstrumentation{
-		Enabled: schema.ProtocolEnablement{Traces: true, Metrics: true},
+	enabled := schema.ProtocolEnablement{Traces: true, Metrics: true}
+	if instrumentation.Aerospike == nil {
+		instrumentation.Aerospike = &schema.AerospikeInstrumentation{Enabled: enabled}
 	}
-	instrumentation.Aerospike = &aerospike
+	if instrumentation.ISO8583 == nil {
+		instrumentation.ISO8583 = &schema.ISO8583Instrumentation{
+			ProtocolInstrumentation: schema.ProtocolInstrumentation{Enabled: enabled},
+		}
+	}
 	return instrumentation
 }
 
@@ -2470,7 +2484,7 @@ func completeDaemonTelemetry(telemetry schema.DaemonTelemetry) bool {
 	return telemetry.Metrics.Prometheus.SpanMetricsServiceCacheSize != 0
 }
 
-func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete bool) error {
+func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, configuredISO8583 *schema.ISO8583Instrumentation, complete bool) error {
 	if features := src.Capture.Metrics.Features; features != nil {
 		mask, err := export.LoadV2Features(features)
 		if err != nil {
@@ -2480,10 +2494,10 @@ func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete b
 		return nil
 	}
 
-	appMetricsEnabled, appConfigured := appMetricsEnablement(
-		src.Capture.Instrumentation,
-		complete || completeInstrumentation(src.Capture.Instrumentation),
-	)
+	// An implicit ISO 8583 default must not turn RED back on for unrelated protocols.
+	instrumentation := src.Capture.Instrumentation
+	instrumentation.ISO8583 = configuredISO8583
+	appMetricsEnabled, appConfigured := appMetricsEnablement(instrumentation, complete || completeInstrumentation(instrumentation))
 	networkConfigured := complete || !zeroValue(src.Capture.Network.Capture)
 	networkMetricsEnabled := src.Capture.Network.Capture.Enabled
 	statsFeatures, statsConfigured := statsMetricsEnablement(src.Capture.Network.Stats)
@@ -2680,6 +2694,11 @@ func protocolEnablement(instrumentation schema.Instrumentation, name protocolNam
 		return instrumentation.DNS.Enabled, false
 	case protocolGPU:
 		return instrumentation.GPU.Enabled, false
+	case protocolISO8583:
+		if instrumentation.ISO8583 != nil {
+			return instrumentation.ISO8583.Enabled, true
+		}
+		return schema.ProtocolEnablement{}, false
 	case protocolAerospike:
 		if instrumentation.Aerospike != nil {
 			return instrumentation.Aerospike.Enabled, true
@@ -2710,6 +2729,11 @@ func protocolFilters(instrumentation schema.Instrumentation, name protocolName) 
 		return instrumentation.DNS.Filters
 	case protocolGPU:
 		return instrumentation.GPU.Filters
+	case protocolISO8583:
+		if instrumentation.ISO8583 != nil {
+			return instrumentation.ISO8583.Filters
+		}
+		return schema.SignalFilters{}
 	case protocolAerospike:
 		if instrumentation.Aerospike != nil {
 			return instrumentation.Aerospike.Filters

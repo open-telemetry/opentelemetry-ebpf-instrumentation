@@ -1,0 +1,85 @@
+file_format: definition/2
+attributes:
+  - key: auth.outcome
+    type:
+      members:
+        - id: approved
+          value: approved
+          stability: development
+          brief: The issuer approved the request.
+        - id: partially_approved
+          value: partially_approved
+          stability: development
+          brief: The issuer approved part of the requested amount.
+        - id: declined
+          value: declined
+          stability: development
+          brief: The issuer or processor declined the request.
+        - id: technical_error
+          value: technical_error
+          stability: development
+          brief: The reply reports a processing or routing failure.
+        - id: unknown
+          value: unknown
+          stability: development
+          brief: The response code was unavailable or had no recognized mapping.
+        - id: not_applicable
+          value: not_applicable
+          stability: development
+          brief: The message is outside the authorization and financial request/response flows.
+    stability: development
+    brief: Authorization or financial request outcome derived from the reply's DE39.
+  - key: request.type
+    type:
+      members:
+        - id: client
+          value: client
+          stability: development
+          brief: The observed endpoint received the ISO 8583 response.
+        - id: server
+          value: server
+          stability: development
+          brief: The observed endpoint sent the ISO 8583 response.
+    stability: development
+    brief: Role of the observed endpoint in the ISO 8583 exchange.
+  - key: mti
+    type: string
+    stability: development
+    brief: Four-digit initiating message type indicator, inferred from the reply when the request was not observed.
+    examples: ["0100", "0200", "0420", "0800"]
+  - key: stan
+    type: string
+    stability: development
+    brief: Six-digit systems trace audit number from ISO 8583 field 11.
+    examples: ["000123"]
+  - key: rrn
+    type: string
+    stability: development
+    brief: Retrieval reference number from ISO 8583 field 37.
+    examples: ["000ABC123456"]
+  - key: duration.source
+    type:
+      members:
+        - id: field_7
+          value: field_7
+          stability: development
+          brief: Estimated from transmission time in the response's field 7.
+        - id: capture
+          value: capture
+          stability: development
+          brief: Measured between a captured request and its matching response.
+    stability: development
+    brief: Source of the ISO 8583 exchange duration.
+
+attribute_groups:
+  - id: registry.obi.iso8583
+    visibility: public
+    stability: development
+    brief: ISO 8583 attributes defined by OBI.
+    attributes:
+      - ref: request.type
+      - ref: mti
+      - ref: stan
+      - ref: rrn
+      - ref: duration.source
+      - ref: auth.outcome

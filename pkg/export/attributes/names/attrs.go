@@ -251,6 +251,15 @@ const (
 	VendorGoversionSuffix = Name(".goversion")
 )
 
+const (
+	ISO8583MTI            = Name("mti")
+	ISO8583STAN           = Name("stan")
+	ISO8583RRN            = Name("rrn")
+	ISO8583DurationSource = Name("duration.source")
+	ISO8583Kind           = Name("request.type")
+	ISO8583AuthOutcome    = Name("auth.outcome")
+)
+
 // Attributes carried by OBI's own self-observability metrics: the obi.* internal metrics and
 // the bpf_* Prometheus collector metrics. Declared here so that the Prometheus label name is
 // derived from the OTLP attribute key via Name.Prom(), instead of being written a second time

@@ -20,6 +20,38 @@ import (
 func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValue], bool) {
 	var getter attributes.Getter[*Span, attribute.KeyValue]
 	switch name {
+	case attr.ISO8583AuthOutcome:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeISO8583Client || s.Type == EventTypeISO8583Server {
+				return name.OTEL().String(s.ISO8583Outcome.String())
+			}
+			return attribute.KeyValue{}
+		}
+	case attr.ISO8583Kind:
+		getter = func(s *Span) attribute.KeyValue {
+			switch s.Type {
+			case EventTypeISO8583Client:
+				return name.OTEL().String("client")
+			case EventTypeISO8583Server:
+				return name.OTEL().String("server")
+			default:
+				return attribute.KeyValue{}
+			}
+		}
+	case attr.ISO8583MTI:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeISO8583Client || s.Type == EventTypeISO8583Server {
+				return name.OTEL().String(s.Method)
+			}
+			return attribute.KeyValue{}
+		}
+	case attr.ISO8583DurationSource:
+		getter = func(s *Span) attribute.KeyValue {
+			if source := s.ISO8583DurationSource(); source != "" {
+				return name.OTEL().String(source)
+			}
+			return attribute.KeyValue{}
+		}
 	case attr.Client:
 		getter = func(s *Span) attribute.KeyValue { return ClientMetric(SpanPeer(s)) }
 	case attr.ClientNamespace:

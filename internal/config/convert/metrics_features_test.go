@@ -134,6 +134,42 @@ network:
 	require.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork|export.FeatureStatsTCPRtt, got.Metrics.Features)
 }
 
+func TestV2ISO8583MetricsWithAllOtherProtocolsDisabled(t *testing.T) {
+	const legacy = `version: '2.0'
+instrumentation:
+  http: {enabled: {metrics: false}}
+  grpc: {enabled: {metrics: false}}
+  sql: {enabled: {metrics: false}}
+  redis: {enabled: {metrics: false}}
+  kafka: {enabled: {metrics: false}}
+  mongo: {enabled: {metrics: false}}
+  couchbase: {enabled: {metrics: false}}
+  dns: {enabled: {metrics: false}}
+  gpu: {enabled: {metrics: false}}
+  aerospike: {enabled: {metrics: false}}
+`
+	for _, tc := range []struct {
+		name    string
+		extra   string
+		wantRED bool
+	}{
+		{name: "legacy config"},
+		{name: "ISO traces only", extra: "  iso8583: {enabled: {traces: true}}"},
+		{name: "ISO timezone only", extra: "  iso8583: {transmission_timezone: UTC}"},
+		{name: "ISO metrics enabled", extra: "  iso8583: {enabled: {metrics: true}}", wantRED: true},
+		{name: "ISO metrics disabled", extra: "  iso8583: {enabled: {metrics: false}}"},
+		{name: "application feature enabled", extra: "metrics: {features: [application]}", wantRED: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ext, err := schema.ParseReceiverYAML([]byte(legacy + tc.extra))
+			require.NoError(t, err)
+			cfg, err := V2ToRuntime(ext)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantRED, cfg.Metrics.Features.AppRED())
+		})
+	}
+}
+
 func TestV2MetricFeaturesRejectUnknown(t *testing.T) {
 	t.Parallel()
 

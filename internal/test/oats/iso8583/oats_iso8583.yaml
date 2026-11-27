@@ -1,0 +1,108 @@
+name: ISO 8583 financial and network management exchanges
+fixture:
+  compose:
+    files:
+      - docker-compose.yml
+      - ../weaver/docker-compose-weaver.yml
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+  - path: /ready
+    retry:
+      timeout: 2m
+      interval: 1s
+  - path: /echo
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+expected:
+  traces:
+    - traceql: '{ kind=server && span.url.path = "/echo" }'
+      match_spans:
+        - match_type: regexp
+          name: ^GET
+    - traceql: '{ kind=server && span.url.path = "/fcgi-overlap" }'
+      match_spans:
+        - match_type: regexp
+          name: ^GET
+    - traceql: '{ span.messaging.system = "mqtt" && span.messaging.destination.name = "payments" }'
+      match_spans:
+        - name: publish payments
+    - traceql: '{ kind=client && span.mti = "0120" && span.duration.source = "field_7" && duration >= 5s }'
+      match_spans:
+        - name: ISO 8583 0120
+    - traceql: '{ kind=server && span.mti = "0420" && span.duration.source = "field_7" && duration >= 12s }'
+      match_spans:
+        - name: ISO 8583 0420
+    - traceql: '{ kind=client && span.mti = "0220" && span.duration.source = "field_7" && duration >= 8s }'
+      match_spans:
+        - name: ISO 8583 0220
+    - traceql: '{ kind=server && span.mti = "0320" && span.duration.source = "field_7" && duration >= 3s }'
+      match_spans:
+        - name: ISO 8583 0320
+    - traceql: '{ kind=client && span.mti = "0200" && span.rrn = "000000000001" && span.stan =~ "[0-9]{6}" }'
+      match_spans:
+        - name: ISO 8583 0200
+    - traceql: '{ kind=server && span.mti = "0200" && span.rrn = "000000000001" && span.stan =~ "[0-9]{6}" }'
+      match_spans:
+        - name: ISO 8583 0200
+    - traceql: '{ kind=client && span.mti = "0800" }'
+      match_spans:
+        - name: ISO 8583 0800
+          attributes:
+            - key: network.protocol.name
+              value: iso8583
+            - key: server.port
+              value: "8584"
+    - traceql: '{ kind=server && span.mti = "0800" }'
+      match_spans:
+        - name: ISO 8583 0800
+          attributes:
+            - key: server.port
+              value: "8584"
+  metrics:
+    - promql: sum(iso8583_request_duration_seconds_count{stan!=""} or iso8583_request_duration_seconds_count{rrn!=""}) or vector(0)
+      value: '== 0'
+    - promql: count(count by (request_type, auth_outcome) (iso8583_request_duration_seconds_count{mti="0102",duration_source="capture",request_type=~"client|server",auth_outcome=~"approved|declined|technical_error"} > 0))
+      value: '== 6'
+    - promql: |
+        count((
+          sum by (request_type) (iso8583_request_duration_seconds_sum{mti="0102",duration_source="capture",auth_outcome="declined",request_type=~"client|server"}) /
+          sum by (request_type) (iso8583_request_duration_seconds_count{mti="0102",duration_source="capture",auth_outcome="declined",request_type=~"client|server"})
+        ) >= 0.15)
+      value: '== 2'
+    - promql: count(count by (request_type, auth_outcome) (iso8583_request_duration_seconds_count{mti="0100",duration_source="capture",request_type=~"client|server",auth_outcome=~"approved|declined"} > 0))
+      value: '== 4'
+    - promql: iso8583_request_duration_seconds_sum{mti="0120",duration_source="field_7",request_type="client"} / iso8583_request_duration_seconds_count{mti="0120",duration_source="field_7",request_type="client"}
+      value: '>= 5'
+    - promql: iso8583_request_duration_seconds_sum{mti="0420",duration_source="field_7",request_type="server"} / iso8583_request_duration_seconds_count{mti="0420",duration_source="field_7",request_type="server"}
+      value: '>= 12'
+    - promql: iso8583_request_duration_seconds_count{mti="0100",request_type="client",auth_outcome="declined"}
+      value: '> 0'
+    - promql: iso8583_request_duration_seconds_count{mti="0100",request_type="client",auth_outcome="technical_error"}
+      value: '> 0'
+    - promql: iso8583_request_duration_seconds_count{mti="0200",request_type="client",auth_outcome="approved"}
+      value: '> 0'
+    - promql: iso8583_request_duration_seconds_count{mti="0200",request_type="server",auth_outcome="approved"}
+      value: '> 0'
+    - promql: iso8583_request_duration_seconds_count{mti="0800",duration_source="field_7",request_type="client",auth_outcome="not_applicable"}
+      value: '> 0'
+    - promql: iso8583_request_duration_seconds_count{mti="0800",request_type="server"}
+      value: '> 0'
+    - promql: sum(iso8583_request_duration_seconds_count{mti=~"0500|0600|0700"}) or vector(0)
+      value: '== 0'
+  custom-checks:
+    - script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        # After the ingestion window, search the whole exchange. OATS counts plain output lines for absent traces.
+        sleep 10
+        end=$(date +%s)
+        curl -fsSG "$OATS_GRAFANA_URL/api/datasources/proxy/uid/tempo/api/search" \
+          --data "start=$((end - 600))" --data "end=$end" \
+          --data-urlencode 'q={ span.mti =~ "0500|0600|0700" }' |
+          jq -e 'if .traces == [] then true else error("unexpected overlap traces: \(.traces)") end'

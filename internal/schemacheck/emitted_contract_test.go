@@ -260,6 +260,33 @@ func emittedSpanCases() []emittedSpanCase {
 			},
 		},
 		{
+			name:     "iso8583 client",
+			spanType: "obi.iso8583.client",
+			span: &request.Span{
+				Type:              request.EventTypeISO8583Client,
+				Method:            "0200",
+				Host:              "10.0.0.1",
+				HostPort:          9000,
+				ISO8583References: &request.ISO8583References{STAN: "000123", RRN: "00ABC1234567"},
+			},
+			optional: []attr.Name{attr.NetworkPeerAddress, attr.NetworkPeerPort, attr.SkipSpanMetrics, attr.ServicePeerName},
+			absent:   []string{"service.peer.name"},
+		},
+		{
+			name:     "iso8583 server",
+			spanType: "obi.iso8583.server",
+			span: &request.Span{
+				Type:              request.EventTypeISO8583Server,
+				Method:            "0200",
+				Host:              "10.0.0.1",
+				HostPort:          9000,
+				Peer:              "10.0.0.2",
+				PeerPort:          54321,
+				ISO8583References: &request.ISO8583References{STAN: "000123", RRN: "00ABC1234567"},
+			},
+			optional: []attr.Name{attr.NetworkPeerAddress, attr.NetworkPeerPort, attr.SkipSpanMetrics},
+		},
+		{
 			name:     "onc rpc client",
 			absent:   []string{"service.peer.name"},
 			spanType: "obi.rpc.onc_rpc.client",

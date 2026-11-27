@@ -2051,6 +2051,7 @@
               "gpu",
               "grpc",
               "http",
+              "iso8583",
               "kafka",
               "memcached",
               "mongo",
@@ -2536,6 +2537,7 @@
               "gpu",
               "grpc",
               "http",
+              "iso8583",
               "kafka",
               "memcached",
               "mongo",
@@ -3176,6 +3178,7 @@
               "gpu",
               "grpc",
               "http",
+              "iso8583",
               "kafka",
               "memcached",
               "mongo",
@@ -3202,7 +3205,8 @@
             "couchbase",
             "memcached",
             "sunrpc",
-            "aerospike"
+            "aerospike",
+            "iso8583"
           ],
           "x-env-var": "OTEL_EBPF_TRACES_INSTRUMENTATIONS"
         },

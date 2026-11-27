@@ -694,6 +694,15 @@ func getDefinitions(
 				attr.ErrorType:       true,
 			},
 		},
+		ISO8583RequestDuration.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.ISO8583MTI:            true,
+				attr.ISO8583DurationSource: true,
+				attr.ISO8583Kind:           true,
+				attr.ISO8583AuthOutcome:    true,
+			},
+		},
 		GenAIClientInputTokenUsage.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{

@@ -192,6 +192,11 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		BufferSize: cfg.EBPF.BufferSizes.Aerospike,
 	}
 
+	iso8583 := schema.ISO8583Instrumentation{ProtocolInstrumentation: protocols[protocolISO8583]}
+	if cfg.EBPF.ISO8583TransmissionLocation != nil {
+		iso8583.TransmissionTimezone = cfg.EBPF.ISO8583TransmissionLocation.String()
+	}
+
 	return schema.Instrumentation{
 		HTTP:      httpInstrumentation,
 		GRPC:      protocols[protocolGRPC],
@@ -204,6 +209,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		DNS:       dnsInstrumentation,
 		GPU:       gpuInstrumentation,
 		Aerospike: &aerospikeInstrumentation,
+		ISO8583:   &iso8583,
 	}
 }
 

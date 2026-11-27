@@ -74,6 +74,7 @@ internal/test/integration/components/rubytestserver/testapi/tmp/storage/*
 !internal/test/internal/integration/components/rubytestserver/testapi/tmp/storage/.keep
 internal/test/integration/components/dotnetserver/obj/*
 internal/test/oats/*/build/*
+internal/test/oats/*/.oats.*
 internal/test/cmd/grpc/client/grpclient
 internal/test/integration/components/gohttp2/client/client
 internal/test/integration/components/gohttp2/server/http2srv

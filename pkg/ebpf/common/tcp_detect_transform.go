@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"unsafe"
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 
@@ -46,7 +47,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		return request.Span{}, true, nil
 	}
 
-	requestBuffer, responseBuffer := getBuffers(parseCtx, event)
+	requestBuffer, responseBuffer, firstLarge := getBuffers(parseCtx, event)
 
 	if cfg.ProtocolDebug {
 		slog.Debug("ReadTCPRequestIntoSpan: received TCP event",
@@ -55,8 +56,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 			"protocol", event.ProtocolType,
 			"reqLen", event.Len,
 			"respLen", event.RespLen)
-		fmt.Printf("[>] %v\n", requestBuffer.UnsafeView())
-		fmt.Printf("[<] %v\n", responseBuffer.UnsafeView())
+		logTCPBuffers("", requestBuffer, responseBuffer)
 	}
 
 	if span, ignore, matched, err := dispatchKernelAssignedProtocol(parseCtx, event, requestBuffer, responseBuffer); matched {
@@ -69,17 +69,20 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		return span, ignore, err
 	}
 
-	if span, ignore, matched, err := detectHeuristicProtocol(parseCtx, event, requestBuffer, responseBuffer); matched {
-		span.ParentConditional = event.ParentStatus == parentStatusConditional
+	if span, ignore, matched, err := detectTCPFallback(parseCtx, cfg, event, requestBuffer, responseBuffer, firstLarge, record.RawSample[unsafe.Sizeof(*event):]); matched {
 		return span, ignore, err
 	}
 
 	if cfg.ProtocolDebug {
-		fmt.Printf("![>] %v\n", requestBuffer.UnsafeView())
-		fmt.Printf("![<] %v\n", responseBuffer.UnsafeView())
+		logTCPBuffers("!", requestBuffer, responseBuffer)
 	}
 
 	return request.Span{}, true, nil // ignore if we couldn't parse it
+}
+
+func logTCPBuffers(prefix string, req, resp *largebuf.LargeBuffer) {
+	fmt.Printf("%s[>] %v\n", prefix, req.UnsafeView())
+	fmt.Printf("%s[<] %v\n", prefix, resp.UnsafeView())
 }
 
 func emitTCPExtraSpans(parseCtx *EBPFParseContext, event *TCPRequestInfo, spans ...request.Span) {
@@ -368,6 +371,20 @@ func matchMemcachedNoreply(parseCtx *EBPFParseContext, event *TCPRequestInfo, re
 	return request.Span{}, false, false, nil
 }
 
+func detectTCPFallback(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer, firstLarge *largebuf.LargeBuffer, trailer []byte) (request.Span, bool, bool, error) {
+	span, ignore, matched, err := detectHeuristicProtocol(parseCtx, event, requestBuffer, responseBuffer)
+	if matched {
+		span.ParentConditional = event.ParentStatus == parentStatusConditional
+	} else if event.ProtocolType == ProtocolTypeUnknown {
+		spans := parseCtx.tcpMultiplex.decode(cfg, newTCPExchange(event, requestBuffer, responseBuffer, firstLarge, trailer))
+		if len(spans) != 0 {
+			parseCtx.emitExtraSpans(spans[1:]...)
+			return spans[0], false, true, nil
+		}
+	}
+	return span, ignore, matched, err
+}
+
 // detectHeuristicProtocol runs heuristic-based protocol detection as a last resort:
 // Redis, Memcached, HTTP/2, NATS, AMQP, MQTT, Kafka (for packets the kernel couldn't classify),
 // and SunRPC (fallback when the kernel missed the connection start).
@@ -627,7 +644,7 @@ func matchKafkaFallback(parseCtx *EBPFParseContext, event *TCPRequestInfo, reque
 	return span, ignore, matched, nil
 }
 
-func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req *largebuf.LargeBuffer, resp *largebuf.LargeBuffer) {
+func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req, resp, firstLarge *largebuf.LargeBuffer) {
 	l := int(event.Len)
 	if l < 0 || len(event.Buf) < l {
 		l = len(event.Buf)
@@ -641,15 +658,26 @@ func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req *largebu
 	resp = largebuf.NewLargeBufferFrom(event.Rbuf[:l])
 
 	if event.HasLargeBuffers == 1 {
-		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, packetTypeRequest, directionByPacketType(packetTypeRequest, !event.IsServer), event.ConnInfo, event.ProtocolType); ok {
-			req = b
+		conn := event.ConnInfo
+		first, second := uint8(packetTypeRequest), uint8(packetTypeResponse)
+		if event.ProtocolType == ProtocolTypeUnknown {
+			// The generic wire buffers use the sorted tuple and physical packet direction.
+			sortConnectionInfo(&conn)
+			if event.Direction != directionByPacketType(first, !event.IsServer) {
+				first, second = second, first
+			}
 		}
-		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, packetTypeResponse, directionByPacketType(packetTypeResponse, !event.IsServer), event.ConnInfo, event.ProtocolType); ok {
+
+		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, first, directionByPacketType(first, !event.IsServer), conn, event.ProtocolType); ok {
+			req, firstLarge = b, b
+		}
+
+		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, second, directionByPacketType(second, !event.IsServer), conn, event.ProtocolType); ok {
 			resp = b
 		}
 	}
 
-	return req, resp
+	return req, resp, firstLarge
 }
 
 func reverseTCPEvent(trace *TCPRequestInfo) {

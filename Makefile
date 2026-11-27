@@ -735,8 +735,8 @@ oats-prepare-obi:
 oats-prereq: oats-prepare-obi fetch-upstream-semconv oats-install-tools $(OATS_FINALIZER)
 	@mkdir -p $(TEST_OUTPUT)/run
 
-.PHONY: oats-test-ai oats-test-amqp oats-test-http oats-test-kafka oats-test-memcached oats-test-mongo oats-test-nats oats-test-redis oats-test-sql
-oats-test-ai oats-test-amqp oats-test-http oats-test-kafka oats-test-memcached oats-test-mongo oats-test-nats oats-test-redis oats-test-sql: oats-test-%: oats-prereq
+.PHONY: oats-test-ai oats-test-amqp oats-test-http oats-test-iso8583 oats-test-kafka oats-test-memcached oats-test-mongo oats-test-nats oats-test-redis oats-test-sql
+oats-test-ai oats-test-amqp oats-test-http oats-test-iso8583 oats-test-kafka oats-test-memcached oats-test-mongo oats-test-nats oats-test-redis oats-test-sql: oats-test-%: oats-prereq
 	@test -f internal/test/oats/$*/oats-config.yaml || (echo "No OATS v3 config for suite $*" >&2; exit 1)
 	@set -e; \
 	cases=(); \
@@ -749,7 +749,7 @@ oats-test-ai oats-test-amqp oats-test-http oats-test-kafka oats-test-memcached o
 	cd internal/test/oats/$* && OATS_ARTIFACT_DIR="$(PROJECT_DIR)/internal/test/oats/$*/build" $(OATS_RUNNER) build/oats.log $(OATS_BIN) run --config oats-config.yaml --container-runtime docker --gcx $(GCX_BIN) --timeout "$${TESTCASE_TIMEOUT:-5m}" --absent-timeout 10s --no-cache -vvv "$${cases[@]}"
 
 .PHONY: oats-test
-oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai oats-test-nats oats-test-amqp
+oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai oats-test-nats oats-test-amqp oats-test-iso8583
 	$(MAKE) itest-coverage-data
 
 .PHONY: oats-test-debug
