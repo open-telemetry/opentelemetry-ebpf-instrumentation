@@ -36,17 +36,17 @@ func Inspect(path string) (Profile, error) {
 		return Profile{}, err
 	}
 
-	types, err := readRustDwarfTypes(f)
+	reader, err := newLayoutReader(f)
 	if err != nil {
 		return Profile{}, err
 	}
 
-	config, err := types.protocolLayouts()
+	config, err := reader.protocolLayouts()
 	if err != nil {
 		return Profile{}, err
 	}
 
-	channels, err := types.messageLayouts()
+	channels, err := reader.messageLayouts()
 	if err != nil {
 		return Profile{}, err
 	}

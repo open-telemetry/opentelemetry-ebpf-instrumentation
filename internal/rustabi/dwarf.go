@@ -11,6 +11,7 @@ import (
 	"debug/elf"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"go.opentelemetry.io/obi/internal/dwarfutil"
@@ -84,7 +85,7 @@ func (d *rustDwarfTypes) variant(offset dwarf.Offset, name string) (uint32, dwar
 	return 0, nil, fmt.Errorf("rust variant %s is missing", name)
 }
 
-// path follows struct fields and enum variants to find the final type and its byte offset from the root.
+// path follows struct fields and enum variants to find the final type and its byte offset from the starting type.
 func (d *rustDwarfTypes) path(t dwarf.Type, path ...string) (uint32, dwarf.Type, error) {
 	var total uint32
 
@@ -228,78 +229,31 @@ func (d *rustDwarfTypes) callbackSender(callback dwarf.Type, base uint32, varian
 }
 
 // messageLayouts measures the Tokio queue slots, callback fields, and request headers for each supported Hyper envelope type.
-func (d *rustDwarfTypes) messageLayouts() (map[string]MessageLayout, error) {
+func (r *layoutReader) messageLayouts() (map[string]MessageLayout, error) {
 	channels := map[string]MessageLayout{}
-	for name, offset := range d.types {
+	for name := range r.typeEntryOffsets {
 		if !strings.HasPrefix(name, "hyper::client::dispatch::Envelope<") {
 			continue
 		}
 
-		t, err := d.data.Type(offset)
-		if err != nil {
-			return nil, err
-		}
-
-		var layout MessageLayout
-		rx, err := d.data.Type(d.types["tokio::sync::mpsc::list::Rx<"+name+">"])
-		if err != nil {
-			return nil, err
-		}
-
-		layout.ListHead, _, err = rustDwarfField(rx, "head")
-		if err != nil {
-			return nil, err
-		}
-
-		layout.ListIndex, _, err = rustDwarfField(rx, "index")
-		if err != nil {
-			return nil, err
-		}
-
-		block, err := d.data.Type(d.types["tokio::sync::mpsc::block::Block<"+name+">"])
-		if err != nil {
-			return nil, err
-		}
-
-		_, values, err := rustDwarfField(block, "values", "__0")
-		if err != nil {
-			return nil, err
-		}
-
-		array, ok := values.(*dwarf.ArrayType)
-		if !ok || array.Count != 32 {
-			return nil, errors.New("rust channel block capacity is not validated")
-		}
-
-		layout.SlotMask = uint32(array.Count - 1)
-		layout.TxTag, layout.TxSome, layout.TxPointer, err = d.callback(t, "__0", "Some", "__0", "__1")
-		if err != nil {
-			return nil, err
-		}
-
-		poll, ok := d.types["core::task::poll::Poll<core::option::Option<"+name+">>"]
-		if !ok {
+		poll := "core::task::poll::Poll<core::option::Option<" + name + ">>"
+		if len(r.typeEntryOffsets[poll]) == 0 {
 			continue
 		}
 
-		t, err = d.data.Type(poll)
-		if err != nil {
-			return nil, err
-		}
-
-		layout.RxTag, layout.RxSome, layout.RxPointer, err = d.callback(t, "Ready", "__0", "Some", "__0", "__0", "Some", "__0", "__1")
-		if err != nil {
-			return nil, err
-		}
-
-		discr, err := d.discriminant(t)
-		if err != nil || discr != layout.RxTag {
-			return nil, errors.New("rust receive result uses a different message discriminant")
-		}
-
-		layout.RxHeaders, _, err = d.path(t, "Ready", "__0", "Some", "__0", "__0", "Some", "__0", "__0", "head", "headers")
-		if err != nil {
-			return nil, err
+		var layout MessageLayout
+		for _, measurement := range []struct {
+			name string
+			read func(dwarf.Type, *MessageLayout) error
+		}{
+			{"tokio::sync::mpsc::list::Rx<" + name + ">", listOffsets},
+			{"tokio::sync::mpsc::block::Block<" + name + ">", blockOffsets},
+			{name, r.sendOffsets},
+			{poll, r.receiveOffsets},
+		} {
+			if err := measureType(r, measurement.name, &layout, measurement.read); err != nil {
+				return nil, err
+			}
 		}
 
 		layout.Request = true
@@ -309,20 +263,122 @@ func (d *rustDwarfTypes) messageLayouts() (map[string]MessageLayout, error) {
 	return channels, nil
 }
 
+func listOffsets(t dwarf.Type, layout *MessageLayout) error {
+	var err error
+	layout.ListHead, _, err = rustDwarfField(t, "head")
+	if err != nil {
+		return err
+	}
+
+	layout.ListIndex, _, err = rustDwarfField(t, "index")
+	return err
+}
+
+func blockOffsets(t dwarf.Type, layout *MessageLayout) error {
+	_, values, err := rustDwarfField(t, "values", "__0")
+	if err != nil {
+		return err
+	}
+
+	array, ok := values.(*dwarf.ArrayType)
+	if !ok || array.Count != 32 {
+		return errors.New("rust channel block capacity is not validated")
+	}
+
+	layout.SlotMask = uint32(array.Count - 1)
+	return nil
+}
+
+func (r *layoutReader) sendOffsets(t dwarf.Type, layout *MessageLayout) error {
+	var err error
+	layout.TxTag, layout.TxSome, layout.TxPointer, err = r.callback(t, "__0", "Some", "__0", "__1")
+
+	return err
+}
+
+func (r *layoutReader) receiveOffsets(t dwarf.Type, layout *MessageLayout) error {
+	var err error
+	layout.RxTag, layout.RxSome, layout.RxPointer, err = r.callback(t, "Ready", "__0", "Some", "__0", "__0", "Some", "__0", "__1")
+	if err != nil {
+		return err
+	}
+
+	discr, err := r.discriminant(t)
+	if err != nil || discr != layout.RxTag {
+		return errors.New("rust receive result uses a different message discriminant")
+	}
+
+	layout.RxHeaders, _, err = r.path(t, "Ready", "__0", "Some", "__0", "__0", "Some", "__0", "__0", "head", "headers")
+
+	return err
+}
+
+// The layout reader uses the qualified type names to find every linked definition.
+// Nested fields and enum variants follow the type references within each definition.
+type layoutReader struct {
+	rustDwarfTypes
+	typeEntryOffsets map[string][]dwarf.Offset
+}
+
 type rustDwarfTypes struct {
 	data  *dwarf.Data
-	types map[string]dwarf.Offset
 	names map[string][]dwarf.Offset
 }
 
-// readRustDwarfTypes indexes the fixture's struct definitions by qualified and short name in one DWARF scan.
-func readRustDwarfTypes(f *elf.File) (*rustDwarfTypes, error) {
+// Cargo can link several crate versions with the same qualified type name.
+// Measure just this type's fields in each definition before adding them to the layout.
+func measureType[T Layouts | MessageLayout](r *layoutReader, name string, layout *T, read func(dwarf.Type, *T) error) error {
+	offsets := r.typeEntryOffsets[name]
+	if len(offsets) == 0 {
+		return fmt.Errorf("rust DWARF type %s is missing", name)
+	}
+
+	var first T
+	for i, offset := range offsets {
+		t, err := r.data.Type(offset)
+		if err != nil {
+			return err
+		}
+
+		measured := *layout
+		if err := read(t, &measured); err != nil {
+			return err
+		}
+
+		if i == 0 {
+			first = measured
+		} else if measured != first {
+			return reportConflictingOffsets(name, first, measured)
+		}
+	}
+
+	*layout = first
+	return nil
+}
+
+func reportConflictingOffsets[T Layouts | MessageLayout](name string, first, other T) error {
+	a, b := reflect.ValueOf(first), reflect.ValueOf(other)
+	for i := range a.NumField() {
+		x, y := a.Field(i).Interface(), b.Field(i).Interface()
+		if x != y {
+			return fmt.Errorf("conflicting %s %s: %v and %v", name, a.Type().Field(i).Name, x, y)
+		}
+	}
+
+	return fmt.Errorf("conflicting layouts for %s", name)
+}
+
+// newLayoutReader indexes the fixture's struct definitions by qualified and short name in one DWARF scan.
+func newLayoutReader(f *elf.File) (*layoutReader, error) {
 	d, err := f.DWARF()
 	if err != nil {
 		return nil, err
 	}
 
-	index := &rustDwarfTypes{data: d, types: map[string]dwarf.Offset{}, names: map[string][]dwarf.Offset{}}
+	index := &layoutReader{
+		rustDwarfTypes:   rustDwarfTypes{data: d, names: map[string][]dwarf.Offset{}},
+		typeEntryOffsets: map[string][]dwarf.Offset{},
+	}
 	reader := d.Reader()
 	var scopes []string
 	for {
@@ -349,7 +405,8 @@ func readRustDwarfTypes(f *elf.File) (*rustDwarfTypes, error) {
 			}
 
 			parts = append(parts, name)
-			index.types[strings.Join(parts, "::")] = entry.Offset
+			qualifiedName := strings.Join(parts, "::")
+			index.typeEntryOffsets[qualifiedName] = append(index.typeEntryOffsets[qualifiedName], entry.Offset)
 			index.names[name] = append(index.names[name], entry.Offset)
 		}
 
@@ -375,21 +432,6 @@ func rustDwarfField(t dwarf.Type, path ...string) (uint32, dwarf.Type, error) {
 	return uint32(offset), leaf, nil
 }
 
-// field looks up a struct by its qualified Rust name and returns the byte offset of a nested field.
-func (d *rustDwarfTypes) field(name string, size int64, path ...string) (uint32, error) {
-	offset, ok := d.types[name]
-	if !ok {
-		return 0, fmt.Errorf("rust DWARF type %s is missing", name)
-	}
-
-	t, err := d.data.Type(offset)
-	if err != nil {
-		return 0, err
-	}
-
-	return rustFieldOffset(t, size, path...)
-}
-
 // rustFieldOffset returns a nested field's byte offset and checks its size when a nonzero size is supplied.
 func rustFieldOffset(t dwarf.Type, size int64, path ...string) (uint32, error) {
 	field, leaf, err := rustDwarfField(t, path...)
@@ -401,81 +443,97 @@ func rustFieldOffset(t dwarf.Type, size int64, path ...string) (uint32, error) {
 }
 
 // customHeaderName locates the byte pointer and length of a custom HTTP header name.
-func (d *rustDwarfTypes) customHeaderName() (uint32, uint32, error) {
-	offset, ok := d.types["http::header::name::Repr<http::header::name::Custom>"]
-	if !ok {
-		return 0, 0, errors.New("rust HeaderName variant metadata is missing")
-	}
-
-	base, custom, err := d.variant(offset, "Custom")
+func (d *rustDwarfTypes) customHeaderName(bucket dwarf.Type) (uint32, uint32, error) {
+	base, custom, err := d.path(bucket, "key", "inner", "Custom")
 	if err != nil {
 		return 0, 0, err
 	}
+
 	ptr, err := rustFieldOffset(custom, 8, "__0", "__0", "bytes", "ptr")
 	if err != nil {
 		return 0, 0, err
 	}
+
 	length, err := rustFieldOffset(custom, 8, "__0", "__0", "bytes", "len")
 	if err != nil {
 		return 0, 0, err
 	}
+
 	return base + ptr, base + length, nil
 }
 
 // protocolLayouts measures the Rust vector and HTTP request layouts used by the HTTP/1 probes.
-func (d *rustDwarfTypes) protocolLayouts() (Layouts, error) {
-	var config Layouts
-	const vec = "alloc::vec::Vec<u8, alloc::alloc::Global>"
-	fields := []struct {
-		dst      *uint32
-		typeName string
-		path     []string
+func (r *layoutReader) protocolLayouts() (Layouts, error) {
+	var layout Layouts
+	for _, measurement := range []struct {
+		name string
+		read func(dwarf.Type, *Layouts) error
 	}{
-		{&config.VecPtr, vec, []string{"buf", "inner", "ptr", "pointer"}},
-		{&config.VecLen, vec, []string{"len"}},
-		{&config.VecCap, vec, []string{"buf", "inner", "cap", "__0"}},
-		{&config.HeaderEntries, "http::header::map::HeaderMap<http::header::value::HeaderValue>", []string{"entries", "buf", "inner", "ptr", "pointer"}},
-		{&config.HeaderCount, "http::header::map::HeaderMap<http::header::value::HeaderValue>", []string{"entries", "len"}},
-		{&config.ValuePtr, "http::header::map::Bucket<http::header::value::HeaderValue>", []string{"value", "inner", "ptr"}},
-		{&config.ValueLen, "http::header::map::Bucket<http::header::value::HeaderValue>", []string{"value", "inner", "len"}},
-	}
-
-	requestHeaders, err := d.field("http::request::Request<()>", 0, "head", "headers")
-	if err != nil {
-		return config, err
-	}
-
-	config.RequestHeaders = requestHeaders
-	config.HTTP1 = 1
-	for _, field := range fields {
-		*field.dst, err = d.field(field.typeName, 8, field.path...)
-		if err != nil {
-			return config, err
+		{"http::request::Request<()>", requestOffsets},
+		{"alloc::vec::Vec<u8, alloc::alloc::Global>", vecOffsets},
+		{"http::header::map::HeaderMap<http::header::value::HeaderValue>", headerMapOffsets},
+		{"http::header::map::Bucket<http::header::value::HeaderValue>", r.bucketOffsets},
+	} {
+		if err := measureType(r, measurement.name, &layout, measurement.read); err != nil {
+			return Layouts{}, err
 		}
 	}
 
-	const bucket = "http::header::map::Bucket<http::header::value::HeaderValue>"
-	bucketType, err := d.data.Type(d.types[bucket])
+	layout.HTTP1 = 1
+	return layout, nil
+}
+
+func requestOffsets(t dwarf.Type, layout *Layouts) error {
+	var err error
+	layout.RequestHeaders, err = rustFieldOffset(t, 0, "head", "headers")
+
+	return err
+}
+
+func vecOffsets(t dwarf.Type, layout *Layouts) error {
+	var err error
+	layout.VecPtr, err = rustFieldOffset(t, 8, "buf", "inner", "ptr", "pointer")
 	if err != nil {
-		config.HTTP1 = 0
-		return config, nil
+		return err
 	}
 
-	config.BucketSize = uint32(bucketType.Size())
-
-	nameBase, err := d.field(bucket, 0, "key", "inner")
+	layout.VecLen, err = rustFieldOffset(t, 8, "len")
 	if err != nil {
-		config.HTTP1 = 0
-		return config, nil
+		return err
+	}
+	layout.VecCap, err = rustFieldOffset(t, 8, "buf", "inner", "cap", "__0")
+
+	return err
+}
+
+func headerMapOffsets(t dwarf.Type, layout *Layouts) error {
+	var err error
+
+	layout.HeaderEntries, err = rustFieldOffset(t, 8, "entries", "buf", "inner", "ptr", "pointer")
+	if err != nil {
+		return err
 	}
 
-	ptr, length, err := d.customHeaderName()
+	layout.HeaderCount, err = rustFieldOffset(t, 8, "entries", "len")
+
+	return err
+}
+
+func (r *layoutReader) bucketOffsets(t dwarf.Type, layout *Layouts) error {
+	layout.BucketSize = uint32(t.Size())
+	var err error
+
+	layout.ValuePtr, err = rustFieldOffset(t, 8, "value", "inner", "ptr")
 	if err != nil {
-		config.HTTP1 = 0
-		return config, nil
+		return err
 	}
 
-	config.NamePtr = nameBase + ptr
-	config.NameLen = nameBase + length
-	return config, nil
+	layout.ValueLen, err = rustFieldOffset(t, 8, "value", "inner", "len")
+	if err != nil {
+		return err
+	}
+
+	layout.NamePtr, layout.NameLen, err = r.customHeaderName(t)
+
+	return err
 }
