@@ -62,6 +62,13 @@ type ContextInfo struct {
 	// This is useful when OBI runs in vendored mode
 	OverrideAppExportQueue *msg.Queue[[]request.Span]
 
+	// ExternalSpanExport reports that spans are consumed outside OBI's own exporters, so
+	// probes that only feed traces (such as Go channel links) stay attached even when no
+	// trace exporter or printer is configured. instrumenter.Run sets it when
+	// OverrideAppExportQueue is set. Callers that build the pipeline themselves can set it
+	// directly.
+	ExternalSpanExport bool
+
 	// ExceptionInput carries capture-time events independently of span sampling.
 	ExceptionInput *msg.Queue[[]exceptions.Event]
 

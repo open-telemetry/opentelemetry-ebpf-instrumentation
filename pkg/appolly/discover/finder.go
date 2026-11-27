@@ -178,6 +178,7 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 		Cfg:                 pf.cfg,
 		OutputTracerEvents:  tracerEvents,
 		Metrics:             pf.ctxInfo.Metrics,
+		ExternalSpanExport:  pf.ctxInfo.ExternalSpanExport,
 		SpanSignalsShortcut: pf.tracesInput,
 		RuntimeMetrics:      pf.runtimeMetrics,
 		DynamicSelector:     startConfig.dynamicSelector,
@@ -234,8 +235,13 @@ func newGoTracersGroup(
 	pidFilter ebpfcommon.ServiceFilter,
 	cfg *obi.Config,
 	metrics imetrics.Reporter,
+	externalSpanExport bool,
 ) []ebpf.Tracer {
-	return []ebpf.Tracer{gotracer.New(pidFilter, cfg, metrics)}
+	tracer := gotracer.New(pidFilter, cfg, metrics)
+	if externalSpanExport {
+		tracer.KeepTraceOutputProbes()
+	}
+	return []ebpf.Tracer{tracer}
 }
 
 func newGenericTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) []ebpf.Tracer {

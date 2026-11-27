@@ -29,7 +29,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -741,6 +743,46 @@ func TestGoChannelLinkProbesCanBeDisabled(t *testing.T) {
 
 	tracer.ProcessBinary(exec.New(exec.Init{Ino: 1}))
 	assert.False(t, tracer.goChannelLinkProbesEnabled())
+}
+
+func TestGoChannelLinkProbesFollowTraceOutput(t *testing.T) {
+	traces := otelcfg.TracesConfig{TracesEndpoint: "http://localhost:4318"}
+
+	for _, tc := range []struct {
+		name     string
+		cfg      obi.Config
+		external bool
+		want     bool
+	}{
+		{name: "no trace output", want: false},
+		{name: "spans exported outside OBI", external: true, want: true},
+		{
+			name:     "option disables links with spans exported outside OBI",
+			cfg:      obi.Config{EBPF: config.EBPFTracer{DisableGoChannelLinks: true}},
+			external: true,
+			want:     false,
+		},
+		{name: "traces exported", cfg: obi.Config{Traces: traces}, want: true},
+		{name: "traces printed", cfg: obi.Config{TracePrinter: debug.TracePrinterText}, want: true},
+		{name: "trace printer disabled", cfg: obi.Config{TracePrinter: debug.TracePrinterDisabled}, want: false},
+		{
+			name: "option disables links with traces exported",
+			cfg:  obi.Config{Traces: traces, EBPF: config.EBPFTracer{DisableGoChannelLinks: true}},
+			want: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tracer := New(nil, &tc.cfg, nil)
+			if tc.external {
+				tracer.KeepTraceOutputProbes()
+			}
+			tracer.goChannelOffsetsByExecutable[executableIdentity{Ino: 1}] = true
+
+			tracer.ProcessBinary(exec.New(exec.Init{Ino: 1}))
+
+			assert.Equal(t, tc.want, tracer.goChannelLinkProbesEnabled())
+		})
+	}
 }
 
 func TestGoAutoSDKActivationProbeGroupRequiresSpanContextOffsets(t *testing.T) {

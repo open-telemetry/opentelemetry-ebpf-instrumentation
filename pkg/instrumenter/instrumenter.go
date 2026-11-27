@@ -93,6 +93,9 @@ func runWithContextInfo(
 	for _, opt := range opts {
 		opt(ctxInfo)
 	}
+	if ctxInfo.OverrideAppExportQueue != nil {
+		ctxInfo.ExternalSpanExport = true
+	}
 
 	if ctxInfo.CriteriaUpdates != nil && ctxInfo.DynamicSelector != nil {
 		return errors.New("criteria updates cannot be combined with a dynamic PID selector")
