@@ -201,6 +201,8 @@ extensions:
           filter: {}
         java:
           filter: {}
+        rust:
+          filter: {}
     enrich:
       enrichers:
         dns:
@@ -230,6 +232,7 @@ extensions:
 	require.NotNil(t, cfg.Capture.Runtimes.Go.Filter)
 	require.NotNil(t, cfg.Capture.Runtimes.NodeJS.Filter)
 	require.NotNil(t, cfg.Capture.Runtimes.Java.Filter)
+	require.NotNil(t, cfg.Capture.Runtimes.Rust.Filter)
 	require.Contains(t, cfg.Enrich.Enrichers.AdditionalProperties, "dns")
 	require.Contains(t, cfg.Enrich.ServiceName.AdditionalProperties, "rules")
 	require.Contains(t, cfg.Enrich.Attributes.AdditionalProperties, "rules")

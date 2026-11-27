@@ -55,6 +55,7 @@ func TestRustTokioTaskInheritance(t *testing.T) {
 			require.True(t, ok)
 
 			cfg := obi.DefaultConfig
+			cfg.Rust.Enabled = true
 			cfg.EBPF.BPFFSPath = privateBPFFSPath(t, cfg.EBPF.BPFFSPath)
 			cfg.EBPF.TrackRequestHeaders = true
 			pids := ebpfcommon.NewPIDsFilter(&cfg.Discovery, slog.Default(), rustTestReporter{})

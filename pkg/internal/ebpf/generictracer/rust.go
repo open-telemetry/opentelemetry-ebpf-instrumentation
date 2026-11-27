@@ -46,6 +46,9 @@ type rustAttachment struct {
 }
 
 func newRustController(tracer *Tracer) *rustController {
+	if !tracer.cfg.Rust.Enabled {
+		return nil
+	}
 	return &rustController{
 		tracer:      tracer,
 		targets:     map[app.PID]*rustTarget{},

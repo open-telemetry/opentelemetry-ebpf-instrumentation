@@ -181,6 +181,11 @@ has no saved context, OBI clears the entry. When a poll returns, OBI restores
 the enclosing task’s context for a nested poll or clears the entry when the
 worker leaves the outermost poll.
 
+Tokio task tracking is off by default; enable it with
+`capture.runtimes.rust.enabled` (Config v2). While it is off, a Rust service's
+logs are enriched from the thread's context, as for any native binary, which a
+work-stealing runtime can misattribute.
+
 ## Per-runtime stdout buffering
 
 The logenricher reads `traces_ctx_v1[pid_tgid]` at the moment the `write()` syscall fires. If the runtime buffers stdout and flushes asynchronously — on a different thread or after the request handler returns — the trace context for that TID will already be gone, and the log line will not be enriched.
@@ -194,7 +199,7 @@ Each runtime behaves differently:
 | Java | `System.out.println()` flushes immediately (PrintStream `autoFlush=true` by default) | Yes — on platform threads (see below for virtual threads) |
 | Ruby | `puts` / `STDOUT.syswrite` — both issue `write()`/`writev()` synchronously on the request thread | Yes |
 | Python | stdout is block-buffered when not a TTY (Docker) | **No** — set `PYTHONUNBUFFERED=1` |
-| Rust (Tokio) | `std::io::stdout()` is line-buffered on a terminal | Yes when the write reaches stdout during a tracked poll with an active context |
+| Rust (Tokio) | `std::io::stdout()` is line-buffered on a terminal | Yes when Tokio task tracking is enabled (`capture.runtimes.rust.enabled`) and the write reaches stdout during a tracked poll with an active context |
 | .NET | `Console.Out` (StreamWriter) is block-buffered when stdout is a pipe | **No** — see below |
 
 ### Java virtual threads
