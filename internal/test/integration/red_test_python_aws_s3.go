@@ -26,6 +26,7 @@ func testPythonAWSS3(t *testing.T) {
 
 	awsReq(t, awsProxyAddress+"/createbucket")
 	awsReq(t, awsProxyAddress+"/createobject")
+	awsReq(t, awsProxyAddress+"/listobjectsv1")
 	awsReq(t, awsProxyAddress+"/listobjects")
 	awsReq(t, awsProxyAddress+"/deleteobject")
 	awsReq(t, awsProxyAddress+"/deletebucket")
@@ -34,6 +35,7 @@ func testPythonAWSS3(t *testing.T) {
 		assertS3Operation(ct, "CreateBucket", "")
 		assertS3Operation(ct, "PutObject", s3ObjectKey)
 		assertS3Operation(ct, "ListObjects", "")
+		assertS3Operation(ct, "ListObjectsV2", "")
 		assertS3Operation(ct, "DeleteObject", s3ObjectKey)
 		assertS3Operation(ct, "DeleteBucket", "")
 	}, testTimeout, time.Second)
