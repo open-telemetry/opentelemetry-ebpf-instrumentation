@@ -3,7 +3,10 @@
 
 package ebpf // import "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 import (
+	"errors"
 	"log/slog"
+
+	"github.com/cilium/ebpf"
 )
 
 // flowMapLegacyReader reads, aggregates and removes all the flows in the eBPF flows map.
@@ -11,39 +14,57 @@ import (
 // custom 4.18 kernel that backports many eBPF features but don't ship BPF batch maps.
 // https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/8/html/8.10_release_notes/available_bpf_features
 // This implementation can be removed when we stop supporting RHEL8 and derived..
-type flowMapLegacyReader[IT mapIterator] struct {
+type flowMapLegacyReader struct {
 	log          *slog.Logger
-	flowMap      ebpfMap[IT]
+	flowMap      ebpfMap
 	cacheMaxSize int
+	lookupFlags  ebpf.MapLookupFlags
 }
 
-type ebpfMap[IT mapIterator] interface {
+type ebpfMap interface {
+	NextKey(key, nextKeyOut any) error
+	LookupWithFlags(key, valueOut any, flags ebpf.MapLookupFlags) error
 	Delete(key any) error
-	Iterate() IT
-}
-
-type mapIterator interface {
-	Next(key any, value any) bool
+	MaxEntries() uint32
 }
 
 // lookupAndDeleteMap reads all the entries from the eBPF map and removes them from it.
 // It returns a map where the key is the network flow identifier (e.g. src/dst addresses)
 // and the value are the aggregated time and metrics for all the packets of this flow.
-// For synchronization purposes, we get/delete a whole snapshot of the flows map.
-// This way we avoid missing packets that could be updated on the
-// ebpf side while we process/aggregate them here
-// Changing this method invocation by BatchLookupAndDelete could improve performance
-// Race conditions here causes that some flows might be lost in high-load scenarios
-func (fmd *flowMapLegacyReader[IT]) lookupAndDeleteMap() (map[NetFlowId]*NetFlowMetrics, error) {
+func (fmd *flowMapLegacyReader) lookupAndDeleteMap() (map[NetFlowId]*NetFlowMetrics, error) {
 	flows := make(map[NetFlowId]*NetFlowMetrics, fmd.cacheMaxSize)
 
-	id := NetFlowId{}
+	var id, next NetFlowId
 	var metrics NetFlowMetrics
-	for iterator := fmd.flowMap.Iterate(); iterator.Next(&id, &metrics); {
-		if err := fmd.flowMap.Delete(id); err != nil {
-			fmd.log.Debug("couldn't delete flow entry", "flowId", id, "error", err)
+	maxEntries := fmd.flowMap.MaxEntries()
+	err := fmd.flowMap.NextKey(nil, &id)
+	// the programs can insert flows while the map is read: the rest is left for the next read
+	for read := uint32(0); err == nil && read < maxEntries; read++ {
+		// the next key is read before this entry is deleted: given a key that is no longer in the
+		// map, the kernel restarts the walk from the first key
+		err = fmd.flowMap.NextKey(&id, &next)
+
+		lookupErr := fmd.flowMap.LookupWithFlags(&id, &metrics, fmd.lookupFlags)
+		switch {
+		case errors.Is(lookupErr, ebpf.ErrKeyNotExist):
+			// not deleted: it may be the same flow inserted again since, unread
+		case lookupErr != nil:
+			return flows, lookupErr
+		default:
+			if deleteErr := fmd.flowMap.Delete(&id); deleteErr != nil {
+				fmd.log.Debug("couldn't delete flow entry", "flowId", id, "error", deleteErr)
+			}
+			addFlow(flows, id, &metrics)
 		}
-		addFlow(flows, id, &metrics)
+		id = next
 	}
-	return flows, nil
+
+	if err == nil {
+		fmd.log.Debug("stopped reading the flow map at its capacity", "flows", maxEntries)
+		return flows, nil
+	}
+	if errors.Is(err, ebpf.ErrKeyNotExist) {
+		return flows, nil
+	}
+	return flows, err
 }

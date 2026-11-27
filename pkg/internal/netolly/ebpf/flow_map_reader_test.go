@@ -3,16 +3,25 @@
 
 package ebpf // import "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 import (
+	"cmp"
+	"errors"
 	"log/slog"
+	"maps"
+	"slices"
 	"testing"
 
 	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/config"
 )
 
-const testBatchLen = 2
+const (
+	testBatchLen   = 2
+	testMaxEntries = 50_000
+)
 
 func TestLookupAndDelete(t *testing.T) {
 	expectedAggregation := map[NetFlowId]*NetFlowMetrics{
@@ -26,6 +35,7 @@ func TestLookupAndDelete(t *testing.T) {
 		flows, err := fmd.lookupAndDeleteMap()
 		require.NoError(t, err)
 		assert.Equal(t, expectedAggregation, flows)
+		assertLegacyMapRead(t, fmd.flowMap.(*fakeLegacyMap))
 	})
 	t.Run("batch", func(t *testing.T) {
 		fmd := batchReader()
@@ -34,7 +44,7 @@ func TestLookupAndDelete(t *testing.T) {
 		assert.Equal(t, expectedAggregation, flows)
 	})
 	t.Run("auto", func(t *testing.T) {
-		fmd := flowMapReaderChooser[*fakeMapIterator]{legacy: legacyReader(), batch: batchReader()}
+		fmd := flowMapReaderChooser{legacy: legacyReader(), batch: batchReader()}
 		flows, err := fmd.lookupAndDeleteMap()
 		require.NoError(t, err)
 		assert.Equal(t, expectedAggregation, flows)
@@ -55,10 +65,14 @@ func TestLookupAndDelete_FlowReadTwice(t *testing.T) {
 		{IfIndex: 2}: {Packets: 1, StartMonoTimeNs: 110, EndMonoTimeNs: 110},
 	}
 	t.Run("legacy", func(t *testing.T) {
-		reader := &flowMapLegacyReader[*fakeMapIterator]{log: slog.Default(), flowMap: input()}
+		in := input()
+		flowMap := newFakeLegacyMap(in[:2])
+		flowMap.recreated = map[NetFlowId]NetFlowMetrics{in[2].k: in[2].v}
+		reader := &flowMapLegacyReader{log: slog.Default(), flowMap: flowMap}
 		flows, err := reader.lookupAndDeleteMap()
 		require.NoError(t, err)
 		assert.Equal(t, expected, flows)
+		assertLegacyMapRead(t, flowMap)
 	})
 	t.Run("batch", func(t *testing.T) {
 		flowMap := input()
@@ -86,25 +100,98 @@ func TestBatchReaderForwardsOptions(t *testing.T) {
 	flowMap.AssertExpectations(t)
 }
 
+func TestLegacyReaderForwardsLookupFlags(t *testing.T) {
+	for _, flags := range []ebpf.MapLookupFlags{0, ebpf.LookupLock} {
+		flowMap := newFakeLegacyMap(inputFlows())
+		reader := &flowMapLegacyReader{log: slog.Default(), flowMap: flowMap, lookupFlags: flags}
+		_, err := reader.lookupAndDeleteMap()
+		require.NoError(t, err)
+
+		require.Len(t, flowMap.lookupFlags, len(inputFlows()))
+		for _, got := range flowMap.lookupFlags {
+			assert.Equal(t, flags, got)
+		}
+	}
+}
+
+func TestChooseMapReader_LockedValues(t *testing.T) {
+	for _, locked := range []bool{false, true} {
+		chooser := chooseMapReader(config.MapReaderAuto, nil, 0, locked).(*flowMapReaderChooser)
+		if locked {
+			assert.Equal(t, ebpf.LookupLock, chooser.legacy.lookupFlags)
+			assert.Equal(t, uint64(ebpf.LookupLock), chooser.batch.opts.ElemFlags)
+		} else {
+			assert.Zero(t, chooser.legacy.lookupFlags)
+			assert.Nil(t, chooser.batch.opts)
+		}
+	}
+}
+
+func TestLegacyReader_LookupError(t *testing.T) {
+	lookupErr := errors.New("lookup failed")
+	flowMap := newFakeLegacyMap(inputFlows())
+	flowMap.lookupErrs = map[NetFlowId]error{{IfIndex: 3}: lookupErr}
+	reader := &flowMapLegacyReader{log: slog.Default(), flowMap: flowMap}
+
+	flows, err := reader.lookupAndDeleteMap()
+	require.ErrorIs(t, err, lookupErr)
+
+	assert.Equal(t, []NetFlowId{{IfIndex: 1}, {IfIndex: 2}}, flowIDs(flows))
+	assert.Equal(t, []NetFlowId{{IfIndex: 3}, {IfIndex: 4}}, flowMap.keys)
+}
+
+func TestLegacyReader_KeyGone(t *testing.T) {
+	flowMap := newFakeLegacyMap(inputFlows())
+	flowMap.lookupErrs = map[NetFlowId]error{{IfIndex: 2}: ebpf.ErrKeyNotExist}
+	reader := &flowMapLegacyReader{log: slog.Default(), flowMap: flowMap}
+
+	flows, err := reader.lookupAndDeleteMap()
+	require.NoError(t, err)
+
+	assert.Equal(t, []NetFlowId{{IfIndex: 1}, {IfIndex: 3}, {IfIndex: 4}}, flowIDs(flows))
+	assert.Equal(t, []NetFlowId{{IfIndex: 2}}, flowMap.keys)
+}
+
+func TestLegacyReader_StopsAtCapacity(t *testing.T) {
+	flowMap := newFakeLegacyMap(inputFlows())
+	flowMap.maxEntries = 2
+	reader := &flowMapLegacyReader{log: slog.Default(), flowMap: flowMap}
+
+	flows, err := reader.lookupAndDeleteMap()
+	require.NoError(t, err)
+
+	assert.Equal(t, []NetFlowId{{IfIndex: 1}, {IfIndex: 2}}, flowIDs(flows))
+	assert.Equal(t, []NetFlowId{{IfIndex: 3}, {IfIndex: 4}}, flowMap.keys)
+}
+
+func TestLegacyReader_ScaledMap(t *testing.T) {
+	// the map can be larger than the configured cache size: global_scale_factor resizes it
+	flowMap := newFakeLegacyMap(inputFlows())
+	reader := &flowMapLegacyReader{log: slog.Default(), flowMap: flowMap, cacheMaxSize: 2}
+
+	flows, err := reader.lookupAndDeleteMap()
+	require.NoError(t, err)
+
+	assert.Len(t, flows, len(inputFlows()))
+	assertLegacyMapRead(t, flowMap)
+}
+
 func TestAutoChoose_BatchSupported(t *testing.T) {
 	// using a mock to verify that once if the BatchLookupAndDelete function works,
 	// the legacy iteration functions are not called
 	legacyMap := &ebpfMapMock{}
-	iter := &mockedMapIterator{}
-	legacyMap.On("Iterate").Return(iter)
 	legacyMap.On("BatchLookupAndDelete", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(0, ebpf.ErrKeyNotExist)
 
-	auto := flowMapReaderChooser[*mockedMapIterator]{
+	auto := flowMapReaderChooser{
 		batch:  &flowMapBatchReader{flowMap: legacyMap},
-		legacy: &flowMapLegacyReader[*mockedMapIterator]{log: slog.Default(), flowMap: legacyMap},
+		legacy: &flowMapLegacyReader{log: slog.Default(), flowMap: legacyMap},
 	}
 	_, err := auto.lookupAndDeleteMap()
 	require.NoError(t, err)
 
 	legacyMap.AssertCalled(t, "BatchLookupAndDelete", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-	legacyMap.AssertNotCalled(t, "Iterate")
-	iter.AssertNotCalled(t, "Next")
+	legacyMap.AssertNotCalled(t, "NextKey", mock.Anything, mock.Anything)
 }
 
 func TestAutoChoose_BatchUnsupported(t *testing.T) {
@@ -112,33 +199,31 @@ func TestAutoChoose_BatchUnsupported(t *testing.T) {
 	// the flowMapReaderChooser switches to the legacy map reader
 
 	legacyMap := &ebpfMapMock{}
-	iter := &mockedMapIterator{}
-	legacyMap.On("Iterate").Return(iter)
 	legacyMap.On("BatchLookupAndDelete", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(0, ebpf.ErrNotSupported)
+	legacyMap.On("NextKey", nil, mock.Anything).Return(nil)
+	legacyMap.On("NextKey", mock.Anything, mock.Anything).Return(ebpf.ErrKeyNotExist)
+	legacyMap.On("LookupWithFlags", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	legacyMap.On("Delete", mock.Anything).Return(nil)
-	iter.On("Next", mock.Anything, mock.Anything).Return(true).Once()
-	iter.On("Next", mock.Anything, mock.Anything).Return(false)
+	legacyMap.On("MaxEntries").Return(uint32(testMaxEntries))
 
-	auto := flowMapReaderChooser[*mockedMapIterator]{
+	auto := flowMapReaderChooser{
 		batch:  &flowMapBatchReader{flowMap: legacyMap},
-		legacy: &flowMapLegacyReader[*mockedMapIterator]{log: slog.Default(), flowMap: legacyMap},
+		legacy: &flowMapLegacyReader{log: slog.Default(), flowMap: legacyMap},
 	}
 	_, err := auto.lookupAndDeleteMap()
 	require.NoError(t, err)
 
 	legacyMap.AssertCalled(t, "BatchLookupAndDelete", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-	legacyMap.AssertCalled(t, "Iterate")
-	iter.AssertCalled(t, "Next", mock.Anything, mock.Anything)
+	legacyMap.AssertCalled(t, "LookupWithFlags", mock.Anything, mock.Anything, mock.Anything)
 	legacyMap.AssertCalled(t, "Delete", mock.Anything)
 
 	// Verify that once the legacy map is selected, we don't try the batch lookup anymore
 	legacyMap.Calls = nil
-	iter.Calls = nil
 	_, err = auto.lookupAndDeleteMap()
 	require.NoError(t, err)
 	legacyMap.AssertNotCalled(t, "BatchLookupAndDelete")
-	legacyMap.AssertCalled(t, "Iterate")
+	legacyMap.AssertCalled(t, "LookupWithFlags", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func inputFlows() fakeBPFMap {
@@ -150,11 +235,11 @@ func inputFlows() fakeBPFMap {
 	}
 }
 
-func legacyReader() *flowMapLegacyReader[*fakeMapIterator] {
-	return &flowMapLegacyReader[*fakeMapIterator]{
+func legacyReader() *flowMapLegacyReader {
+	return &flowMapLegacyReader{
 		log:          slog.Default(),
 		cacheMaxSize: 50_000,
-		flowMap:      inputFlows(),
+		flowMap:      newFakeLegacyMap(inputFlows()),
 	}
 }
 
@@ -175,29 +260,87 @@ type entry struct {
 	v NetFlowMetrics
 }
 
-func (f fakeBPFMap) Delete(_ any) error {
-	// won't care ATM
+// fakeLegacyMap mimics the kernel: NextKey restarts from the first key when given a deleted key.
+// Deleting a key in recreated inserts it again at the end, as the programs do with a busy flow.
+type fakeLegacyMap struct {
+	keys        []NetFlowId
+	values      map[NetFlowId]NetFlowMetrics
+	recreated   map[NetFlowId]NetFlowMetrics
+	lookupErrs  map[NetFlowId]error
+	maxEntries  uint32
+	restarts    int
+	lookupFlags []ebpf.MapLookupFlags
+}
+
+func newFakeLegacyMap(entries []entry) *fakeLegacyMap {
+	f := &fakeLegacyMap{values: map[NetFlowId]NetFlowMetrics{}, maxEntries: testMaxEntries}
+	for _, e := range entries {
+		f.keys = append(f.keys, e.k)
+		f.values[e.k] = e.v
+	}
+	return f
+}
+
+func (f *fakeLegacyMap) NextKey(key, nextKeyOut any) error {
+	next := 0
+	if key != nil {
+		i := slices.Index(f.keys, *key.(*NetFlowId))
+		if i < 0 {
+			f.restarts++
+		}
+		next = i + 1
+	}
+	if next >= len(f.keys) {
+		return ebpf.ErrKeyNotExist
+	}
+	*nextKeyOut.(*NetFlowId) = f.keys[next]
 	return nil
 }
 
-func (f fakeBPFMap) Iterate() *fakeMapIterator {
-	return &fakeMapIterator{srcMap: f}
-}
-
-type fakeMapIterator struct {
-	srcMap []entry
-}
-
-func (f *fakeMapIterator) Next(key any, val any) bool {
-	if len(f.srcMap) == 0 {
-		return false
+func (f *fakeLegacyMap) LookupWithFlags(key, valueOut any, flags ebpf.MapLookupFlags) error {
+	id := *key.(*NetFlowId)
+	f.lookupFlags = append(f.lookupFlags, flags)
+	if err := f.lookupErrs[id]; err != nil {
+		return err
 	}
-	tsKey := key.(*NetFlowId)
-	tsVal := val.(*NetFlowMetrics)
-	*tsKey = f.srcMap[0].k
-	*tsVal = f.srcMap[0].v
-	f.srcMap = f.srcMap[1:]
-	return true
+	value, ok := f.values[id]
+	if !ok {
+		return ebpf.ErrKeyNotExist
+	}
+	*valueOut.(*NetFlowMetrics) = value
+	return nil
+}
+
+func (f *fakeLegacyMap) Delete(key any) error {
+	id := *key.(*NetFlowId)
+	i := slices.Index(f.keys, id)
+	if i < 0 {
+		return ebpf.ErrKeyNotExist
+	}
+	f.keys = slices.Delete(f.keys, i, i+1)
+	delete(f.values, id)
+	if value, ok := f.recreated[id]; ok {
+		delete(f.recreated, id)
+		f.keys = append(f.keys, id)
+		f.values[id] = value
+	}
+	return nil
+}
+
+func (f *fakeLegacyMap) MaxEntries() uint32 {
+	return f.maxEntries
+}
+
+func assertLegacyMapRead(t *testing.T, flowMap *fakeLegacyMap) {
+	t.Helper()
+	assert.Empty(t, flowMap.keys, "entries left in the map")
+	assert.Zero(t, flowMap.restarts, "NextKey was given a deleted key")
+}
+
+func flowIDs(flows map[NetFlowId]*NetFlowMetrics) []NetFlowId {
+	return slices.SortedFunc(maps.Keys(flows), func(a, b NetFlowId) int {
+		return cmp.Compare(a.IfIndex, b.IfIndex)
+	})
 }
 
 func (f *fakeBPFMap) BatchLookupAndDelete(_ *ebpf.MapBatchCursor, keysOut, valuesOut any, _ *ebpf.BatchOptions) (int, error) {
@@ -223,25 +366,24 @@ type ebpfMapMock struct {
 	mock.Mock
 }
 
+func (u *ebpfMapMock) MaxEntries() uint32 {
+	return u.Called().Get(0).(uint32)
+}
+
 func (u *ebpfMapMock) Delete(key any) error {
 	args := u.Called(key)
 	return args.Error(0)
 }
 
-func (u *ebpfMapMock) Iterate() *mockedMapIterator {
-	return u.Called().Get(0).(*mockedMapIterator)
+func (u *ebpfMapMock) NextKey(key, nextKeyOut any) error {
+	return u.Called(key, nextKeyOut).Error(0)
+}
+
+func (u *ebpfMapMock) LookupWithFlags(key, valueOut any, flags ebpf.MapLookupFlags) error {
+	return u.Called(key, valueOut, flags).Error(0)
 }
 
 func (u *ebpfMapMock) BatchLookupAndDelete(c *ebpf.MapBatchCursor, k, v any, o *ebpf.BatchOptions) (int, error) {
 	args := u.Called(c, k, v, o)
 	return args.Int(0), args.Error(1)
-}
-
-type mockedMapIterator struct {
-	mock.Mock
-}
-
-func (m *mockedMapIterator) Next(key any, value any) bool {
-	args := m.Called(key, value)
-	return args.Bool(0)
 }

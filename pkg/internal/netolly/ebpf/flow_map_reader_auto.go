@@ -34,8 +34,10 @@ func chooseMapReader(forcedType config.EBPFMapReader, flowMap *ebpf.Map, cacheMa
 	batchLen := defaultReadBatchLen
 	// BPF_F_LOCK fails on maps whose values have no spin lock
 	var batchOpts *ebpf.BatchOptions
+	var lookupFlags ebpf.MapLookupFlags
 	if lockedValues {
 		batchOpts = &ebpf.BatchOptions{ElemFlags: uint64(ebpf.LookupLock)}
+		lookupFlags = ebpf.LookupLock
 	}
 	batch := &flowMapBatchReader{
 		flowMap:      flowMap,
@@ -44,10 +46,11 @@ func chooseMapReader(forcedType config.EBPFMapReader, flowMap *ebpf.Map, cacheMa
 		cachedKeys:   make([]NetFlowId, batchLen),
 		cachedValues: make([]NetFlowMetrics, batchLen),
 	}
-	legacy := &flowMapLegacyReader[*ebpf.MapIterator]{
+	legacy := &flowMapLegacyReader{
 		log:          dlog("legacy"),
 		flowMap:      flowMap,
 		cacheMaxSize: cacheMaxSize,
+		lookupFlags:  lookupFlags,
 	}
 	switch forcedType {
 	case config.MapReaderLegacy:
@@ -55,22 +58,22 @@ func chooseMapReader(forcedType config.EBPFMapReader, flowMap *ebpf.Map, cacheMa
 	case config.MapReaderBatch:
 		return batch
 	default:
-		return &flowMapReaderChooser[*ebpf.MapIterator]{
+		return &flowMapReaderChooser{
 			batch:  batch,
 			legacy: legacy,
 		}
 	}
 }
 
-// flowMapReaderChooser will choose, during first invocation to lookupAndDeleteMap,
-// between the map Batch reader (if available) and the legacy iterator-based reader (fallback)
-type flowMapReaderChooser[IT mapIterator] struct {
+// flowMapReaderChooser tries the batch reader on the first call to lookupAndDeleteMap
+// and falls back to the per-key legacy reader if batch lookup is unsupported.
+type flowMapReaderChooser struct {
 	working flowMapReader
 	batch   *flowMapBatchReader
-	legacy  *flowMapLegacyReader[IT]
+	legacy  *flowMapLegacyReader
 }
 
-func (ad *flowMapReaderChooser[IT]) lookupAndDeleteMap() (map[NetFlowId]*NetFlowMetrics, error) {
+func (ad *flowMapReaderChooser) lookupAndDeleteMap() (map[NetFlowId]*NetFlowMetrics, error) {
 	if ad.working != nil {
 		return ad.working.lookupAndDeleteMap()
 	}

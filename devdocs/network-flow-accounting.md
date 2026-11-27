@@ -25,15 +25,20 @@ it reads with the ring buffer records.
 
 ## TC and socket filter
 
+For the `tc` source, the traffic control backend is configured through
+`ebpf.traffic_control_backend` in Config v1 or
+`extensions.obi.capture.engine.traffic.control_backend` in
+[Config v2](config/version-2.0/config-v2.md).
+
 The verifier rejects a socket filter that uses a map whose value contains a `bpf_spin_lock`, even
 if the program never takes the lock. So `flow_metrics` has a lock field that differs by program,
 with the same size and offset in both (`FLOW_LOCK`, asserted in `flows_common.h`). `flow_lock.h`
 provides both variants, and `flows_sock.c` selects the second by defining `FLOW_LOCK_PLACEHOLDER`
 before including `flows_common.h`:
 
-- The default is a real `struct bpf_spin_lock`. `add_to_flow()` takes it, and the `tc` reader
-  copies entries with `BPF_F_LOCK`, so it gets a consistent snapshot of each entry.
-- The placeholder is a 4-byte field with empty lock functions. The socket filter reader must not
+- The default is a real `struct bpf_spin_lock`. `add_to_flow()` takes it, and both `tc` readers,
+  batch and legacy, copy entries with `BPF_F_LOCK`, so they get a consistent snapshot of each entry.
+- The placeholder is a 4-byte field with empty lock functions. The socket filter readers must not
   pass `BPF_F_LOCK`, which fails on a map without a lock.
 
 `packets` and `bytes` are added atomically in both programs, so they are exact in the socket filter
@@ -50,7 +55,9 @@ objects with `make docker-generate`.
 - **Read and delete.** A packet added to an entry after user space copied it and before the entry is
   deleted is not counted. The batch reader copies and deletes in one system call and loses a few
   packets per million. The legacy reader, used where batch operations are missing, looks up and
-  deletes in two steps and loses more, about 0.01% in the concurrency test.
+  deletes in two steps and can lose more, about 0.01% in the concurrency test.
+  In a RHEL 8.10 VM run, the legacy TC reader with `BPF_F_LOCK` counted 5.3 million packets
+  with 0.0007% loss and a consistent byte-to-packet ratio.
 - **Memory reuse.** A program that looked up an entry can add its packet after user space deleted
   that entry and the kernel gave the memory to a new flow. The packet is then counted for the wrong
   flow. The memory stays valid, and it affects at most the packets that are in flight at the time of
