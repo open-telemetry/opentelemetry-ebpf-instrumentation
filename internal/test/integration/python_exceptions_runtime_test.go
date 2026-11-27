@@ -1,0 +1,492 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+//go:build linux && python_exceptions_integration
+
+package integration
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	osexec "os/exec"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+	"unicode/utf8"
+
+	"github.com/cilium/ebpf/rlimit"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
+
+	"go.opentelemetry.io/obi/pkg/exceptions"
+)
+
+var pythonExceptionFrameLine = regexp.MustCompile(`^  (File "(.*)", line (\d+), in (.*)|\[Previous line repeated \d+ more times?\])$`)
+
+// The probe's message buffers, the links it follows and the frames it keeps per link.
+const (
+	pythonExceptionMessageMax     = 256
+	pythonExceptionLinkMessageMax = 128
+	pythonExceptionMaxLinks       = 1
+)
+
+var pythonExceptionChainSeparator = regexp.MustCompile("\n\n(The above exception was the direct cause of the following exception|During handling of the above exception, another exception occurred):\n\n")
+
+var pythonExceptionRelations = map[string]string{
+	"The above exception was the direct cause of the following exception": "cause",
+	"During handling of the above exception, another exception occurred":  "context",
+}
+
+// Exceptions that escape a Flask, FastAPI or http.server handler are compared
+// with what CPython recorded in the fixture, request by request.
+func TestPythonExceptions(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("Python exception integration coverage is currently amd64-only")
+	}
+	require.Equal(t, 0, os.Geteuid(), "Python exception integration tests require root")
+	require.NoError(t, rlimit.RemoveMemlock())
+	unsupported := os.Getenv("PYTHON_EXCEPTION_BUILD") == "free-threaded"
+
+	modes := map[string][]string{"flask": {"sync"}, "fastapi": {"await", "task", "thread", "sync"}, "http": {"sync"}}
+	cases := []string{
+		"ascii", "empty", "unicode", "long", "key", "os", "custom", "multiarg", "mixedarg", "int",
+		"native", "native-int", "deep", "reraise", "raise_error", "latest", "chained",
+		"implicit_replacement", "nested_cleanup", "double_nested_cleanup", "with_traceback", "error_page", "error_page_reraise", "cleanup", "finally", "open",
+		"chained_key_subclass", "context", "suppressed", "reraised_suppressed", "chain3", "chain4",
+	}
+	if pythonMinor(t) >= 11 {
+		cases = append(cases, "group")
+	}
+	for i, framework := range []string{"flask", "fastapi", "http"} {
+		t.Run(framework, func(t *testing.T) {
+			if reason := os.Getenv("PYTHON_EXCEPTION_ASYNC_SKIP_REASON"); framework == "fastapi" && reason != "" {
+				t.Skip(reason)
+			}
+			port := 18700 + i
+			startPythonExceptionFixture(t, framework, port)
+			harness := startPythonExceptionTracer(t, port)
+			fixture := pythonExceptionClient{t: t, port: port}
+
+			if unsupported {
+				traceID := fixture.get("/raise/sync/ascii/unsupported", http.StatusInternalServerError)
+				harness.requireNone(t, traceID)
+				require.False(t, harness.attached(), "unsupported builds must not attach")
+				return
+			}
+			require.True(t, harness.attached(), "the exception probe did not attach")
+
+			for _, mode := range modes[framework] {
+				for _, name := range cases {
+					t.Run(mode+"/"+name, func(t *testing.T) {
+						token := fmt.Sprintf("%s-%s-%s", framework, mode, name)
+						traceID := fixture.get("/raise/"+mode+"/"+name+"/"+token, http.StatusInternalServerError)
+						assertPythonException(t, harness.wait(t, traceID), fixture.truth(token), name)
+					})
+				}
+			}
+
+			if framework == "fastapi" {
+				t.Run("handoff", func(t *testing.T) {
+					const token = "fastapi-handoff"
+					traceID := fixture.get("/handoff/"+token, http.StatusInternalServerError)
+					event := harness.wait(t, traceID)
+					assert.Equal(t, "ValueError", event.Type)
+					assert.Equal(t, token, event.Message)
+				})
+			}
+
+			if framework == "http" {
+				for mode, wantType := range map[string]string{"caught": "ValueError", "reraise": "LookupError", "cleanup": "ValueError"} {
+					t.Run("saved-error/"+mode, func(t *testing.T) {
+						token := "http-saved-" + mode
+						traceID := fixture.get("/saved-error/"+mode+"/"+token, http.StatusInternalServerError)
+						event := harness.wait(t, traceID)
+						assert.Equal(t, wantType, event.Type)
+						assert.Equal(t, token, event.Message)
+					})
+				}
+				t.Run("context/ascii", func(t *testing.T) {
+					const token = "http-context"
+					traceID := fixture.get("/raise/context/ascii/"+token, http.StatusInternalServerError)
+					assertPythonException(t, harness.wait(t, traceID), fixture.truth(token), "ascii")
+				})
+				t.Run("direct/native", func(t *testing.T) {
+					const token = "http-direct-native"
+					traceID := fixture.get("/raise/direct/native/"+token, http.StatusInternalServerError)
+					assertPythonException(t, harness.wait(t, traceID), fixture.truth(token), "native")
+				})
+				t.Run("native-helper/native", func(t *testing.T) {
+					const token = "http-native-helper"
+					traceID := fixture.get("/raise/native-helper/native/"+token, http.StatusInternalServerError)
+					assertPythonException(t, harness.wait(t, traceID), fixture.truth(token), "native")
+				})
+				// A request that handled its exception reports nothing, even when
+				// another request's exception reuses the address.
+				t.Run("reused-address", func(t *testing.T) {
+					var freedTrace, heldTrace string
+					var wg sync.WaitGroup
+					wg.Go(func() { freedTrace = fixture.get("/reuse/freed/http-reuse-freed", http.StatusInternalServerError) })
+					wg.Go(func() { heldTrace = fixture.get("/reuse/held/http-reuse-held", http.StatusInternalServerError) })
+					wg.Wait()
+					held := fixture.truth("http-reuse-held")
+					assertPythonException(t, harness.wait(t, heldTrace), held, "ascii")
+					if !held.Reused {
+						t.Skip("CPython did not reuse the freed exception's address")
+					}
+					harness.requireNone(t, freedTrace)
+				})
+			}
+
+			// A handler that catches the exception and answers 500 itself reports
+			// nothing.
+			t.Run("handled-500", func(t *testing.T) {
+				harness.requireNone(t, fixture.get("/handled/sync/ascii/"+framework+"-handled-500/500", http.StatusInternalServerError))
+			})
+			t.Run("handled-200", func(t *testing.T) {
+				harness.requireNone(t, fixture.get("/handled/sync/ascii/"+framework+"-handled-200/200", http.StatusOK))
+			})
+			t.Run("healthy", func(t *testing.T) {
+				harness.requireNone(t, fixture.get("/ok", http.StatusOK))
+			})
+			if framework == "flask" {
+				t.Run("stop-iteration", func(t *testing.T) {
+					harness.requireNone(t, fixture.get("/raise/sync/stop/flask-stop", http.StatusInternalServerError))
+				})
+			}
+			t.Run("concurrent", func(t *testing.T) {
+				const requests = 16
+				mode := modes[framework][0]
+				traces := make([]string, requests)
+				var wg sync.WaitGroup
+				for n := range requests {
+					wg.Go(func() {
+						traces[n] = fixture.get(fmt.Sprintf("/raise/%s/ascii/%s-concurrent-%d", mode, framework, n), http.StatusInternalServerError)
+					})
+				}
+				wg.Wait()
+				for n, traceID := range traces {
+					event := harness.wait(t, traceID)
+					assert.Equal(t, fmt.Sprintf("%s-concurrent-%d", framework, n), event.Message)
+				}
+			})
+		})
+	}
+}
+
+type pythonExceptionTruth struct {
+	pythonExceptionLink
+	Chain []pythonExceptionLink `json:"chain"`
+}
+
+type pythonExceptionLink struct {
+	Type     string `json:"type"`
+	LineType string `json:"line_type"`
+	Message  string `json:"message"`
+	Relation string `json:"relation"`
+	Frames   []struct {
+		File     string `json:"file"`
+		Line     int    `json:"line"`
+		Function string `json:"function"`
+	} `json:"frames"`
+	Reused bool `json:"reused"`
+}
+
+type pythonExceptionClient struct {
+	t        *testing.T
+	port     int
+	sequence atomic.Uint64
+}
+
+// get sends a request with a known trace ID and returns it.
+func (c *pythonExceptionClient) get(path string, status int) string {
+	c.t.Helper()
+	sequence := c.sequence.Add(1)
+	traceID := fmt.Sprintf("%016x%016x", time.Now().UnixNano(), sequence)
+	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", c.port, path), nil)
+	require.NoError(c.t, err)
+	request.Header.Set("Traceparent", "00-"+traceID+"-1234567890abcdef-01")
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(c.t, err)
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+	require.Equal(c.t, status, response.StatusCode, path)
+	return traceID
+}
+
+func (c *pythonExceptionClient) truth(token string) pythonExceptionTruth {
+	c.t.Helper()
+	response, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/truth/%s", c.port, token))
+	require.NoError(c.t, err)
+	defer response.Body.Close()
+	truth := pythonExceptionTruth{}
+	require.NoError(c.t, json.NewDecoder(response.Body).Decode(&truth))
+	require.NotEmpty(c.t, truth.Type, "the fixture recorded no exception for %s", token)
+	return truth
+}
+
+func assertPythonException(t *testing.T, event exceptions.Event, truth pythonExceptionTruth, scenario string) {
+	t.Helper()
+	assert.Equal(t, truth.Type, event.Type)
+	assert.NotZero(t, event.SpanID)
+	assertPythonMessage(t, truth.Message, event.Message, pythonExceptionMessageMax)
+
+	// The chain prints oldest first, each exception followed by how the next relates to it.
+	stacktrace := strings.TrimSuffix(event.Stacktrace, "\n")
+	sections := pythonExceptionChainSeparator.Split(stacktrace, -1)
+	separators := pythonExceptionChainSeparator.FindAllStringSubmatch(stacktrace, -1)
+	links := truth.Chain[:min(len(truth.Chain), pythonExceptionMaxLinks)]
+	require.Len(t, sections, len(links)+1, event.Stacktrace)
+	for i, link := range links {
+		section := len(links) - 1 - i
+		assert.Equal(t, link.Relation, pythonExceptionRelations[separators[section][1]], event.Stacktrace)
+		assertPythonSection(t, sections[section], link, pythonExceptionLinkMessageMax, "")
+	}
+	assertPythonSection(t, sections[len(sections)-1], truth.pythonExceptionLink, pythonExceptionMessageMax, scenario)
+}
+
+// assertPythonMessage compares a message with the one CPython renders; a
+// message beyond the probe's buffer is a prefix that ends in "...".
+func assertPythonMessage(t *testing.T, want, got string, limit int) {
+	t.Helper()
+	if got == want || utf8.RuneCountInString(want)*utf8.UTFMax <= limit {
+		assert.Equal(t, want, got)
+		return
+	}
+	assert.True(t, strings.HasSuffix(got, "..."), "%q does not end in ...", got)
+	assert.True(t, strings.HasPrefix(want, strings.TrimSuffix(got, "...")), "%q is not a prefix of the message", got)
+}
+
+// assertPythonSection compares one exception of the stacktrace, its traceback
+// and the type and message line, with what CPython recorded.
+func assertPythonSection(t *testing.T, section string, truth pythonExceptionLink, limit int, scenario string) {
+	t.Helper()
+	lines := strings.Split(section, "\n")
+	last := lines[len(lines)-1]
+	message, found := strings.CutPrefix(last, truth.LineType+": ")
+	if !found {
+		assert.Equal(t, truth.LineType, last, section)
+		message = ""
+	}
+	assertPythonMessage(t, truth.Message, message, limit)
+
+	if truth.Relation != "" && len(truth.Frames) == 0 {
+		require.Len(t, lines, 1, section)
+		return
+	}
+
+	require.Equal(t, "Traceback (most recent call last):", lines[0], section)
+	captured := lines[1 : len(lines)-1]
+	// Outer frames beyond the ones the probe keeps are dropped.
+	omitted := len(captured) > 0 && captured[0] == "  ... frames omitted"
+	if omitted {
+		captured = captured[1:]
+	}
+	var expected []string
+	for _, frame := range truth.Frames {
+		expected = append(expected, fmt.Sprintf("  File \"%s\", line %d, in %s", frame.File, frame.Line, frame.Function))
+	}
+	expected = foldPythonFrames(expected)
+	if scenario == "deep" {
+		// The kept frames are all `recursive`, so their fold counts fewer repeats.
+		expected, captured = expected[len(expected)-1:], captured[len(captured)-1:]
+	}
+	if omitted && len(expected) > len(captured) {
+		expected = expected[len(expected)-len(captured):]
+	}
+	require.GreaterOrEqual(t, len(captured), len(expected), section)
+	assert.Equal(t, expected, captured[len(captured)-len(expected):], section)
+	for _, line := range captured {
+		assert.Regexp(t, pythonExceptionFrameLine, line)
+	}
+}
+
+// foldPythonFrames folds frames repeated more than three times in a row, as
+// traceback does.
+func foldPythonFrames(frames []string) []string {
+	var folded []string
+	flush := func(count int) {
+		if count > 3 {
+			plural := "s"
+			if count-3 == 1 {
+				plural = ""
+			}
+			folded = append(folded, fmt.Sprintf("  [Previous line repeated %d more time%s]", count-3, plural))
+		}
+	}
+	count := 0
+	for i, frame := range frames {
+		if i > 0 && frame != frames[i-1] {
+			flush(count)
+			count = 0
+		}
+		count++
+		if count <= 3 {
+			folded = append(folded, frame)
+		}
+	}
+	flush(count)
+	return folded
+}
+
+type pythonExceptionHarness struct {
+	logPath string
+	mu      *sync.Mutex
+	events  *[]exceptions.Event
+}
+
+func (h pythonExceptionHarness) find(traceID string) (exceptions.Event, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, event := range *h.events {
+		if event.TraceID.String() == traceID {
+			return event, true
+		}
+	}
+	return exceptions.Event{}, false
+}
+
+func (h pythonExceptionHarness) wait(t *testing.T, traceID string) exceptions.Event {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if event, found := h.find(traceID); found {
+			return event
+		}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var captured strings.Builder
+	for _, event := range *h.events {
+		fmt.Fprintf(&captured, "\n  %s %s: %s %q", event.TraceID, event.SpanID, event.Type, event.Message)
+	}
+	require.FailNow(t, "no matching exception", "captured:%s", captured.String())
+	return exceptions.Event{}
+}
+
+func (h pythonExceptionHarness) requireNone(t *testing.T, traceID string) {
+	t.Helper()
+	time.Sleep(time.Second)
+	event, found := h.find(traceID)
+	require.False(t, found, "unexpected exception %+v", event)
+}
+
+func (h pythonExceptionHarness) attached() bool {
+	data, _ := os.ReadFile(h.logPath)
+	return strings.Contains(string(data), "Python exception capture attached")
+}
+
+func pythonMinor(t *testing.T) int {
+	t.Helper()
+	output, err := osexec.Command("python3", "-c", "import sys; print(sys.version_info.minor)").Output()
+	require.NoError(t, err)
+	minor, err := strconv.Atoi(strings.TrimSpace(string(output)))
+	require.NoError(t, err)
+	return minor
+}
+
+func startPythonExceptionFixture(t *testing.T, framework string, port int) {
+	t.Helper()
+	fixture := os.Getenv("PYTHON_EXCEPTION_FIXTURE")
+	require.NotEmpty(t, fixture, "PYTHON_EXCEPTION_FIXTURE must name server.py")
+	logFile, err := os.Create(filepath.Join(t.TempDir(), "python.log"))
+	require.NoError(t, err)
+	cmd := osexec.Command("python3", "-u", fixture, framework, strconv.Itoa(port))
+	cmd.Stdout, cmd.Stderr = logFile, logFile
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		_ = logFile.Close()
+		if t.Failed() {
+			output, _ := os.ReadFile(logFile.Name())
+			t.Logf("Python fixture log:\n%s", output)
+		}
+	})
+	// No keep-alive: a connection accepted before the tracer attached has no
+	// request state for its first request.
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	require.Eventually(t, func() bool {
+		response, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
+		if err != nil {
+			return false
+		}
+		_ = response.Body.Close()
+		return response.StatusCode == http.StatusOK
+	}, 20*time.Second, 100*time.Millisecond)
+}
+
+func startPythonExceptionTracer(t *testing.T, port int) pythonExceptionHarness {
+	t.Helper()
+	var mu sync.Mutex
+	var events []exceptions.Event
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/logs" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		batch := plogotlp.NewExportRequest()
+		if err := batch.UnmarshalProto(data); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		for _, resource := range batch.Logs().ResourceLogs().All() {
+			for _, scope := range resource.ScopeLogs().All() {
+				for _, record := range scope.LogRecords().All() {
+					if record.EventName() != "exception" {
+						continue
+					}
+					typ, _ := record.Attributes().Get("exception.type")
+					message, _ := record.Attributes().Get("exception.message")
+					stack, _ := record.Attributes().Get("exception.stacktrace")
+					events = append(events, exceptions.Event{Type: typ.Str(), Message: message.Str(), Stacktrace: stack.Str(), TraceID: [16]byte(record.TraceID()), SpanID: [8]byte(record.SpanID())})
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/x-protobuf")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(receiver.Close)
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "obi.log")
+	logFile, err := os.Create(logPath)
+	require.NoError(t, err)
+	cmd := osexec.Command("/tmp/obi", "-config", "configs/obi-config-python-exceptions.yml")
+	cmd.Env = append(os.Environ(),
+		"PYTHON_EXCEPTION_OTLP_ENDPOINT="+receiver.URL,
+		"PYTHON_EXCEPTION_PORT="+strconv.Itoa(port))
+	cmd.Stdout, cmd.Stderr = logFile, logFile
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		_ = logFile.Close()
+		if t.Failed() {
+			data, _ := os.ReadFile(logPath)
+			t.Logf("OBI log:\n%s", data)
+		}
+	})
+	harness := pythonExceptionHarness{logPath: logPath, mu: &mu, events: &events}
+	require.Eventually(t, func() bool {
+		data, _ := os.ReadFile(logPath)
+		return strings.Contains(string(data), "Python exception capture attached") || strings.Contains(string(data), "Python exception capture unavailable")
+	}, 30*time.Second, 100*time.Millisecond, "OBI did not attach to fixture")
+	return harness
+}

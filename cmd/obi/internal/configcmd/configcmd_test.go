@@ -23,6 +23,8 @@ import (
 	"go.opentelemetry.io/obi/internal/config/schema"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
 	featureexport "go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -2392,6 +2394,129 @@ func TestRunValidateRoute53HostedZones(t *testing.T) {
 			}
 		})
 	}
+}
+
+func migratedSpanMetricAttributes(t *testing.T, output []byte) map[attributes.Section][]attr.Name {
+	t.Helper()
+	doc, _, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	cfg, err := convert.DocumentToRuntime(doc)
+	require.NoError(t, err)
+	selector, err := attributes.NewAttrSelector(attributes.AttrGroups(-1), &attributes.SelectorConfig{
+		SelectionCfg:            cfg.Attributes.Select,
+		ExtraGroupAttributesCfg: cfg.Attributes.ExtraGroupAttributes,
+		UseV2Selection:          cfg.Attributes.UseV2Selection,
+	})
+	require.NoError(t, err)
+	got := map[attributes.Section][]attr.Name{}
+	for _, pair := range convert.EnabledSpanMetricPairs(cfg) {
+		selected := selector.ForSpanMetrics(nil, pair...)
+		for _, metric := range pair {
+			got[metric.Section] = selected
+		}
+	}
+	return got
+}
+
+func requireAllSpanMetricAttributes(t *testing.T, want []attr.Name, got map[attributes.Section][]attr.Name) {
+	t.Helper()
+	require.NotEmpty(t, got)
+	for section, names := range got {
+		require.ElementsMatch(t, want, names, section)
+	}
+}
+
+func TestMigrateConfigMapsSpanResourceAttributesToSelection(t *testing.T) {
+	output, _, err := migrateConfig([]byte(`
+open_port: '8080'
+metrics:
+  features: [application, application_span_otel]
+otel_metrics_export:
+  endpoint: http://collector:4317
+  extra_span_resource_attributes: [service.version, k8s.cluster.name]
+prometheus_export:
+  port: 9090
+  extra_span_resource_attributes: [k8s_cluster_name, service_version]
+`))
+	require.NoError(t, err)
+	_, ext, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	require.Empty(t, ext.Daemon.Telemetry.Metrics.Prometheus.ExtraSpanResourceAttributes)
+	requireAllSpanMetricAttributes(t, []attr.Name{"k8s.cluster.name", "service.version"}, migratedSpanMetricAttributes(t, output))
+}
+
+func TestMigrateConfigIgnoresInactiveExporterSpanResourceAttributes(t *testing.T) {
+	output, _, err := migrateConfig([]byte(`
+open_port: '8080'
+metrics:
+  features: [application, application_span_otel]
+otel_metrics_export:
+  extra_span_resource_attributes: [k8s.cluster.name]
+prometheus_export:
+  port: 9090
+  extra_span_resource_attributes: [service.version]
+`))
+	require.NoError(t, err)
+	requireAllSpanMetricAttributes(t, []attr.Name{"service.version"}, migratedSpanMetricAttributes(t, output))
+}
+
+func TestMigrateConfigRejectsDifferentSpanResourceAttributes(t *testing.T) {
+	source := []byte(`
+open_port: '8080'
+metrics:
+  features: [application, application_span_otel]
+otel_metrics_export:
+  endpoint: http://collector:4317
+  extra_span_resource_attributes: [service.version]
+prometheus_export:
+  port: 9090
+  extra_span_resource_attributes: [k8s.cluster.name]
+`)
+	_, _, err := migrateConfig(source)
+	require.ErrorContains(t, err, "prometheus_export.extra_span_resource_attributes")
+	require.NotContains(t, err.Error(), "otel_metrics_export.extra_span_resource_attributes")
+
+	output, _, partial, err := migrateConfigForModeWithOptions(
+		source, validationModeStandalone, migrationOptions{allowPartial: true},
+	)
+	require.NoError(t, err)
+	require.True(t, partial)
+	requireAllSpanMetricAttributes(t, []attr.Name{"service.version"}, migratedSpanMetricAttributes(t, output))
+}
+
+func TestMigrateConfigKeepsSpanMetricDimensionsUnderWildcardSelection(t *testing.T) {
+	output, _, err := migrateConfig([]byte(`
+open_port: '8080'
+metrics:
+  features: [application, application_span_otel, application_span_sizes]
+otel_metrics_export:
+  endpoint: http://collector:4317
+  extra_span_resource_attributes: [deployment.environment]
+attributes:
+  kubernetes:
+    enable: true
+  select:
+    "*":
+      include: ["*", "service.version"]
+`))
+	require.NoError(t, err)
+	requireAllSpanMetricAttributes(t, []attr.Name{"deployment.environment"}, migratedSpanMetricAttributes(t, output))
+}
+
+func TestMigrateConfigKeepsNoSpanMetricDimensionsUnderWildcardSelection(t *testing.T) {
+	output, _, err := migrateConfig([]byte(`
+open_port: '8080'
+metrics:
+  features: [application, application_span_otel]
+prometheus_export:
+  port: 9090
+attributes:
+  select:
+    "*":
+      include: ["*"]
+`))
+	require.NoError(t, err)
+	requireAllSpanMetricAttributes(t, nil, migratedSpanMetricAttributes(t, output))
 }
 
 func TestMigrateConfigPreservesExemplarFilter(t *testing.T) {

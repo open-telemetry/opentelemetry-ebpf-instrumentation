@@ -78,6 +78,8 @@ extensions:
         go:
           panics: true
           formatted_errors: false
+        python:
+          enabled: true
       # policy controls global rule evaluation behavior.
       policy:
         # Include by default unless matched by an exclude rule.
@@ -206,6 +208,16 @@ extensions:
         #           patterns:
         #             - /checkout/{id}
         #           unmatched: wildcard
+        #
+        # - action: include
+        #   name: job-workers
+        #   description: Keep each call of a job the workers take off Redis in a trace of its own.
+        #   match:
+        #     kubernetes:
+        #       namespace_glob:
+        #         - jobs
+        #   refine:
+        #     group_job_spans: false
 
       instrumentation:
         # HTTP protocol instrumentation and HTTP-specific enrichment/parsing.
@@ -620,6 +632,9 @@ extensions:
 
       metrics:
         features: [application]
+        # Export the target.info and traces.target.info metrics.
+        target_info:
+          enabled: true
 
       # telemetry tunes reporter caches and metric TTLs for OBI capture internals.
       telemetry:

@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -155,6 +156,83 @@ func TestFilter(t *testing.T) {
 			{Name: "promhttp_metric_handler_errors_total", Value: 0, Labels: map[string]string{"cause": "gathering"}},
 		}, filtered)
 	}, timeout, 100*time.Millisecond)
+}
+
+func TestCIDRAttributes(t *testing.T) {
+	ctx := t.Context()
+
+	promServer := testutil.NewPrometheusServer(t)
+
+	stats := Stats{
+		agentIP: net.ParseIP("1.2.3.4"),
+		ctxInfo: &global.ContextInfo{
+			Prometheus:            promServer.Manager,
+			MetricAttributeGroups: attributes.GroupStatsCIDR,
+		},
+		cfg: &obi.Config{
+			Prometheus: prom.PrometheusConfig{
+				Port: promServer.Port,
+				Path: "/metrics",
+				TTL:  time.Hour,
+			},
+			Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureStatsTCPIo},
+			Stats: obi.StatsConfig{CIDRs: cidr.Definitions{
+				{CIDR: "0.0.0.0/0", Name: "external"},
+				{CIDR: "10.0.0.0/8", Name: "internal"},
+			}},
+		},
+	}
+
+	ringBuf := make(chan []*ebpf.Stat, 10)
+	origRingBufTracer := newRingBufTracer
+	t.Cleanup(func() { newRingBufTracer = origRingBufTracer })
+	newRingBufTracer = func(_ *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
+		return func(ctx context.Context) {
+			for i := range ringBuf {
+				out.SendCtx(ctx, i)
+			}
+		}
+	}
+
+	runner, err := stats.buildPipeline(ctx, ctx)
+	require.NoError(t, err)
+
+	go runner.Start(ctx)
+
+	ringBuf <- []*ebpf.Stat{
+		fakeIoRecordWithAddrs("10.0.0.5", "140.82.112.3", uint8(ebpf.CodeDirectionTransmit), 1500),
+		fakeIoRecordWithAddrs("10.0.0.5", "10.0.0.9", uint8(ebpf.CodeDirectionTransmit), 700),
+	}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		allMetrics, err := promtest.Scrape(promServer.URL)
+		require.NoError(ct, err)
+
+		var io []promtest.ScrapedMetric
+		for _, m := range allMetrics {
+			if m.Name == "obi_stat_tcp_io_bytes_total" {
+				io = append(io, m)
+			}
+		}
+
+		assert.ElementsMatch(ct, []promtest.ScrapedMetric{
+			{Name: "obi_stat_tcp_io_bytes_total", Value: 1500, Labels: map[string]string{
+				"src_address": "10.0.0.5", "dst_address": "140.82.112.3", "network_io_direction": "transmit",
+				"src_cidr": "internal", "dst_cidr": "external",
+			}},
+			{Name: "obi_stat_tcp_io_bytes_total", Value: 700, Labels: map[string]string{
+				"src_address": "10.0.0.5", "dst_address": "10.0.0.9", "network_io_direction": "transmit",
+				"src_cidr": "internal", "dst_cidr": "internal",
+			}},
+		}, io)
+	}, timeout, 100*time.Millisecond)
+}
+
+func fakeIoRecordWithAddrs(src, dst string, direction uint8, bytes uint32) *ebpf.Stat {
+	record := fakeIoRecord(40000, 443, direction, bytes)
+	copy(record.CommonAttrs.SrcAddr[:], net.ParseIP(src).To16())
+	copy(record.CommonAttrs.DstAddr[:], net.ParseIP(dst).To16())
+	return record
 }
 
 func fakeRecord(srcPort, dstPort uint16) *ebpf.Stat {

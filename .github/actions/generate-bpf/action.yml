@@ -1,26 +1,50 @@
 name: Generate BPF
 description: |
   Run `make docker-generate` and publish the resulting `_bpfel.go` +
-  `_bpfel.o` files as a workflow artifact. Caller must `actions/checkout`
-  first so this composite can resolve the local Go module + Makefile.
+  `_bpfel.o` files as a workflow artifact. The files are cached on the
+  generation inputs, so generation only runs when one of them changes.
+  Caller must `actions/checkout` first so this composite can resolve the
+  local Go module + Makefile.
 
 inputs:
   artifact-name:
-    description: 'Artifact name to upload BPF files under. Default keys on github.run_id.'
-    required: false
-    default: bpf-generated-${{ github.run_id }}
+    description: 'Artifact name to upload BPF files under. Must be unique in the run: release.yml calls several workflows that each upload one.'
+    required: true
 
 runs:
   using: composite
   steps:
-    # no cache: generation runs in a container and would save empty caches under the test jobs' keys
+    # every input of the generation: BPF sources, bpf2go directives with their package names, and the Makefile, which pins the generator image
+    - name: Compute generated BPF files cache key
+      id: cache-key
+      shell: bash
+      run: |
+        directive='^//go:generate \$BPF2GO'
+        inputs="$({
+          git ls-files -s -- bpf Makefile .github/actions/generate-bpf
+          git grep -l -e "${directive}" -- '*.go' | xargs git grep -H -e "${directive}" -e '^package ' --
+        } | sha256sum | cut -d' ' -f1)"
+        echo "key=bpf-generated-${inputs}" >> "$GITHUB_OUTPUT"
+
+    - name: Cache generated BPF files
+      id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] key is a content hash of every generation input; the files only feed test jobs
+      with:
+        path: |
+          **/*_bpfel.go
+          **/*_bpfel.o
+        key: ${{ steps.cache-key.outputs.key }}
+
+    # no cache: generation fills only the module cache and would save it, without a build cache, under the test jobs' keys
     - name: Set up Go
+      if: steps.cache.outputs.cache-hit != 'true'
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: "go.mod"
         cache: false
 
     - name: Pre-pull generator image
+      if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         IMG=$(grep -E "^GEN_IMG \?= " Makefile | awk '{print $3}')
@@ -35,6 +59,7 @@ runs:
         exit 1
 
     - name: Generate BPF files
+      if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: make docker-generate
 

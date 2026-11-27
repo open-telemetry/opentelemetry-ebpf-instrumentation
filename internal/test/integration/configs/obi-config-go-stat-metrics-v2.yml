@@ -18,6 +18,12 @@ extensions:
           enabled: true
           # tcp_resets is only selectable from Config v2
           features: [tcp_failed_connections, tcp_resets]
+          selection:
+            cidrs:
+              - {cidr: 10.0.0.0/8, name: private}
+              - {cidr: 172.16.0.0/12, name: private}
+              - {cidr: 192.168.0.0/16, name: private}
+              - {cidr: 0.0.0.0/0, name: public}
       engine:
         batching:
           batch_timeout: 10ms

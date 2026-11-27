@@ -83,7 +83,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 125M
+          # Each request uses a distinct path, so the collector retains many metric series while draining to Weaver.
+          memory: 512M
     restart: unless-stopped
     command:
       - "--config=/etc/otelcol-config/otelcol-config-weaver.yml"

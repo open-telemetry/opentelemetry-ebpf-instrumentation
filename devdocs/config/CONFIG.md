@@ -143,7 +143,7 @@ Route53MetadataConfig maps A/AAAA records to fully qualified names. Aliases, CNA
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `cloud_metadata.route53.hosted_zone_ids` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS` |  |  |  | Optionally restricts the discovered zones. Discovery includes account public zones and private zones associated with the detected VPC. Explicit IDs retain the same VPC and address filters. |
+| `cloud_metadata.route53.hosted_zone_ids` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS` |  |  |  | Restricts discovery to these hosted zones. Required when route53 is enabled. |
 | `cloud_metadata.route53.refresh_interval` | `duration` | `OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Controls Route53 polling independently of other cloud sources. |
 
 ## `discovery`
@@ -465,7 +465,7 @@ GlobalMetricsConfig is a placeholder for the progressive support of global and p
 |---|---|---|---|---|---|---|
 | `name_resolver.cache_expiry` | `duration` | `OTEL_EBPF_NAME_RESOLVER_CACHE_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. |
 | `name_resolver.cache_len` | `integer` | `OTEL_EBPF_NAME_RESOLVER_CACHE_LEN` | `1024` |  |  | Specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 |
-| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s`, `ecs` | `dns`, `ecs`, `k8s`, `kube`, `kubernetes`, `rdns`, `route53` |  | Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns, route53. The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions. The "route53" source requires route53:ListResourceRecordSets on selected zones and route53:ListHostedZones. When the VPC and region are known, it also requires route53:ListHostedZonesByVPC. Explicit zone IDs require the same permissions. |
+| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s`, `ecs` | `dns`, `ecs`, `k8s`, `kube`, `kubernetes`, `rdns`, `route53` |  | Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns, route53. The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions. The "route53" source requires route53:ListResourceRecordSets on the configured hosted zones. |
 
 ## `network`
 
@@ -490,7 +490,7 @@ GlobalMetricsConfig is a placeholder for the progressive support of global and p
 | `network.print_flows` | `boolean` | `OTEL_EBPF_NETWORK_PRINT_FLOWS` | `false` |  |  | Enables printing the network flows to the Standard Output |
 | `network.protocols` | `string`[] | `OTEL_EBPF_NETWORK_PROTOCOLS` |  |  |  | Causes OBI to drop flows whose transport protocol is not in this list. |
 | `network.sampling` | `integer` | `OTEL_EBPF_NETWORK_SAMPLING` | `0` |  |  | Holds the rate at which packets should be sampled and sent to the target collector. E.g. if set to 100, one out of 100 packets, on average, will be sent to the target collector. |
-| `network.source` | `string` | `OTEL_EBPF_NETWORK_SOURCE` | `socket_filter` | `socket_filter`, `tc` |  | Specify the source type for network events, e.g tc or socket_filter. The tc implementation cannot be used when there are other tc eBPF probes, e.g. Cilium CNI. |
+| `network.source` | `string` | `OTEL_EBPF_NETWORK_SOURCE` | `socket_filter` | `socket_filter`, `tc` |  | Specify the source type for network events, e.g tc or socket_filter. The tc implementation attaches through TCX on Linux 6.6 or later, which can share the interface with other tc eBPF programs, e.g. Cilium CNI. Otherwise it attaches through netlink and cannot be used with them. |
 
 ### `network.geo_ip`
 

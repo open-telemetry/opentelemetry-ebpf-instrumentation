@@ -196,7 +196,7 @@ func djangoRegexExprRoute(expr *syntax.Regexp) (string, bool) {
 	case syntax.OpLiteral:
 		return string(expr.Rune), true
 	case syntax.OpCapture:
-		if expr.Name == "" || !singleSegmentRegexParam(expr.Sub[0]) {
+		if expr.Name == "" || !pythonSegmentPattern(expr.Sub[0]) {
 			return "", false
 		}
 		return "<" + expr.Name + ">", true
@@ -231,6 +231,25 @@ func djangoRegexExprRoute(expr *syntax.Regexp) (string, bool) {
 		return route.String(), true
 	}
 	return "", false
+}
+
+// pythonSegmentPattern reports whether a parameter pattern matches exactly one
+// non-empty path segment.
+func pythonSegmentPattern(body *syntax.Regexp) bool {
+	// Both + and positive exact counts such as {4} produce non-empty parameters.
+	fixedCount := body.Op == syntax.OpRepeat && body.Min > 0 && body.Min == body.Max
+	if (body.Op != syntax.OpPlus && !fixedCount) || body.Sub[0].Op != syntax.OpCharClass {
+		return false
+	}
+	class := body.Sub[0]
+	// Rune stores inclusive [low, high] pairs. A single-segment parameter
+	// requires every range to exclude the path separator.
+	for i := 0; i < len(class.Rune); i += 2 {
+		if class.Rune[i] <= '/' && '/' <= class.Rune[i+1] {
+			return false
+		}
+	}
+	return true
 }
 
 func scanDjango(stmt string, aliases map[string]string) []djangoRoute {

@@ -69,7 +69,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_unix_stream_recvmsg,
         return 0;
     }
 
-    bpf_dbg_printk("=== unix_stream recvmsg %d ===", id);
+    bpf_dbg_printk("=== unix_stream recvmsg id=%d ===", id);
 
     struct sock *sk;
     BPF_CORE_READ_INTO(&sk, sock, sk);
@@ -88,7 +88,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_unix_stream_recvmsg,
     if (usock) {
         BPF_CORE_READ_INTO(&peer_inode_number, usock, peer, sk_socket, file, f_inode, i_ino);
     }
-    bpf_dbg_printk("ino %d, peer ino %d", inode_number, peer_inode_number);
+    bpf_dbg_printk("ino=%d, peer_ino=%d", inode_number, peer_inode_number);
 
     if (peer_inode_number) {
         pid_connection_info_t p_conn = {.conn = {0}};
@@ -163,7 +163,7 @@ static __always_inline int return_unix_recvmsg(void *ctx, u64 id, int copied_len
     recv_args_t *args = (recv_args_t *)bpf_map_lookup_elem(&active_recv_args, &id);
 
     bpf_dbg_printk(
-        "=== return unix recvmsg id=%d args=%llx copied_len %d ===", id, args, copied_len);
+        "=== return unix recvmsg id=%d, args=%llx, copied_len=%d ===", id, args, copied_len);
 
     if (!args || (copied_len <= 0)) {
         return 0;
@@ -200,7 +200,7 @@ static __always_inline int return_unix_recvmsg(void *ctx, u64 id, int copied_len
         BPF_CORE_READ_INTO(&peer_inode_number, usock, peer, sk_socket, file, f_inode, i_ino);
     }
 
-    bpf_dbg_printk("ino %d, peer ino %d", inode_number, peer_inode_number);
+    bpf_dbg_printk("ino=%d, peer_ino=%d", inode_number, peer_inode_number);
 
     pid_connection_info_t p_conn = {.conn = {0}};
 
@@ -226,7 +226,7 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_unix_stream_recvmsg, int copied) {
         return 0;
     }
 
-    bpf_dbg_printk("=== kretprobe_unix_stream_recvmsg id=%d copied_len %d ===", id, copied);
+    bpf_dbg_printk("=== kretprobe_unix_stream_recvmsg id=%d, copied_len=%d ===", id, copied);
 
     return return_unix_recvmsg(ctx, id, copied);
 }
@@ -242,7 +242,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_unix_stream_sendmsg,
         return 0;
     }
 
-    bpf_dbg_printk("=== unix_stream sendmsg %d ===", id);
+    bpf_dbg_printk("=== unix_stream sendmsg id=%d ===", id);
 
     struct sock *sk;
     BPF_CORE_READ_INTO(&sk, sock, sk);
@@ -256,7 +256,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_unix_stream_sendmsg,
     if (usock) {
         BPF_CORE_READ_INTO(&peer_inode_number, usock, peer, sk_socket, file, f_inode, i_ino);
     }
-    bpf_dbg_printk("ino %d, peer ino %d", inode_number, peer_inode_number);
+    bpf_dbg_printk("ino=%d, peer_ino=%d", inode_number, peer_inode_number);
 
     send_args_t s_args = {.size = size, .p_conn = {.conn = {0}}, .sock_ptr = (u64)sk};
 
@@ -292,7 +292,7 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_unix_stream_sendmsg, int sent_len) {
         return 0;
     }
 
-    bpf_dbg_printk("=== kretprobe unix_stream sendmsg=%d sent %d===", id, sent_len);
+    bpf_dbg_printk("=== kretprobe unix_stream sendmsg id=%d, sent=%d ===", id, sent_len);
 
     send_args_t *s_args = (send_args_t *)bpf_map_lookup_elem(&active_send_args, &id);
     if (s_args) {

@@ -205,6 +205,35 @@ func TestFor_HTTPMetricCompatibilityAttributes(t *testing.T) {
 	assert.Contains(t, p.For(DBServerDuration), attr.ClientAddr)
 }
 
+func TestFor_StatsCIDR(t *testing.T) {
+	statMetrics := []Name{StatTCPRtt, StatTCPFailedConnections, StatTCPRetransmits, StatTCPIo, StatTCPSuccessfulConnections, StatTCPResets}
+
+	// the network flows CIDRs must not add CIDR attributes to the stat metrics
+	for _, groups := range []AttrGroups{0, GroupNetCIDR} {
+		p, err := NewAttrSelector(groups, &SelectorConfig{})
+		require.NoError(t, err)
+		for _, metric := range statMetrics {
+			assert.NotContains(t, p.For(metric), attr.SrcCIDR, metric.Section)
+			assert.NotContains(t, p.For(metric), attr.DstCIDR, metric.Section)
+		}
+	}
+
+	p, err := NewAttrSelector(GroupStatsCIDR, &SelectorConfig{})
+	require.NoError(t, err)
+	for _, metric := range statMetrics {
+		assert.Contains(t, p.For(metric), attr.SrcCIDR, metric.Section)
+		assert.Contains(t, p.For(metric), attr.DstCIDR, metric.Section)
+	}
+	assert.NotContains(t, p.For(NetworkFlow), attr.DstCIDR)
+
+	p, err = NewAttrSelector(GroupStatsCIDR, &SelectorConfig{SelectionCfg: Selection{
+		StatTCPIo.Section: InclusionLists{Exclude: []string{"dst.cidr"}},
+	}})
+	require.NoError(t, err)
+	assert.NotContains(t, p.For(StatTCPIo), attr.DstCIDR)
+	assert.Contains(t, p.For(StatTCPIo), attr.SrcCIDR)
+}
+
 func TestFor_KubeDisabled(t *testing.T) {
 	p, err := NewAttrSelector(0, &SelectorConfig{
 		SelectionCfg: Selection{

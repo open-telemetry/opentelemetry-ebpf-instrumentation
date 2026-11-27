@@ -51,6 +51,8 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/generate-bpf
+        with:
+          artifact-name: lint-bpf-generated-${{ github.run_id }}
 
   lint-linux:
     name: Lint on linux (${{ matrix.platform.arch }})
@@ -87,26 +89,54 @@ jobs:
       - name: Download generated BPF files
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: bpf-generated-${{ github.run_id }}
+          name: lint-bpf-generated-${{ github.run_id }}
 
       - name: Lint
         run: make lint
 
-      # Schema lint is arch-neutral (weaver YAML/JSON). Keep it on amd64 only.
+  # Schema checks are arch-neutral (weaver YAML/JSON), and run beside the Go lint instead of after it.
+  lint-schema:
+    name: Lint OBI telemetry schema
+    needs: generate-bpf
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Go build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        with:
+          path: ~/.cache/go-build
+          key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: |
+            go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Download generated BPF files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: lint-bpf-generated-${{ github.run_id }}
+
       - name: Lint OBI semantic-convention registry
-        if: ${{ !cancelled() && matrix.platform.arch == 'amd64' }}
         run: make lint-schema
 
       - name: Test OBI semantic-convention registry provenance
-        if: ${{ !cancelled() && matrix.platform.arch == 'amd64' }}
+        if: ${{ !cancelled() }}
         run: make test-schema
 
       - name: Check published OBI telemetry schema files
-        if: ${{ !cancelled() && matrix.platform.arch == 'amd64' }}
+        if: ${{ !cancelled() }}
         run: make check-schema-files
 
       - name: Check generated OBI telemetry reference docs
-        if: ${{ !cancelled() && matrix.platform.arch == 'amd64' }}
+        if: ${{ !cancelled() }}
         run: make check-schema-docs
 
   lint-darwin:
@@ -136,7 +166,7 @@ jobs:
       - name: Download generated BPF files
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: bpf-generated-${{ github.run_id }}
+          name: lint-bpf-generated-${{ github.run_id }}
 
       - name: Lint
         run: make lint

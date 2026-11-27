@@ -192,7 +192,7 @@ static __always_inline int __write(struct iov_iter *from,
     } else if (ictx.iter_type == bpf_core_enum_value(enum iter_type, ITER_IOVEC) && ictx.iov) {
         tot = copy_iovec(e, ictx.iov, ictx.nr_segs);
     } else {
-        bpf_dbg_printk("logenricher: unsupported iter_type %d", ictx.iter_type);
+        bpf_dbg_printk("logenricher: unsupported iter_type=%d", ictx.iter_type);
         return 0;
     }
 

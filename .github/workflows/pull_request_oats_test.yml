@@ -11,6 +11,7 @@ on:
       - "**.go"
       - "go.mod"
       - "go.sum"
+      - "Makefile"
       - "bpf/**"
       - "cmd/**"
       - "configs/**"
@@ -47,6 +48,8 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/generate-bpf
+        with:
+          artifact-name: oats-bpf-generated-${{ github.run_id }}
 
   test-matrix:
     name: "Build matrix"
@@ -59,6 +62,12 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: "go.mod"
+          cache: false
 
       - name: Build test matrix
         id: build-matrix
@@ -108,7 +117,7 @@ jobs:
       - name: Download generated BPF files
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: bpf-generated-${{ github.run_id }}
+          name: oats-bpf-generated-${{ github.run_id }}
 
       - name: Build and save OBI test image
         run: |
@@ -184,7 +193,7 @@ jobs:
       - name: Download generated BPF files
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: bpf-generated-${{ github.run_id }}
+          name: oats-bpf-generated-${{ github.run_id }}
 
       - name: Upstream semconv registry cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] pinned upstream semconv tarball, keyed on the version in schemas/obi/manifest.yaml
@@ -208,24 +217,25 @@ jobs:
 
       - name: Run oats tests
         env:
-          MATRIX_BASENAME: ${{ matrix.shard.basename }}
+          MATRIX_SUITE: ${{ matrix.shard.suite }}
+          OATS_CASES: ${{ join(matrix.shard.cases, ' ') }}
           TESTCASE_TIMEOUT: 5m
           PREBUILT_IMAGES: hatest-obi
-        run: make "oats-test-$MATRIX_BASENAME"
+        run: make "oats-test-$MATRIX_SUITE"
 
       - name: Upload oats test logs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: oats-logs-${{ matrix.shard.basename }}-${{ matrix.platform.arch }}-${{ github.run_number }}
-          path: internal/test/oats/${{ matrix.shard.basename }}/build/*
+          path: internal/test/oats/${{ matrix.shard.suite }}/build/*
 
       - name: Upload weaver live-check reports
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: weaver-reports-oats-${{ matrix.shard.basename }}-${{ matrix.platform.arch }}-${{ github.run_number }}-${{ github.run_attempt }}
-          path: internal/test/oats/${{ matrix.shard.basename }}/build/**/weaver-report-*.json
+          path: internal/test/oats/${{ matrix.shard.suite }}/build/**/weaver-report-*.json
           if-no-files-found: ignore
           retention-days: 5
 

@@ -304,6 +304,8 @@ func (p *Tracer) constants() map[string]any {
 		"inject_flags":             flags,
 		"enroll_instrumented_only": p.enrollInstrumentedOnly,
 		"g_bpf_debug":              p.cfg.EBPF.BpfDebug,
+		// parent lookups for injected context follow the jobs the generic tracer starts
+		"g_job_traces_enabled": p.cfg.JobTracesEnabled(),
 	}
 	maps.Copy(m, ebpfcommon.PIDFilterConstants())
 

@@ -441,6 +441,108 @@ static void test_unsampled_flags_are_kept(void) {
     assertf(tp.flags == 0, "flags != 0");
 }
 
+static u32 next_random(u32 *state) {
+    *state = *state * 1664525u + 1013904223u;
+    return *state >> 8;
+}
+
+static void assert_scans_agree(const unsigned char *frame, u32 off, u32 len) {
+    tp_info_t legacy_tp = {0};
+    tp_info_t loop_tp = {0};
+    h2_tp_huff_candidate_t legacy_huff = {0};
+    h2_tp_huff_candidate_t loop_huff = {0};
+
+    const u8 legacy_named = parse_hpack_traceparent(frame + off, len, &legacy_tp, &legacy_huff);
+    const u8 loop_named = parse_hpack_traceparent_loop(frame, off, len, &loop_tp, &loop_huff);
+    assertf(legacy_named == loop_named, "name scans return the same");
+    assertf(memcmp(&legacy_tp, &loop_tp, sizeof(legacy_tp)) == 0, "name scans parse the same");
+    assertf(legacy_huff.at == loop_huff.at && legacy_huff.len == loop_huff.len,
+            "name scans report the same compressed value");
+
+    memset(&legacy_tp, 0, sizeof(legacy_tp));
+    memset(&loop_tp, 0, sizeof(loop_tp));
+    const u8 legacy_valued = find_hpack_traceparent_value(frame + off, len, &legacy_tp);
+    const u8 loop_valued = find_hpack_traceparent_value_loop(frame, off, len, &loop_tp);
+    assertf(legacy_valued == loop_valued, "value scans return the same");
+    assertf(memcmp(&legacy_tp, &loop_tp, sizeof(legacy_tp)) == 0, "value scans parse the same");
+}
+
+// The bpf_loop scans replace the bounded ones on kernels that have bpf_loop, so they must
+// agree on every input: fields at any position, cut short, corrupted, and among lookalikes.
+static void test_loop_scans_match_bounded_scans(void) {
+    static const unsigned char k_lookalikes[] = {
+        k_hpack_literal_no_index,
+        k_hpack_literal_never_index,
+        k_hpack_literal_incr_index,
+        k_hpack_tp_name_len,
+        k_hpack_tp_name_huffman_len | 0x80,
+        k_hpack_value_len_tp,
+        '0',
+        '-',
+        'a',
+        0xa5,
+    };
+    u32 (*const builders[])(unsigned char *) = {
+        build_plain_entry,
+        build_huffman_entry,
+        build_value_only,
+        build_plain_name_huffman_value,
+        build_huffman_name_huffman_value,
+    };
+    const u32 builder_count = sizeof(builders) / sizeof(builders[0]);
+    u32 seed = 1;
+    u32 found = 0;
+
+    for (u32 round = 0; round < 200000; round++) {
+        unsigned char frame[k_kprobes_http2_buf_size];
+        const u32 noise = next_random(&seed) % 3;
+        for (u32 i = 0; i < sizeof(frame); i++) {
+            const u32 r = next_random(&seed);
+            frame[i] = noise == 0   ? 0
+                       : noise == 1 ? (unsigned char)r
+                                    : k_lookalikes[r % sizeof(k_lookalikes)];
+        }
+
+        // the header block starts after the frame header and an optional prefix
+        const u32 off = k_h2_frame_header_len + next_random(&seed) % 7;
+        const u32 room = sizeof(frame) - off;
+        u32 len = next_random(&seed) % (room + 1);
+
+        // up to two fields: the scans must stop at the same one
+        const u32 fields = next_random(&seed) % 3;
+        for (u32 f = 0; f < fields; f++) {
+            unsigned char field[k_kprobes_http2_buf_size] = {0};
+            const u32 field_len = builders[next_random(&seed) % builder_count](field);
+            const u32 pos = next_random(&seed) % (room - field_len + 1);
+
+            if (next_random(&seed) % 4 == 0) {
+                field[next_random(&seed) % field_len] ^=
+                    (unsigned char)(1 + next_random(&seed) % 255);
+            }
+            memcpy(&frame[off + pos], field, field_len);
+
+            // mostly whole, sometimes cut inside the field or just past it
+            const u32 cut = next_random(&seed) % 4;
+            if (cut == 0) {
+                len = pos + field_len;
+            } else if (cut == 1) {
+                len = pos + next_random(&seed) % (field_len + 1);
+            } else if (cut == 2) {
+                len = room;
+            }
+        }
+
+        assert_scans_agree(frame, off, len);
+
+        tp_info_t tp = {0};
+        h2_tp_huff_candidate_t huff = {0};
+        found += parse_hpack_traceparent_loop(frame, off, len, &tp, &huff) || huff.len != 0;
+        found += find_hpack_traceparent_value_loop(frame, off, len, &tp);
+    }
+
+    assertf(found > 10000, "the inputs must exercise the matches, not only the misses");
+}
+
 int main(void) {
     test_plain_name_baseline();
     test_unsampled_flags_are_kept();
@@ -461,6 +563,7 @@ int main(void) {
     test_decoys_before_real_value();
     test_value_at_late_position();
     test_short_buffer();
+    test_loop_scans_match_bounded_scans();
     printf("OK: %s\n", __FILE__);
     return 0;
 }

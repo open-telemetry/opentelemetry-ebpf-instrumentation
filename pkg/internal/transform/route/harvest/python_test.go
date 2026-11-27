@@ -68,7 +68,7 @@ func TestExtractPythonRoutes(t *testing.T) {
 @app.get("/notes")
 `), 0o644))
 
-	result, err := extractPythonRoutes(t.Context(), dir)
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, PartialRoutes, result.Kind)
@@ -102,7 +102,7 @@ urlpatterns = [
 ]
 `), 0o644))
 
-	result, err := extractPythonRoutes(t.Context(), dir)
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{
@@ -129,7 +129,7 @@ from django.urls import path
 urlpatterns = [path("orders/", orders)]
 `), 0o644))
 
-	result, err := extractPythonRoutes(t.Context(), dir)
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/.", "/orders/", "/v1.orders/"}, result.Routes)
@@ -146,7 +146,7 @@ urlpatterns = [
 ]
 `), 0o644))
 
-	result, err := extractPythonRoutes(t.Context(), dir)
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.NoError(t, err)
 	assert.Contains(t, result.Routes, "/backoffice/login/")
@@ -188,7 +188,7 @@ def includeme(config):
     config.add_route("item", "items/{item_id}")
 `), 0o644))
 
-	result, err := extractPythonRoutes(t.Context(), dir)
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, PartialRoutes, result.Kind)
@@ -215,7 +215,7 @@ config.add_route("user", "/users/{id}")
 config.add_route("home", "/*traverse")
 `), 0o644))
 
-	result, err := extractPythonRoutes(t.Context(), dir)
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/users/{id}"}, result.Routes)
@@ -227,14 +227,15 @@ func TestExtractPythonRoutesSkipsLargeFiles(t *testing.T) {
 	data := strings.Repeat("# filler\n", int(maxPythonFileBytes/9)+1) + `@app.get("/large")`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "large.py"), []byte(data), 0o644))
 
-	result, err := extractPythonRoutes(t.Context(), dir)
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.NoError(t, err)
 	assert.Empty(t, result.Routes)
 }
 
 func TestExtractPythonRoutesMissingDir(t *testing.T) {
-	result, err := extractPythonRoutes(t.Context(), filepath.Join(t.TempDir(), "missing"))
+	dir := filepath.Join(t.TempDir(), "missing")
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
 
 	require.Error(t, err)
 	assert.Nil(t, result)
@@ -248,7 +249,7 @@ func TestExtractPythonRoutesFromSymlinkRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "root")
 	require.NoError(t, os.Symlink(dir, root))
 
-	result, err := extractPythonRoutes(t.Context(), root)
+	result, err := extractPythonRoutes(t.Context(), root, root)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/items/{item_id}"}, result.Routes)
@@ -298,7 +299,7 @@ func TestExtractPythonRoutesCanceled(t *testing.T) {
 	extractor := pythonExtractor{routes: map[string]struct{}{}, djangoRoutes: map[string][]djangoRoute{}}
 	require.ErrorIs(t, extractor.scanFile(ctx, path), context.Canceled)
 	assert.Empty(t, extractor.routes)
-	result, err := extractPythonRoutes(ctx, dir)
+	result, err := extractPythonRoutes(ctx, dir, dir)
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, result)
 	result, err = ExtractPythonRoutes(ctx, nil)
@@ -327,4 +328,28 @@ func routeKeys(routes map[string]struct{}) []string {
 		keys = append(keys, route)
 	}
 	return keys
+}
+
+func TestExtractPythonRoutesComments(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+from fastapi import FastAPI
+
+app = FastAPI()
+
+
+@app.get(  # users
+    "/users/{user_id}"
+)
+def user(user_id: int):
+    return {}
+
+
+app.add_api_route("/real", real)  # app.add_api_route("/disabled", old)
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/real", "/users/{user_id}"}, result.Routes)
 }

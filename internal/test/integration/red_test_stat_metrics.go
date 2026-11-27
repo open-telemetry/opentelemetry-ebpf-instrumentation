@@ -122,6 +122,37 @@ func testStatMetricsTCPResetsGo(t *testing.T) {
 	}
 }
 
+func testStatMetricsTCPResetsAfterShutdownGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		// the server on 8084 shut down reading, so the client's data makes its kernel send a reset
+		sentResults, err := pq.Query(`obi_stat_tcp_resets_total{src_port="8084",network_io_direction="transmit"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, sentResults)
+		assert.Positive(ct, totalPromCount(ct, sentResults))
+
+		receivedResults, err := pq.Query(`obi_stat_tcp_resets_total{dst_port="8084",network_io_direction="receive"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, receivedResults)
+		assert.Positive(ct, totalPromCount(ct, receivedResults))
+	}, testTimeout, 100*time.Millisecond)
+
+	// the server's kernel aborts the connection itself: no reset arrived on the server side
+	results, err := pq.Query(`obi_stat_tcp_resets_total{src_port="8084",network_io_direction="receive"}`)
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func testStatMetricsCIDRGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		// client and server share the compose network, a private range
+		results, err := pq.Query(`obi_stat_tcp_failed_connections_total{dst_port="19999",src_cidr="private",dst_cidr="private"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+	}, testTimeout, 100*time.Millisecond)
+}
+
 func testStatMetricsTCPRetransmitsGo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -141,6 +172,25 @@ func testStatMetricsTCPIoGo(t *testing.T) {
 				require.NoError(ct, err)
 				enoughPromResults(ct, results)
 				assert.Positive(ct, totalPromCount(ct, results))
+			}, testTimeout, 100*time.Millisecond)
+		})
+	}
+}
+
+func testStatMetricsTCPIoRoleGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	for _, direction := range []string{"transmit", "receive"} {
+		t.Run(direction, func(t *testing.T) {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				clientResults, err := pq.Query(`obi_stat_tcp_io_bytes_total{dst_port="8080",network_io_direction="` + direction + `",network_tcp_handshake_role="client"}`)
+				require.NoError(ct, err)
+				enoughPromResults(ct, clientResults)
+				assert.Positive(ct, totalPromCount(ct, clientResults))
+
+				serverResults, err := pq.Query(`obi_stat_tcp_io_bytes_total{src_port="8080",network_io_direction="` + direction + `",network_tcp_handshake_role="server"}`)
+				require.NoError(ct, err)
+				enoughPromResults(ct, serverResults)
+				assert.Positive(ct, totalPromCount(ct, serverResults))
 			}, testTimeout, 100*time.Millisecond)
 		})
 	}

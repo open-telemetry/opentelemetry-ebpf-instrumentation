@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -91,16 +92,20 @@ func testSampler(t *testing.T) {
 	waitForTestComponents(t, "http://localhost:5002")
 	waitForTestComponents(t, "http://localhost:5003")
 
-	// give enough time for the NodeJS injector to finish
-	// TODO: once we implement the instrumentation status query API, replace
-	// this with  a proper check to see if the target process has finished
-	// being instrumented
-	time.Sleep(60 * time.Second)
-
+	// OBI instruments each NodeJS process on its own: wait until one sampled trace
+	// spans the whole chain, which needs service-c's injector to carry the context
+	var sampledTraces []string
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		_, ok := requestPropagatedDecision(ct)
+		decision, ok := requestPropagatedDecision(ct)
 		require.True(ct, ok, "service-d received no traceparent")
-	}, testTimeout, time.Second)
+		if decision.sampled {
+			sampledTraces = append(sampledTraces, decision.traceID)
+		}
+		require.True(ct, slices.ContainsFunc(sampledTraces, func(traceID string) bool {
+			services := exportedServices(ct, traceID)
+			return services["service-a"] && services["service-c"] && services["service-d"]
+		}), "no sampled trace has spans from service-a, service-c and service-d yet")
+	}, 3*time.Minute, time.Second)
 
 	decisions := make([]propagatedDecision, 0, samplerTestRequests)
 	for range samplerTestRequests {

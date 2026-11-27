@@ -175,10 +175,12 @@ typedef struct go_runtime_metric_event {
     go_runtime_metric_snapshot_t snapshot;
 } go_runtime_metric_event_t;
 
+// Userspace inserts and deletes entries; BPF only looks up and updates gc_goal in place.
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, pid_info_t);
     __type(value, go_runtime_metric_target_t);
     __uint(max_entries, MAX_GO_PROGRAMS);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
     __uint(pinning, OBI_PIN_INTERNAL);
 } go_runtime_metric_targets SEC(".maps");

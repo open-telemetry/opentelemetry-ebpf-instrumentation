@@ -72,7 +72,8 @@ type NetworkConfig struct {
 	Enable bool `yaml:"enable" env:"OTEL_EBPF_NETWORK_METRICS" validate:"boolean"`
 
 	// Specify the source type for network events, e.g tc or socket_filter. The tc implementation
-	// cannot be used when there are other tc eBPF probes, e.g. Cilium CNI.
+	// attaches through TCX on Linux 6.6 or later, which can share the interface with other tc eBPF
+	// programs, e.g. Cilium CNI. Otherwise it attaches through netlink and cannot be used with them.
 	Source string `yaml:"source" env:"OTEL_EBPF_NETWORK_SOURCE"  validate:"oneof=tc socket_filter" jsonschema:"type=string,enum=tc,enum=socket_filter"`
 
 	// AgentIP allows overriding the reported Agent IP address on each flow.

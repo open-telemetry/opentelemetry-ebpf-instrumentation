@@ -108,7 +108,9 @@ echo "run.sh: launching qemu" >&2
 # Match the runner's core count (as the lvh-kernel matrix job does via
 # QEMU_SMP="$(nproc)") instead of a fixed count smaller than the parallelism
 # verifier.test runs with, which starves the test and risks the 50m timeout.
-timeout 3300 qemu-system-x86_64 ${ACCEL} -m 4G -smp "$(nproc)" \
+# 8G like QEMU_MEMORY of the LVH kernels: pinning is stripped, so eight parallel
+# gotracer loads preallocate ~2.3 GB of maps on their own and 4G OOM-kills the test.
+timeout 3300 qemu-system-x86_64 ${ACCEL} -m 8G -smp "$(nproc)" \
     -kernel "${VMLINUZ}" \
     -initrd "${IRD_IMG}" \
     -append "earlyprintk=ttyS0 console=ttyS0 loglevel=0 quiet panic=3 rdinit=/init" \

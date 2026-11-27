@@ -77,8 +77,14 @@ func testSessionManagerCumulativeReconnect(t *testing.T, version string) {
 					for range 3 {
 						records = append(records, netTraceRuntimeEvent{exceptionType: "Example.Failure"})
 					}
+					for range 6 {
+						records = append(records, netTraceRuntimeEvent{exceptionType: "Example.Other"})
+					}
 				} else {
-					records = append(records, netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 3})
+					records = append(records,
+						netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 3},
+						netTraceRuntimeEvent{exceptionType: "Other", exceptionCount: 6},
+					)
 				}
 			}
 		}
@@ -201,7 +207,10 @@ func testSessionManagerCumulativeReconnect(t *testing.T, version string) {
 			require.False(t, batch[0].Removed)
 			snapshot := batch[0].Dotnet
 			require.NotNil(t, snapshot)
-			require.Equal(t, uint64(3*(index+1)), snapshot.Exceptions["Failure"])
+			require.Equal(t, map[string]uint64{
+				"Failure": uint64(3 * (index + 1)),
+				"Other":   uint64(6 * (index + 1)),
+			}, batch[0].DotnetExceptions)
 			require.NotNil(t, snapshot.ProcessCPUCount)
 			require.Equal(t, int64(2*(index/2+1)), *snapshot.ProcessCPUCount)
 			afterUser, afterSystem, err := readProcessCPUTimes(process)

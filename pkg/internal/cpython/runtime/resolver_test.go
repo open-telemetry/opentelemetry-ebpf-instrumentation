@@ -15,6 +15,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"strconv"
 	"testing"
 	"time"
 
@@ -227,6 +228,35 @@ func TestResolveRuntimeObjectCandidatesReturnsOnlyPlan(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Same(t, want, target)
+}
+
+func TestResolveRuntimeObjectCandidatesClosesExceptionTargets(t *testing.T) {
+	for _, operationalError := range []bool{false, true} {
+		t.Run(strconv.FormatBool(operationalError), func(t *testing.T) {
+			objects := []*procfs.ProcMap{{Pathname: "/usr/bin/python"}, {Pathname: "/usr/lib/libpython3.12.so"}}
+			var attachments []*os.File
+			target, err := resolveRuntimeObjectCandidates(123, objects, func(*procfs.ProcMap) (*ExceptionTarget, error) {
+				if operationalError && len(attachments) == 1 {
+					return nil, os.ErrPermission
+				}
+				file, err := os.CreateTemp(t.TempDir(), "python-exception")
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = file.Close() })
+				attachments = append(attachments, file)
+				return &ExceptionTarget{attachment: file}, nil
+			})
+			require.Nil(t, target)
+			if operationalError {
+				require.ErrorIs(t, err, os.ErrPermission)
+			} else {
+				require.ErrorIs(t, err, errUnsupportedLayout)
+			}
+			for _, file := range attachments {
+				_, err := file.Stat()
+				require.ErrorIs(t, err, os.ErrClosed)
+			}
+		})
+	}
 }
 
 func TestMetricTargetAttachmentLifecycle(t *testing.T) {

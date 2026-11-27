@@ -731,8 +731,7 @@ type Attributes struct {
 	// SensitiveQueryParams controls which query-parameter keys are redacted in url.full and url.query.
 	SensitiveQueryParams attributes.SensitiveQueryParamsConfig `yaml:"sensitive_query_params"`
 
-	SanitizeDBQueryText bool `yaml:"-" env:"-" json:"-"`
-	UseV2Selection      bool `yaml:"-" env:"-" json:"-"`
+	UseV2Selection bool `yaml:"-" env:"-" json:"-"`
 }
 
 type HostIDConfig struct {
@@ -1205,6 +1204,25 @@ func (c *Config) normalize() {
 	if c.NetworkFlows.Enable {
 		c.Metrics.Features |= export.FeatureNetwork
 	}
+}
+
+// JobTracesEnabled reports whether any selected workload groups its job spans, which all do unless a rule turns it off.
+func (c *Config) JobTracesEnabled() bool {
+	// the top-level target options select workloads that no rule refines
+	if c.TargetPIDs.Len() > 0 || c.AutoTargetExe.IsSet() || c.AutoTargetLanguage.IsSet() || c.Exec.IsSet() || c.Port.Len() > 0 {
+		return true
+	}
+	for _, s := range c.Discovery.Instrument {
+		if s.JobTraces.IsEnabled() {
+			return true
+		}
+	}
+	for _, s := range c.Discovery.Services {
+		if s.JobTraces.IsEnabled() {
+			return true
+		}
+	}
+	return false
 }
 
 // ExceptionsEnabled reports whether any selected workload can request capture.

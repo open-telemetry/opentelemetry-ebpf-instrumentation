@@ -180,7 +180,7 @@ func pyramidParamName(segment string) (string, bool) {
 		return name, true
 	}
 	expr, err := syntax.Parse(regex, syntax.Perl)
-	if err != nil || !singleSegmentRegexParam(expr) {
+	if err != nil || !pythonSegmentPattern(expr) {
 		return "", false
 	}
 	return name, true

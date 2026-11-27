@@ -11,4 +11,4 @@ WORKDIR /
 # Copy the source code into the image for building
 COPY internal/test/integration/components/pythonserver .
 
-CMD ["gunicorn", "--keyfile", "server.key", "--certfile", "server.crt", "-w", "4", "-b", "0.0.0.0:8380", "main:app"]
+CMD ["gunicorn", "--keyfile", "server.key", "--certfile", "server.crt", "-w", "4", "-b", "0.0.0.0:8380", "--no-control-socket", "main:app"]

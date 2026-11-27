@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1509,6 +1510,15 @@ func TestDedupModuleProbes(t *testing.T) {
 		assert.Empty(t, got)
 	})
 
+	t.Run("same substring and program is dropped", func(t *testing.T) {
+		desc := &ebpfcommon.ProbeDesc{Start: pA, SymbolMatcher: ebpfcommon.SymbolMatcherContains}
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs": {desc}},
+		}
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs": {desc}}
+		assert.Empty(t, dedupModuleProbes(existing, pMap))
+	})
+
 	t.Run("same symbol but different program is kept", func(t *testing.T) {
 		existing := []map[string][]*ebpfcommon.ProbeDesc{
 			{"uv_fs_access": {descA}},
@@ -1539,6 +1549,41 @@ func TestDedupModuleProbes(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, []*ebpfcommon.ProbeDesc{descC}, got["uv_fs_access"])
 	})
+}
+
+func TestUprobeModulesPreservesDifferentSymbolMatchers(t *testing.T) {
+	elfFile := instrumenterFixtureELF(t)
+
+	start, end := &ebpf.Program{}, &ebpf.Program{}
+	exact := &ebpfcommon.ProbeDesc{Start: start, End: end, SymbolMatcher: ebpfcommon.SymbolMatcherExact}
+	substring := &ebpfcommon.ProbeDesc{
+		Start: start, End: end, SymbolMatcher: ebpfcommon.SymbolMatcherContains, Required: true,
+	}
+	tracer := stubTracer{
+		uprobes: map[string]map[string][]*ebpfcommon.ProbeDesc{
+			"exact-library":     {"setprogna": {exact}},
+			"substring-library": {"setprogna": {substring}},
+		},
+	}
+	i := &instrumenter{}
+	const exeIno = 42
+	modules := i.uprobeModules(&tracer, 123, nil, "libbsd.so", exeIno, slog.Default())
+	require.Len(t, modules, 1)
+	module := modules[exeIno]
+	require.NotNil(t, module)
+	require.Len(t, module.probes, 2)
+
+	errs, err := gatherOffsetsImpl(elfFile, module.probes, module.instrPath, slog.Default())
+	require.NoError(t, err)
+	require.Len(t, errs, len(module.probes))
+	for _, probeErr := range errs {
+		require.NoError(t, probeErr)
+	}
+	assert.True(t, exact.Skip)
+	assert.False(t, substring.Skip)
+	expected := expectedValues()["setprogname"]
+	assert.Equal(t, expected.startOffset, substring.StartOffset)
+	assert.Equal(t, expected.returnOffsets, substring.ReturnOffsets)
 }
 
 func TestSetupOtelBPFFSPathFallsBackToInternalMaps(t *testing.T) {
@@ -1573,6 +1618,78 @@ func TestMakeOtelBPFFSPathRejectsInaccessibleExistingDirectory(t *testing.T) {
 	_, err := pt.makeOtelBPFFSPath()
 
 	require.ErrorContains(t, err, "accessing bpffs otel path")
+}
+
+func TestGatherOffsetsWithExactAndSubstringMatchers(t *testing.T) {
+	elfFile := instrumenterFixtureELF(t)
+
+	probes := probeDescMap{
+		"setprogname": {{SymbolMatcher: ebpfcommon.SymbolMatcherExact, Required: true}},
+		"setprogna": {
+			{SymbolMatcher: ebpfcommon.SymbolMatcherExact},
+			{SymbolMatcher: ebpfcommon.SymbolMatcherContains, Required: true},
+		},
+		"setprognam":        {{SymbolMatcher: ebpfcommon.SymbolMatcherContains, Required: true}},
+		"missing_substring": {{SymbolMatcher: ebpfcommon.SymbolMatcherContains}},
+	}
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
+	require.NoError(t, err)
+	require.Equal(t, []error{nil}, errs)
+	assert.True(t, probes["setprogna"][0].Skip)
+	assert.True(t, probes["missing_substring"][0].Skip)
+	expected := expectedValues()["setprogname"]
+	for _, probe := range []*ebpfcommon.ProbeDesc{probes["setprogname"][0], probes["setprogna"][1], probes["setprognam"][0]} {
+		assert.False(t, probe.Skip)
+		assert.Equal(t, expected.startOffset, probe.StartOffset)
+		assert.Equal(t, expected.returnOffsets, probe.ReturnOffsets)
+	}
+}
+
+func TestGatherOffsetsReusesSubstringMatch(t *testing.T) {
+	elfFile := instrumenterFixtureELF(t)
+	const substring = "setpro"
+
+	var matchedName string
+	matchedNames := map[string]struct{}{}
+	for _, symbols := range []func() ([]elf.Symbol, error){elfFile.Symbols, elfFile.DynamicSymbols} {
+		syms, err := symbols()
+		if errors.Is(err, elf.ErrNoSymbols) {
+			continue
+		}
+		require.NoError(t, err)
+		for _, sym := range syms {
+			if elf.ST_TYPE(sym.Info) == elf.STT_FUNC && strings.Contains(sym.Name, substring) {
+				matchedName = sym.Name
+				matchedNames[sym.Name] = struct{}{}
+			}
+		}
+	}
+	require.GreaterOrEqual(t, len(matchedNames), 2)
+
+	exact := &ebpfcommon.ProbeDesc{Required: true}
+	entry := &ebpfcommon.ProbeDesc{
+		Start: &ebpf.Program{}, SymbolMatcher: ebpfcommon.SymbolMatcherContains, Required: true,
+	}
+	exit := &ebpfcommon.ProbeDesc{
+		End: &ebpf.Program{}, SymbolMatcher: ebpfcommon.SymbolMatcherContains, Required: true,
+	}
+	another := &ebpfcommon.ProbeDesc{SymbolMatcher: ebpfcommon.SymbolMatcherContains, Required: true}
+	missingExact := &ebpfcommon.ProbeDesc{}
+	probeMaps := []map[string][]*ebpfcommon.ProbeDesc{
+		{matchedName: {exact}, substring: {missingExact, entry, exit}},
+		{substring: {another}},
+	}
+	for range 20 {
+		errs, err := gatherOffsetsImpl(elfFile, probeMaps, "libbsd.so", slog.Default())
+		require.NoError(t, err)
+		require.Equal(t, []error{nil, nil}, errs)
+		require.True(t, missingExact.Skip)
+		for _, probe := range []*ebpfcommon.ProbeDesc{entry, exit, another} {
+			require.False(t, probe.Skip)
+			require.Equal(t, exact.StartOffset, probe.StartOffset)
+			require.Equal(t, exact.ReturnOffsets, probe.ReturnOffsets)
+		}
+	}
 }
 
 func instrumenterFixtureELF(t *testing.T) *elf.File {

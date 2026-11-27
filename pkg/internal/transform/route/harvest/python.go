@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"regexp/syntax"
 	"sort"
 	"strings"
 
@@ -52,17 +51,22 @@ func ExtractPythonRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarveste
 	if err != nil {
 		return nil, err
 	}
-	return extractPythonRoutes(ctx, dir)
+	return extractPythonRoutes(ctx, rootDirForPID(fi.Pid()), dir)
 }
 
-func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult, error) {
+func extractPythonRoutes(ctx context.Context, root, dir string) (*RouteHarvesterResult, error) {
 	log := slog.With("component", "route.harvester.python")
+	aiohttp, err := dependsOnAiohttp(ctx, root, dir)
+	if err != nil {
+		return nil, err
+	}
 	e := pythonExtractor{
 		routes:       map[string]struct{}{},
 		djangoRoutes: map[string][]djangoRoute{},
+		aiohttp:      aiohttp,
 	}
 	kind := PartialRoutes
-	err := walkPythonFiles(ctx, dir, func(path string) error {
+	err = walkPythonFiles(ctx, dir, func(path string) error {
 		if err := e.scanFile(ctx, path); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -156,6 +160,7 @@ func skipPythonDir(name string) bool {
 type pythonExtractor struct {
 	routes       map[string]struct{}
 	djangoRoutes map[string][]djangoRoute
+	aiohttp      bool
 }
 
 func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
@@ -172,8 +177,11 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 	djangoLists := map[string]*djangoList{}
 	djangoAliases := map[string]string{}
 	hasDjangoPath := false
+	aiohttp := aiohttpFile{enabled: e.aiohttp}
 	scanStmt := func(text string) {
-		scanPythonStmt(text, e.routes)
+		if !aiohttp.scan(text, e.routes) {
+			scanPythonStmt(text, e.routes)
+		}
 		if match := djangoFromImportAliasPattern.FindStringSubmatch(text); match != nil {
 			djangoAliases[match[3]] = match[1] + "." + match[2]
 		} else if match := djangoImportAliasPattern.FindStringSubmatch(text); match != nil {
@@ -201,14 +209,16 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		line := strings.TrimSpace(scan.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+		raw := scan.Text()
+		line := stripHashComment(strings.TrimSpace(raw))
+		if line == "" {
 			continue
 		}
 
 		if stmt.Len() == 0 {
+			aiohttp.startStatement(len(raw) - len(strings.TrimLeft(raw, " \t")))
 			depth = parenDelta(line)
-			startsStmt := startsFastAPI(line) || startsFlask(line) || startsPyramid(line) ||
+			startsStmt := startsFastAPI(line) || startsFlask(line) || aiohttp.starts(line) || startsPyramid(line) ||
 				djangoImportStart.MatchString(line) ||
 				hasDjangoPath && (djangoPathStart.MatchString(line) || djangoI18nStart.MatchString(line) ||
 					djangoListAssignmentPattern.MatchString(line))
@@ -312,25 +322,6 @@ func pyDelimitedEnd(stmt string, open int) int {
 		}
 	}
 	return -1
-}
-
-// singleSegmentRegexParam reports whether a parameter regex matches one non-empty
-// path segment: a character class repeated with + or an exact count, such as [0-9]{4}.
-func singleSegmentRegexParam(body *syntax.Regexp) bool {
-	// Both + and positive exact counts such as {4} produce non-empty parameters.
-	fixedCount := body.Op == syntax.OpRepeat && body.Min > 0 && body.Min == body.Max
-	if (body.Op != syntax.OpPlus && !fixedCount) || body.Sub[0].Op != syntax.OpCharClass {
-		return false
-	}
-	class := body.Sub[0]
-	// Rune stores inclusive [low, high] pairs. A single-segment parameter
-	// requires every range to exclude the path separator.
-	for i := 0; i < len(class.Rune); i += 2 {
-		if class.Rune[i] <= '/' && '/' <= class.Rune[i+1] {
-			return false
-		}
-	}
-	return true
 }
 
 func addPyMatch(routes map[string]struct{}, re *regexp.Regexp, line string) {
