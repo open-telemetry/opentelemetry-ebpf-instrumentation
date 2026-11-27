@@ -68,7 +68,7 @@ func parseInterpreterLaunch(args []string, env map[string]string) frameworks.Pyt
 			}
 			return frameworks.PythonLaunch{}
 		case arg == "-":
-			return frameworks.PythonLaunch{}
+			return frameworks.PythonLaunch{PathConfig: pathConfig}
 		case arg == "--check-hash-based-pycs":
 			i++
 			continue
@@ -82,7 +82,7 @@ func parseInterpreterLaunch(args []string, env map[string]string) frameworks.Pyt
 			return pathConfig.Apply(launchForScript(arg, args[i+1:], env))
 		}
 	}
-	return frameworks.PythonLaunch{}
+	return frameworks.PythonLaunch{PathConfig: pathConfig}
 }
 
 func parseInterpreterShortOptions(
@@ -103,7 +103,7 @@ func parseInterpreterShortOptions(
 		case 'P':
 			pathConfig.SafePath = true
 		case 'c':
-			return frameworks.PythonLaunch{}, true
+			return frameworks.PythonLaunch{PathConfig: *pathConfig}, true
 		case 'm':
 			module := options[optionIndex+1:]
 			if module == "" {

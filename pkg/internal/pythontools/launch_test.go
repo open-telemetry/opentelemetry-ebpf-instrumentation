@@ -37,7 +37,7 @@ func TestParsePythonLaunch(t *testing.T) {
 		{name: "ignore environment", executable: "python", args: []string{"-E", "-m", "company.orders"}, target: "company.orders", kind: frameworks.TargetRunnableModule, pathConfig: frameworks.PythonPathConfig{IgnorePythonEnvironment: true}},
 		{name: "safe path", executable: "python", args: []string{"-P", "-m", "company.orders"}, target: "company.orders", kind: frameworks.TargetRunnableModule, pathConfig: frameworks.PythonPathConfig{SafePath: true}},
 		{name: "clustered module", executable: "python", args: []string{"-IPmcompany.orders"}, target: "company.orders", kind: frameworks.TargetRunnableModule, pathConfig: frameworks.PythonPathConfig{IgnorePythonEnvironment: true, SafePath: true}},
-		{name: "clustered eval", executable: "python", args: []string{"-Ic", "serve()", "orders.py"}},
+		{name: "clustered eval", executable: "python", args: []string{"-Ic", "serve()", "orders.py"}, pathConfig: frameworks.PythonPathConfig{IgnorePythonEnvironment: true, SafePath: true}},
 		{name: "clustered x option", executable: "python", args: []string{"-IX", "dev", "-m", "company.orders"}, target: "company.orders", kind: frameworks.TargetRunnableModule, pathConfig: frameworks.PythonPathConfig{IgnorePythonEnvironment: true, SafePath: true}},
 		{name: "warning value looks isolated", executable: "python", args: []string{"-W", "-I", "-m", "company.orders"}, target: "company.orders", kind: frameworks.TargetRunnableModule},
 		{name: "attached warning looks safe", executable: "python", args: []string{"-WignoreP", "-m", "company.orders"}, target: "company.orders", kind: frameworks.TargetRunnableModule},

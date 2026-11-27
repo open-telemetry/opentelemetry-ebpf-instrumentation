@@ -207,13 +207,14 @@ func TestWalkPythonFilesStopsAtLimit(t *testing.T) {
 	}
 
 	count := 0
-	err := walkPythonFilesN(t.Context(), dir, 2, func(string) error {
+	scanned, err := walkPythonFiles(t.Context(), dir, 2, nil, func(string) error {
 		count++
 		return nil
 	})
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, count)
+	assert.Equal(t, 2, scanned)
 }
 
 func TestWalkPythonFilesCancellation(t *testing.T) {
@@ -226,7 +227,7 @@ func TestWalkPythonFilesCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	visited := 0
-	err := walkPythonFiles(ctx, dir, func(string) error {
+	_, err := walkPythonFiles(ctx, dir, maxPythonFiles, nil, func(string) error {
 		visited++
 		cancel()
 		return nil
