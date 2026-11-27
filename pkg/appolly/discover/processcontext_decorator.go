@@ -164,12 +164,8 @@ func (pcd *processContextDecorator) addAttribute(fi *execpkg.FileInfo, key attr.
 	// already explicitly set. This allows process-level metadata to establish
 	// the service identity while preserving any explicit configuration.
 	if key == attr.ServiceName && svcAttrs.UID.Name == "" {
-		uid := svcAttrs.UID
-		uid.Name = value
-		fi.SetUID(uid)
-	} else if key == attr.ServiceNamespace && svcAttrs.UID.Namespace == "" {
-		uid := svcAttrs.UID
-		uid.Namespace = value
-		fi.SetUID(uid)
+		fi.SetExplicitServiceName(value)
+	} else if key == attr.ServiceNamespace {
+		fi.SetExplicitServiceNamespace(value)
 	}
 }

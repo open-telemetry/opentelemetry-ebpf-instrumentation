@@ -452,6 +452,7 @@ extensions:
           enabled: true
           # Link spans across goroutines through Go channels.
           channel_links: true
+          infer_service_namespace: true
           # Reserved; keep empty.
           filter: {}
         # Node.js runtime instrumentation allows Node.js services to be instrumented via

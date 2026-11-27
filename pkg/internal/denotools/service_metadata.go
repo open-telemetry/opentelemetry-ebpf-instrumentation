@@ -75,9 +75,7 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		name, namespace, ok := parseProjectName(metadata.Name)
 		if ok {
 			fileInfo.SetAutoServiceName(name)
-			if namespace != "" && service.UID.Namespace == "" {
-				fileInfo.SetAutoServiceNamespace(namespace)
-			}
+			fileInfo.SetAutoServiceNamespace(namespace)
 		}
 	}
 

@@ -288,8 +288,30 @@ func (fi *FileInfo) SetAutoServiceName(name string) {
 func (fi *FileInfo) SetAutoServiceNamespace(namespace string) {
 	fi.mu.Lock()
 	defer fi.mu.Unlock()
-	fi.service.UID.Namespace = namespace
-	fi.service.SetAutoNamespace()
+	if namespace != "" && fi.service.UID.Namespace == "" {
+		fi.service.UID.Namespace = namespace
+		fi.service.SetAutoNamespace()
+	}
+}
+
+// SetExplicitServiceNamespace replaces an empty or inferred namespace and preserves an existing explicit value.
+func (fi *FileInfo) SetExplicitServiceNamespace(namespace string) {
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+	if fi.service.UID.Namespace == "" || fi.service.AutoNamespace() {
+		fi.service.SetExplicitNamespace(namespace)
+	}
+}
+
+func (fi *FileInfo) SetSelectedServiceIdentity(name, namespace string) {
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+	if name != "" {
+		fi.service.UID.Name = name
+	}
+	if namespace != "" {
+		fi.service.SetExplicitNamespace(namespace)
+	}
 }
 
 func (fi *FileInfo) SetUID(uid svc.UID) {
@@ -357,7 +379,7 @@ func (fi *FileInfo) ApplyEnvVariables(envVars map[string]string) {
 	}
 
 	if svcNamespace := allVars[serviceNamespaceKey]; svcNamespace != "" && !strings.HasPrefix(svcNamespace, "$") {
-		fi.service.UID.Namespace = otelenv.DecodeValue(svcNamespace)
+		fi.service.SetExplicitNamespace(otelenv.DecodeValue(svcNamespace))
 	}
 }
 

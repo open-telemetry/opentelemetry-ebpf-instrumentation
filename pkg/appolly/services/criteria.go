@@ -114,6 +114,8 @@ type DiscoveryConfig struct {
 	// This can be enabled to use generic HTTP tracers only, no Go-specifics will be used:
 	SkipGoSpecificTracers bool `yaml:"skip_go_specific_tracers" env:"OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS"`
 
+	DisableGoServiceNamespaceInference bool `yaml:"-" env:"-"`
+
 	// Debugging only option. Make sure the kernel side doesn't filter any PIDs, force user space filtering.
 	BPFPidFilterOff bool `yaml:"bpf_pid_filter_off" env:"OTEL_EBPF_BPF_PID_FILTER_OFF"`
 

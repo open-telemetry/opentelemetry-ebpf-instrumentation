@@ -235,6 +235,29 @@ func TestMakeServiceAttrs_DynamicOptions(t *testing.T) {
 	assert.Equal(t, "prod", attrs.Metadata[attr.Name("deployment.environment")])
 }
 
+func TestDynamicResourceNamespacePrecedesGoModuleInference(t *testing.T) {
+	d := NewDynamicSelector()
+	d.Traces().AddPID(42, selection.DynamicOptions{
+		ServiceName:        "checkout",
+		ResourceAttributes: map[string]string{"service.namespace": "payments"},
+	})
+	selector := d.appSignals().SelectorForPID(42)
+	require.NotNil(t, selector)
+	ty := typer{cfg: &obi.Config{}}
+	attrs := ty.makeServiceAttrs(&ProcessMatch{
+		Process:  &services.ProcessInfo{Pid: 42},
+		Criteria: []services.Selector{selector},
+	})
+
+	fi := exec.New(exec.Init{Service: attrs})
+	require.NoError(t, goexec.ResolveServiceMetadata(fi))
+	got := fi.ServiceAttrs()
+	assert.Equal(t, "payments", got.Metadata[attr.ServiceNamespace])
+	assert.Equal(t, "payments", got.UID.Namespace)
+	assert.Equal(t, "payments/checkout", got.Job())
+	assert.False(t, got.AutoNamespace())
+}
+
 func TestMakeServiceAttrsDirectionalRouteOverrides(t *testing.T) {
 	global := services.DirectionalRoutePolicies{
 		Incoming: services.RoutePolicy{

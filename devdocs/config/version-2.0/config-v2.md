@@ -654,6 +654,13 @@ The default is `true`. Set it to `false` to skip these probes when channel span 
 These probes run on every channel send and receive, which can add notable kernel CPU to busy Go services.
 This field is available through Config v2 only and has no effect when Go runtime instrumentation is disabled.
 
+`capture.runtimes.go.infer_service_namespace` defaults to `true` and works independently of Go probes.
+OBI uses the executable's embedded main module to fill a missing `service.namespace`.
+For GitHub, GitLab, Bitbucket, Codeberg, Gitea.com, and Gitee it uses the top-level owner.
+For SourceHut, `git.sr.ht/~owner/repo` yields `owner`. For custom domains it uses the registrable domain's organization label
+(for example, `go.opentelemetry.io/obi` yields `opentelemetry`). Docker preserves this value. Explicit and Kubernetes namespaces take precedence.
+The Collector receiver exposes the same option under `runtimes.go`.
+
 `capture.runtimes.rust.enabled` controls Rust Tokio task tracking: the probes that carry a request's trace context from task to task in Tokio binaries.
 The default is `false`. Off, no Tokio probe is attached, the Rust maps are shrunk at load, and a Rust service is traced like any other native binary: its client spans resolve their parent by thread identity, which a work-stealing runtime can misattribute.
 This field is available through Config v2 only.

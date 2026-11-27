@@ -228,6 +228,11 @@ func (i *Attrs) AutoNamespace() bool {
 	return i.getFlag(autoNamespace)
 }
 
+func (i *Attrs) SetExplicitNamespace(namespace string) {
+	i.UID.Namespace = namespace
+	i.clearFlag(autoNamespace)
+}
+
 func (i *Attrs) SetExportsOTelMetrics() {
 	i.setFlag(exportsOTelMetrics)
 }
