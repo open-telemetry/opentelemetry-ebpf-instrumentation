@@ -252,6 +252,8 @@ extensions:
           request_timeout: 0s
           # Internal parser/capture buffer size (0 uses default behavior).
           buffer_size: 0
+          # Maximum age of HTTP server requests included in active-request metric counts.
+          active_request_max_age: 5m0s
           query_parameters:
             # Complete selection; an explicit list replaces these defaults.
             # Omit names or use null to retain defaults; names: [] selects no keys.

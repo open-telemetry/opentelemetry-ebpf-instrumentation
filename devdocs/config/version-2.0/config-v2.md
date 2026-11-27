@@ -547,6 +547,11 @@ Aerospike) have a consistent base structure for trace and metric enablement.
 Each protocol can also have specific subsections; for example, SQL has `mysql`
 and `postgres`, while HTTP has `routes.discovery`.
 
+`capture.instrumentation.http.active_request_max_age` excludes HTTP server
+requests older than 5 minutes by default from active-request metric counts in
+both OTLP and Prometheus. Requests still running beyond this age are excluded;
+age alone does not delete their entries from the eBPF map.
+
 Filter fields are schema-modelled but only a compatibility subset is imported.
 The target adapter compares every application protocol's trace and metric maps
 with `http.filters.traces` and rejects any difference because the runtime uses
@@ -700,6 +705,12 @@ remain accepted with the same deprecation warnings as V1. Use
 The Config v2-only `stats_tcp_resets` name selects the TCP resets stats metric,
 like `tcp_resets` in `capture.network.stats.features`. `stats`, `all` and `*`
 do not include it.
+
+Add `application_http_server_active_requests` explicitly to collect
+`http.server.active_requests` for Go HTTP/1.1 and HTTP/2 servers. Each
+Prometheus scrape or OTLP collection counts requests being handled at that
+moment. The default attributes are `http.request.method` and `url.scheme`.
+Use attribute selection to include `server.address` and `server.port`.
 
 An explicit list replaces the feature selection inferred from protocol metrics
 switches, HTTP `body_size_metrics`, and network capture/stats settings. `[]`
@@ -1133,6 +1144,7 @@ Important mapping notes:
 | `otel_metrics_export.reporters_cache_len` | `extensions.obi.capture.telemetry.metrics.reporters_cache_len` | Move to capture telemetry tuning |
 | `otel_metrics_export.ttl` | `extensions.obi.capture.telemetry.metrics.ttl` | Move to capture telemetry tuning |
 | N/A | `extensions.obi.capture.telemetry.metrics.connection_info_ttl` | Config v2-only connection-info edge retention, defaults to 15 minutes |
+| N/A | `extensions.obi.capture.instrumentation.http.active_request_max_age` | Config v2-only limit for OTLP and Prometheus active-request counts, defaults to 5 minutes |
 | `otel_traces_export.endpoint` | `tracer_provider.processors[0].batch.exporter.otlp_grpc.endpoint` or, with gated HTTP support, `.otlp_http.endpoint` | OTel ownership move; automatic migration emits gRPC, while HTTP requires the documented manual mapping |
 | `otel_traces_export.instrumentations` | `extensions.obi.capture.instrumentation.<protocol>.enabled.traces` | Only protocols modeled by v2 |
 | `otel_traces_export.protocol` | Selects `tracer_provider.processors[0].batch.exporter.otlp_grpc` or, with gated HTTP support, `.otlp_http` plus its `encoding` | The exporter shape encodes the protocol; automatic migration currently supports gRPC |

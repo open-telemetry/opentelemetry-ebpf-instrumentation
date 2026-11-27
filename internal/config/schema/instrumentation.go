@@ -77,6 +77,7 @@ type HTTPInstrumentation struct {
 	RequestTimeout            Duration               `yaml:"request_timeout"`
 	GoHTTPClientBufferTimeout Duration               `yaml:"go_http_client_buffer_timeout"`
 	BufferSize                uint32                 `yaml:"buffer_size"`
+	ActiveRequestMaxAge       Duration               `yaml:"active_request_max_age"`
 	Routes                    HTTPRoutes             `yaml:"routes"`
 	QueryParameters           HTTPQueryParameters    `yaml:"query_parameters"`
 	PayloadExtraction         PayloadExtraction      `yaml:"payload_extraction"`

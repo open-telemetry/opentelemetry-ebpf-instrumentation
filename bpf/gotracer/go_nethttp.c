@@ -51,6 +51,7 @@
 
 #include <logger/bpf_dbg.h>
 
+#include <maps/active_requests.h>
 #include <maps/go_ongoing_http.h>
 #include <maps/go_ongoing_http_client_requests.h>
 #include <maps/go_h2_owned_streams.h>
@@ -69,6 +70,67 @@ static __always_inline unsigned char *temp_header_mem() {
 SCRATCH_MEM_TYPED(serve_http_inv, server_http_func_invocation_t)
 SCRATCH_MEM_TYPED(round_trip_client_data, http_client_data_t)
 
+static __always_inline void delete_active_go_request(const go_addr_key_t *g_key) {
+    if (!g_http_server_active_requests_enabled) {
+        return;
+    }
+
+    active_request_key_t key = active_request_key_from_go(g_key);
+    bpf_map_delete_elem(&active_requests, &key);
+}
+
+static __always_inline void
+record_active_go_request(const go_addr_key_t *g_key, void *req, off_table_t *ot) {
+    if (!g_http_server_active_requests_enabled || !req) {
+        return;
+    }
+
+    active_request_key_t key = active_request_key_from_go(g_key);
+
+    active_request_t active = {};
+    task_pid(&active.pid);
+    active.start_monotime_ns = bpf_ktime_get_ns();
+
+    if (!read_go_str("method",
+                     req,
+                     go_offset_of(ot, (go_offset){.v = _method_ptr_pos}),
+                     active.method,
+                     sizeof(active.method))) {
+        return;
+    }
+
+    void *url_ptr = NULL;
+    if (bpf_probe_read_user(&url_ptr,
+                            sizeof(url_ptr),
+                            (unsigned char *)req +
+                                go_offset_of(ot, (go_offset){.v = _url_ptr_pos})) ||
+        !url_ptr ||
+        !read_go_str("path",
+                     url_ptr,
+                     go_offset_of(ot, (go_offset){.v = _path_ptr_pos}),
+                     active.path,
+                     sizeof(active.path))) {
+        return;
+    }
+
+    const u64 tls_pos = go_offset_of(ot, (go_offset){.v = _req_tls_pos});
+    if (tls_pos != (u64)-1) {
+        void *tls = NULL;
+        if (!bpf_probe_read_user(&tls, sizeof(tls), (unsigned char *)req + tls_pos)) {
+            active.is_tls = tls != NULL;
+        }
+    }
+
+    const http_server_connection_t *server =
+        bpf_map_lookup_elem(&ongoing_server_connections, g_key);
+    if (server) {
+        active.conn = server->conn;
+    }
+
+    // HTTP/2 may hit both start probes; a later request may reuse this goroutine key.
+    bpf_map_update_elem(&active_requests, &key, &active, BPF_ANY);
+}
+
 /* HTTP Server */
 
 // This instrumentation attaches uprobe to the following function:
@@ -85,6 +147,7 @@ int GUARDED_PROG(obi_uprobe_ServeHTTP, struct pt_regs *, ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     off_table_t *ot = get_offsets_table();
+    record_active_go_request(&g_key, req, ot);
 
     // Lookup any header information setup for us by readContinuedLineSlice
     server_http_func_invocation_t *header_inv =
@@ -728,6 +791,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx, const bool pa
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+    delete_active_go_request(&g_key);
 
     server_http_func_invocation_t *invocation =
         bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
@@ -1416,7 +1480,8 @@ int GUARDED_PROG(obi_uprobe_http2ResponseWriterStateWriteHeader, struct pt_regs 
 
 // HTTP 2.0 server support
 static __always_inline void http2_server_conn_run_handler(struct pt_regs *ctx,
-                                                          go_offset_const off_sc_conn_pos) {
+                                                          go_offset_const off_sc_conn_pos,
+                                                          const bool has_http_request) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
@@ -1452,6 +1517,10 @@ static __always_inline void http2_server_conn_run_handler(struct pt_regs *ctx,
             }
         }
     }
+
+    if (has_http_request) {
+        record_active_go_request(&g_key, GO_PARAM3(ctx), ot);
+    }
 }
 
 // x/net's server and the one vendored in net/http before Go 1.27
@@ -1459,7 +1528,7 @@ SEC("uprobe/http2serverConn_runHandler")
 int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/http2serverConn_runHandler ===");
 
-    http2_server_conn_run_handler(ctx, _sc_conn_pos);
+    http2_server_conn_run_handler(ctx, _sc_conn_pos, true);
     return 0;
 }
 
@@ -1468,7 +1537,16 @@ SEC("uprobe/http2serverConn_runHandlerInternal")
 int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler_internal, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/http2serverConn_runHandlerInternal ===");
 
-    http2_server_conn_run_handler(ctx, _sc_conn_internal_pos);
+    // Go 1.27 passes ServerRequest here; ServeHTTP records the converted net/http.Request.
+    http2_server_conn_run_handler(ctx, _sc_conn_internal_pos, false);
+    return 0;
+}
+
+SEC("uprobe/http2serverConn_runHandler_returns")
+int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler_returns, struct pt_regs *, ctx) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    delete_active_go_request(&g_key);
     return 0;
 }
 
@@ -2329,6 +2407,7 @@ int GUARDED_PROG(obi_uprobe_connServeRet, struct pt_regs *, ctx) {
     if (g_exceptions_enabled) {
         complete_abandoned_http_request(ctx, &g_key);
     }
+    delete_active_go_request(&g_key);
 
     const http_server_connection_t *server =
         bpf_map_lookup_elem(&ongoing_server_connections, &g_key);

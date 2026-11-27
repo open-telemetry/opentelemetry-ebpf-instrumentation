@@ -97,6 +97,87 @@ extensions:
 	require.Equal(t, 11*time.Minute, parsedConfig.Prometheus.ConnectionInfoTTL)
 }
 
+func TestV2ActiveRequestMaxAge(t *testing.T) {
+	t.Parallel()
+
+	_, ext := RuntimeToV2(nil)
+	require.Equal(t, schema.Duration(5*time.Minute), ext.Capture.Instrumentation.HTTP.ActiveRequestMaxAge)
+	ext.Capture.Telemetry.Metrics.TTL = schema.Duration(4 * time.Minute)
+	ext.Capture.Engine.Transactions.MaxDuration = schema.Duration(7 * time.Minute)
+	ext.Capture.Instrumentation.HTTP.ActiveRequestMaxAge = schema.Duration(11 * time.Minute)
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, 11*time.Minute, got.ActiveRequestMaxAge)
+	require.Equal(t, 4*time.Minute, got.OTELMetrics.TTL)
+	require.Equal(t, 7*time.Minute, got.EBPF.MaxTransactionTime)
+
+	ext.Capture.Instrumentation.HTTP.ActiveRequestMaxAge = 0
+	got, err = V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, 5*time.Minute, got.ActiveRequestMaxAge)
+
+	ext.Capture.Instrumentation.HTTP.ActiveRequestMaxAge = schema.Duration(-time.Second)
+	_, err = V2ToRuntime(ext)
+	require.EqualError(t, err, "capture.instrumentation.http.active_request_max_age must be greater than zero")
+
+	_, parsed, err := schema.ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      instrumentation:
+        http:
+          active_request_max_age: 9m
+`))
+	require.NoError(t, err)
+	got, err = V2ToRuntime(parsed)
+	require.NoError(t, err)
+	require.Equal(t, 9*time.Minute, got.ActiveRequestMaxAge)
+
+	_, parsed, err = schema.ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+`))
+	require.NoError(t, err)
+	got, err = V2ToRuntime(parsed)
+	require.NoError(t, err)
+	require.Equal(t, 5*time.Minute, got.ActiveRequestMaxAge)
+
+	got, err = V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				HTTP: schema.HTTPInstrumentation{ActiveRequestMaxAge: schema.Duration(8 * time.Minute)},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 8*time.Minute, got.ActiveRequestMaxAge)
+
+	_, parsed, err = schema.ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      instrumentation:
+        http:
+          active_request_max_age: 0s
+`))
+	require.NoError(t, err)
+	_, err = V2ToRuntime(parsed)
+	require.EqualError(t, err, "capture.instrumentation.http.active_request_max_age must be greater than zero")
+
+	for _, obsolete := range []string{
+		"capture:\n      telemetry:\n        metrics:\n          active_request_max_age: 9m",
+		"daemon:\n      telemetry:\n        metrics:\n          prometheus:\n            active_request_max_age: 9m",
+	} {
+		_, _, err = schema.ParseStandaloneYAML([]byte("file_format: \"1.0\"\nextensions:\n  obi:\n    version: \"2.0\"\n    " + obsolete + "\n"))
+		require.ErrorContains(t, err, "active_request_max_age")
+	}
+}
+
 func TestV2ToRuntimeFlowLimitAliases(t *testing.T) {
 	t.Parallel()
 

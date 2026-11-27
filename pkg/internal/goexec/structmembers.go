@@ -114,6 +114,7 @@ const (
 	ReqHeaderPtrPos
 	ReqProtoMajorPos
 	ReqProtoMinorPos
+	ReqTLSPos
 	RespProtoMajorPos
 	RespProtoMinorPos
 	IoWriterBufPtrPos
@@ -318,6 +319,7 @@ var structMembers = map[string]structInfo{
 			"Header":        ReqHeaderPtrPos,
 			"ProtoMajor":    ReqProtoMajorPos,
 			"ProtoMinor":    ReqProtoMinorPos,
+			"TLS":           ReqTLSPos,
 		},
 	},
 	"net/url.URL": {

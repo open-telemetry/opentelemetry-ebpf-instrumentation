@@ -71,6 +71,48 @@ func allMetricsBut(patterns ...string) attributes.Selection {
 	}
 }
 
+func TestActiveRequestsMetricsPipelineConfig(t *testing.T) {
+	metricsCfg := otelcfg.MetricsConfig{MetricsEndpoint: "http://localhost:4318"}
+	cfg := obi.Config{
+		Metrics:             perapp.GlobalMetricsConfig{Features: export.FeatureHTTPServerActiveRequests},
+		OTELMetrics:         metricsCfg,
+		ActiveRequestMaxAge: 7 * time.Minute,
+		Routes:              &transform.RoutesConfig{Patterns: []string{"/orders/{id}"}},
+		Filters: filter.AttributesConfig{
+			Application: filter.AttributeFamilyConfig{
+				"url.path": {Match: "/orders/*"},
+			},
+		},
+	}
+	ctxInfo := gctx(0, &cfg.OTELMetrics)
+
+	newGraphBuilder(&cfg, ctxInfo, msg.NewQueue[[]request.Span](), msg.NewQueue[exec.ProcessEvent](), nil)
+
+	activeConfig := ctxInfo.AppO11y.ActiveRequestsConfig
+	require.NotNil(t, activeConfig)
+	assert.Equal(t, cfg.ActiveRequestMaxAge, activeConfig.MaxAge)
+	assert.Equal(t, cfg.Filters.Application, activeConfig.ApplicationFilter)
+	require.NotNil(t, activeConfig.GlobalRoutePolicy)
+	assert.Equal(t, cfg.Routes.Patterns, activeConfig.GlobalRoutePolicy.Config.Patterns)
+
+	for _, tt := range []struct {
+		name     string
+		features export.Features
+		endpoint string
+	}{
+		{name: "feature disabled", features: export.FeatureApplicationRED, endpoint: metricsCfg.MetricsEndpoint},
+		{name: "no metrics exporter", features: export.FeatureHTTPServerActiveRequests},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg.Metrics.Features = tt.features
+			cfg.OTELMetrics.MetricsEndpoint = tt.endpoint
+			ctxInfo := gctx(0, &cfg.OTELMetrics)
+			newGraphBuilder(&cfg, ctxInfo, msg.NewQueue[[]request.Span](), msg.NewQueue[exec.ProcessEvent](), nil)
+			assert.Nil(t, ctxInfo.AppO11y.ActiveRequestsConfig)
+		})
+	}
+}
+
 func TestBasicPipeline(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 

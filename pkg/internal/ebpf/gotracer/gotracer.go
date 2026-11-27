@@ -345,6 +345,7 @@ type Tracer struct {
 	attachGoAutoSDKProbe              func(goAutoSDKActivationProbe, app.PID, uint64, uint64, uint64) (io.Closer, error)
 	goAutoSDKProcessStartTime         func(app.PID) (uint64, error)
 	exceptionsEnabled                 bool
+	activeRequestsEnabled             bool
 	exceptionsMu                      sync.Mutex
 	exceptionProbes                   map[executableIdentity][]ebpfcommon.GoProbe
 	exceptionProcesses                map[app.PID]goExceptionProcess
@@ -382,6 +383,7 @@ func New(
 		attachGoAutoSDKProbe:              attachGoAutoSDKActivationProbe,
 		goAutoSDKProcessStartTime:         readGoAutoSDKProcessStartTime,
 		exceptionsEnabled:                 cfg.ExceptionsEnabled() && cfg.Logs.Enabled(),
+		activeRequestsEnabled:             cfg.HTTPServerActiveRequestsEnabled(),
 		exceptionProbes:                   map[executableIdentity][]ebpfcommon.GoProbe{},
 		exceptionProcesses:                map[app.PID]goExceptionProcess{},
 		attachGoExceptionProbe:            attachGoExceptionProbe,
@@ -506,6 +508,9 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if !p.exceptionsEnabled {
 		ebpfcommon.ShrinkPythonExceptionMaps(spec)
 	}
+	if !p.activeRequestsEnabled {
+		ebpfcommon.ShrinkActiveRequestsMap(spec)
+	}
 
 	return []*ebpfcommon.SpecBundle{{
 		Spec:      spec,
@@ -521,26 +526,27 @@ func (p *Tracer) constants(eventsRingBufSize uint32) map[string]any {
 	}
 
 	m := map[string]any{
-		"g_bpf_debug":                    p.cfg.BpfDebug,
-		"g_bpf_header_propagation":       p.cfg.ContextPropagation.HasHeaders(),
-		"g_bpf_probe_write_user_enabled": p.supportsContextPropagation(),
-		"g_go_h2_write_fail_step":        goH2WriteFailStepForTest,
-		"wakeup_data_bytes":              ebpfcommon.WakeupDataBytes(p.cfg.WakeupLen, unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{}), eventsRingBufSize),
-		"ringbuf_metrics_enabled":        p.metrics != nil && !imetrics.IsBuiltinNoopReporter(p.metrics) && p.metrics.BpfInternalMetricsScrapeInterval() > 0,
-		"disable_black_box_cp":           blackBoxCP,
-		"attr_type_invalid":              uint64(attribute.INVALID),
-		"attr_type_bool":                 uint64(attribute.BOOL),
-		"attr_type_int64":                uint64(attribute.INT64),
-		"attr_type_float64":              uint64(attribute.FLOAT64),
-		"attr_type_string":               uint64(attribute.STRING),
-		"attr_type_boolslice":            uint64(attribute.BOOLSLICE),
-		"attr_type_int64slice":           uint64(attribute.INT64SLICE),
-		"attr_type_float64slice":         uint64(attribute.FLOAT64SLICE),
-		"attr_type_stringslice":          uint64(attribute.STRINGSLICE),
-		"g_bpf_traceparent_enabled":      true,
-		"g_bpf_loop_enabled":             p.supportsBPFLoop,
-		"g_traces_ctx_v1_enabled":        p.traceCtxMapEnabled,
-		"g_exceptions_enabled":           p.exceptionsEnabled,
+		"g_bpf_debug":                           p.cfg.BpfDebug,
+		"g_bpf_header_propagation":              p.cfg.ContextPropagation.HasHeaders(),
+		"g_bpf_probe_write_user_enabled":        p.supportsContextPropagation(),
+		"g_go_h2_write_fail_step":               goH2WriteFailStepForTest,
+		"wakeup_data_bytes":                     ebpfcommon.WakeupDataBytes(p.cfg.WakeupLen, unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{}), eventsRingBufSize),
+		"ringbuf_metrics_enabled":               p.metrics != nil && !imetrics.IsBuiltinNoopReporter(p.metrics) && p.metrics.BpfInternalMetricsScrapeInterval() > 0,
+		"disable_black_box_cp":                  blackBoxCP,
+		"attr_type_invalid":                     uint64(attribute.INVALID),
+		"attr_type_bool":                        uint64(attribute.BOOL),
+		"attr_type_int64":                       uint64(attribute.INT64),
+		"attr_type_float64":                     uint64(attribute.FLOAT64),
+		"attr_type_string":                      uint64(attribute.STRING),
+		"attr_type_boolslice":                   uint64(attribute.BOOLSLICE),
+		"attr_type_int64slice":                  uint64(attribute.INT64SLICE),
+		"attr_type_float64slice":                uint64(attribute.FLOAT64SLICE),
+		"attr_type_stringslice":                 uint64(attribute.STRINGSLICE),
+		"g_bpf_traceparent_enabled":             true,
+		"g_http_server_active_requests_enabled": p.activeRequestsEnabled,
+		"g_bpf_loop_enabled":                    p.supportsBPFLoop,
+		"g_traces_ctx_v1_enabled":               p.traceCtxMapEnabled,
+		"g_exceptions_enabled":                  p.exceptionsEnabled,
 	}
 
 	if p.cfg.TrackRequestHeaders ||
@@ -579,6 +585,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	initMissingGoOffsets(&offTable, []goexec.GoOffset{
 		goexec.ReqProtoMajorPos,
 		goexec.ReqProtoMinorPos,
+		goexec.ReqTLSPos,
 		goexec.RespProtoMajorPos,
 		goexec.RespProtoMinorPos,
 	})
@@ -604,6 +611,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.ReqHeaderPtrPos,
 		goexec.ReqProtoMajorPos,
 		goexec.ReqProtoMinorPos,
+		goexec.ReqTLSPos,
 		goexec.RespProtoMajorPos,
 		goexec.RespProtoMinorPos,
 		goexec.IoWriterBufPtrPos,
@@ -1998,12 +2006,15 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		"golang.org/x/net/http2.(*serverConn).runHandler": {{
 			Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler, // http2 server connection tracking
+			End:   p.bpfObjects.ObiUprobeHttp2serverConnRunHandlerReturns,
 		}},
 		"net/http.(*http2serverConn).runHandler": {{
 			Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler, // http2 server connection tracking, vendored in go
+			End:   p.bpfObjects.ObiUprobeHttp2serverConnRunHandlerReturns,
 		}},
 		"net/http/internal/http2.(*serverConn).runHandler": {{
 			Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandlerInternal,
+			End:   p.bpfObjects.ObiUprobeHttp2serverConnRunHandlerReturns,
 		}},
 		"golang.org/x/net/http2.(*serverConn).processHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeaders, // http2 server request header parsing

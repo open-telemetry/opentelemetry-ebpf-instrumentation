@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
@@ -97,6 +98,47 @@ func TestGRPCCorrelationMapsUseProcessScopedKeys(t *testing.T) {
 	require.Contains(t, spec.Maps, "ringbuf_write_stats_storage")
 	assert.Equal(t, ebpf.PerCPUArray, spec.Maps["ringbuf_write_stats_storage"].Type)
 	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["ringbuf_write_stats_storage"].Pinning)
+}
+
+func TestActiveRequestsMapUsedByGoProbes(t *testing.T) {
+	goSpec, err := LoadBpf()
+	require.NoError(t, err)
+
+	goMap := goSpec.Maps["active_requests"]
+	require.NotNil(t, goMap)
+	assert.Equal(t, ebpf.LRUHash, goMap.Type)
+	assert.Equal(t, ebpfconvenience.PinInternal, goMap.Pinning)
+	assert.Equal(t, uint32(24), goMap.KeySize)
+
+	for _, name := range []string{
+		"obi_uprobe_ServeHTTP",
+		"obi_uprobe_http2serverConn_runHandler",
+		"obi_uprobe_ServeHTTPReturns",
+		"obi_uprobe_connServeRet",
+	} {
+		program := goSpec.Programs[name]
+		require.NotNil(t, program, name)
+		found := false
+		for _, instruction := range program.Instructions {
+			if instruction.Reference() == "active_requests" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "%s must update or delete the active request", name)
+	}
+}
+
+func TestActiveRequestsFeatureFlag(t *testing.T) {
+	cfg := &obi.Config{}
+	tracer := New(nil, cfg, nil)
+	assert.NotContains(t, tracer.GoProbes(), goExitSymbol)
+	assert.Equal(t, false, tracer.constants(0)["g_http_server_active_requests_enabled"])
+
+	cfg.Metrics.Features = export.FeatureHTTPServerActiveRequests
+	tracer = New(nil, cfg, nil)
+	assert.NotContains(t, tracer.GoProbes(), goExitSymbol)
+	assert.Equal(t, true, tracer.constants(0)["g_http_server_active_requests_enabled"])
 }
 
 func TestRingbufMetricsConstant(t *testing.T) {

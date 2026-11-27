@@ -7,7 +7,9 @@ import (
 	"context"
 	"time"
 
+	"go.opentelemetry.io/obi/pkg/activerequests"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/cloud"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -230,6 +232,21 @@ func setupMetricsSubPipeline(
 		Generic:  config.Attributes.RenameUnresolvedHosts,
 		Outgoing: config.Attributes.RenameUnresolvedHostsOutgoing,
 		Incoming: config.Attributes.RenameUnresolvedHostsIncoming,
+	}
+
+	if jointMetricsConfig.Features.HTTPServerActiveRequests() {
+		var globalRoutePolicy *svc.RoutePolicy
+		if routes := config.Routes; routes != nil && !routes.DirectionalRuleOnly && routes.HasIncomingPolicy() {
+			globalRoutePolicy = svc.NewRoutePolicy(routes.DirectionalPolicies().Incoming)
+		}
+		ctxInfo.AppO11y.ActiveRequestsConfig = &activerequests.Config{
+			MaxAge:                config.ActiveRequestMaxAge,
+			ApplicationFilter:     config.Filters.Application,
+			InstrumentationFilter: config.Filters.ApplicationByInstrumentation,
+			ExtraGroupAttributes:  selectorCfg.ExtraGroupAttributesCfg,
+			GlobalRoutePolicy:     globalRoutePolicy,
+			DynamicSelector:       ctxInfo.DynamicSelector,
+		}
 	}
 
 	var spanNameAggregatedMetrics *msg.Queue[[]request.Span]

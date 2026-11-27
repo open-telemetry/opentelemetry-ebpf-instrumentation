@@ -179,6 +179,7 @@ type metricsReporter struct {
 	httpClientRequestSize  *Expirer[prometheus.Histogram]
 	httpClientResponseSize *Expirer[prometheus.Histogram]
 	targetInfo             *prometheus.GaugeVec
+	activeRequests         *activeRequestsCollector
 
 	// user-selected attributes for the application-level metrics
 	attrHTTPDuration               []attributes.Field[*request.Span, string]
@@ -1006,6 +1007,10 @@ func newReporter(
 		registeredMetrics = append(registeredMetrics, mr.obiInfo)
 	}
 
+	if mr.activeRequestsEnabled(jointMetricsConfig) {
+		mr.setupActiveRequestsCollector(attrsProvider)
+	}
+
 	if jointMetricsConfig.Features.AppRED() {
 		if is.HTTPEnabled() {
 			registeredMetrics = append(registeredMetrics,
@@ -1056,6 +1061,10 @@ func newReporter(
 			registeredMetrics = append(registeredMetrics, mr.mcpClientSessionDuration)
 			registeredMetrics = append(registeredMetrics, mr.mcpServerSessionDuration)
 		}
+	}
+
+	if mr.activeRequests != nil {
+		registeredMetrics = append(registeredMetrics, mr.activeRequests)
 	}
 
 	if jointMetricsConfig.Features.SpanMetrics() {

@@ -140,6 +140,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, "/internal/metrics", value(t, ext.Daemon, "internal_metrics", "prometheus", "path"))
 	require.Equal(t, false, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "allow_service_graph_self_references"))
 	require.Equal(t, 10000, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "span_metrics_service_cache_size"))
+	require.Equal(t, schema.Duration(5*time.Minute), value(t, ext.Capture.Instrumentation, "http", "active_request_max_age"))
 
 	require.Len(t, ext.Capture.Rules, 3)
 	require.Equal(t, "exclude-obi-and-collectors", ext.Capture.Rules[0].Name)
@@ -168,6 +169,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	t.Parallel()
 
 	cfg := defaultRuntimeConfig()
+	cfg.ActiveRequestMaxAge = 919 * time.Second
 	cfg.ChannelBufferLen = 77
 	cfg.ChannelSendTimeout = 2 * time.Second
 	cfg.ChannelSendTimeoutPanic = true
@@ -438,6 +440,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, []transform.Source{transform.SourceDNS, transform.SourceK8s}, value(t, ext.Enrich, "service_name", "sources"))
 	require.Equal(t, 901, value(t, ext.Enrich, "service_name", "cache", "size"))
 	require.Equal(t, schema.Duration(902*time.Second), value(t, ext.Enrich, "service_name", "cache", "ttl"))
+	require.Equal(t, schema.Duration(919*time.Second), value(t, ext.Capture.Instrumentation, "http", "active_request_max_age"))
 	require.Equal(t, "unknown-out", value(t, ext.Enrich, "service_name", "unresolved_hosts", "names", "outgoing"))
 	require.Equal(t, cfg.Attributes.Select, ext.Capture.Attributes.Select)
 	require.Empty(t, ext.Enrich.Attributes.Select)

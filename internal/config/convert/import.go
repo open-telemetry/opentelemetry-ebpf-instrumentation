@@ -66,6 +66,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if src.Capture.Telemetry.Metrics.ConnectionInfoTTL.TimeDuration() < 0 {
 		return nil, errors.New("capture.telemetry.metrics.connection_info_ttl must not be negative")
 	}
+	if age := src.Capture.Instrumentation.HTTP.ActiveRequestMaxAge.TimeDuration(); age < 0 || complete && age == 0 {
+		return nil, errors.New("capture.instrumentation.http.active_request_max_age must be greater than zero")
+	}
 	if err := validateV2Channels(src.Capture.Channels); err != nil {
 		return nil, err
 	}
@@ -1423,6 +1426,9 @@ func applyFullV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrumenta
 	cfg.EBPF.HTTPRequestTimeout = http.RequestTimeout.TimeDuration()
 	cfg.EBPF.GoHTTPClientBufferTimeout = http.GoHTTPClientBufferTimeout.TimeDuration()
 	cfg.EBPF.BufferSizes.HTTP = http.BufferSize
+	if http.ActiveRequestMaxAge.TimeDuration() > 0 {
+		cfg.ActiveRequestMaxAge = http.ActiveRequestMaxAge.TimeDuration()
+	}
 
 	applyFullV2HTTPRoutes(cfg, http.Routes)
 	applyFullV2HTTPPayloadExtraction(cfg, http.PayloadExtraction)
@@ -1440,6 +1446,9 @@ func applyPartialV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrume
 	}
 	if http.BufferSize != 0 {
 		cfg.EBPF.BufferSizes.HTTP = http.BufferSize
+	}
+	if !zeroValue(http.ActiveRequestMaxAge) {
+		cfg.ActiveRequestMaxAge = http.ActiveRequestMaxAge.TimeDuration()
 	}
 	applyPartialV2HTTPRoutes(cfg, http.Routes)
 	applyPartialV2HTTPPayloadExtraction(cfg, http.PayloadExtraction)

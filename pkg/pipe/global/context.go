@@ -8,6 +8,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"go.opentelemetry.io/obi/pkg/activerequests"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/cloud"
@@ -95,6 +96,8 @@ type AppO11y struct {
 	ReportRoutes bool
 	// EBPFEventContext provides shared eBPF maps to application observability nodes.
 	EBPFEventContext *ebpfcommon.EBPFEventContext
+	// ActiveRequestsConfig contains the shared active-request collection policy.
+	ActiveRequestsConfig *activerequests.Config
 }
 
 func NewEBPFReverseDNS(ctx context.Context, ebpfCfg *config.EBPFTracer, cfgs ...*rdns.ReverseDNS) *rdns.EBPFLookup {

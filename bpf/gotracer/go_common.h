@@ -19,6 +19,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_builtins.h>
 
+#include <common/active_request.h>
 #include <common/go_addr_key.h>
 #include <common/go_goroutine.h>
 #include <common/map_sizing.h>
@@ -137,6 +138,14 @@ typedef struct grpc_header_field {
     u64 val_len;
     u64 sensitive;
 } grpc_header_field_t;
+
+static __always_inline active_request_key_t active_request_key_from_go(const go_addr_key_t *g_key) {
+    active_request_key_t key = {
+        .source = k_active_request_go,
+        .request.go = *g_key,
+    };
+    return key;
+}
 
 static __always_inline void decode_go_traceparent(const unsigned char *buf,
                                                   unsigned char *trace_id,
