@@ -68,6 +68,12 @@ Run integration tests inside the VM against a specific kernel:
 
     KERNEL_ID=6.18-lts make
 
+The AL2023 livepatch test checks inet_csk_listen_stop with the signed
+livepatch_inet_reject module. Run it from the repository root on x86_64
+Linux with Go, QEMU, curl, bsdtar (libarchive-tools), and busybox-static.
+
+    bash internal/test/vm/al2023-livepatch.sh
+
 Run the BPF verifier suite instead of integration tests:
 
     TARGET_TEST=run-bpf-verifier-vm KERNEL_ID=6.12-lts make
