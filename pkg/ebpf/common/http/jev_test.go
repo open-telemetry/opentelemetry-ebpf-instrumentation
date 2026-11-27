@@ -109,9 +109,9 @@ const jevTruncatedAnswersResponse = `{
   "model": "jev-1.13",
   "answers": {`
 
-func makeJevRequest(t *testing.T, method, url, body string) *http.Request {
+func makeJevRequest(t *testing.T, url, body string) *http.Request {
 	t.Helper()
-	req, err := http.NewRequest(method, url, strings.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	return req
@@ -119,25 +119,25 @@ func makeJevRequest(t *testing.T, method, url, body string) *http.Request {
 
 // makeJevSDKRequest builds a request carrying the headers official TypeSafe
 // SDKs send on every call, for gateways and hosts that are not typesafe.ai.
-func makeJevSDKRequest(t *testing.T, method, url, body string) *http.Request {
+func makeJevSDKRequest(t *testing.T, url, body string) *http.Request {
 	t.Helper()
-	req := makeJevRequest(t, method, url, body)
+	req := makeJevRequest(t, url, body)
 	req.Header.Set("X-TypeSafe-SDK", "typesafe-sdk/1.0.0-test")
 	req.Header.Set("User-Agent", "typesafe-sdk/1.0.0-test")
 	return req
 }
 
-func makeJevResponse(statusCode int, headers http.Header, body string) *http.Response {
+func makeJevResponse(headers http.Header, body string) *http.Response {
 	return &http.Response{
-		StatusCode: statusCode,
+		StatusCode: http.StatusOK,
 		Header:     headers,
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }
 
 func TestJevSpan_BasicRequest(t *testing.T) {
-	req := makeJevRequest(t, http.MethodPost, "https://api.typesafe.ai/api/v1/systemone", jevRequestBody)
-	resp := makeJevResponse(http.StatusOK, http.Header{
+	req := makeJevRequest(t, "https://api.typesafe.ai/api/v1/systemone", jevRequestBody)
+	resp := makeJevResponse(http.Header{
 		"Content-Type": []string{"application/json"},
 	}, jevResponseBody)
 
@@ -165,8 +165,8 @@ func TestJevSpan_BasicRequest(t *testing.T) {
 
 func TestJevSpan_OpenRouterPath(t *testing.T) {
 	// Gateways are detected through the official SDK headers, not the host.
-	req := makeJevSDKRequest(t, http.MethodPost, "https://openrouter.ai/api/v1/systemone", jevRequestBody)
-	resp := makeJevResponse(http.StatusOK, http.Header{
+	req := makeJevSDKRequest(t, "https://openrouter.ai/api/v1/systemone", jevRequestBody)
+	resp := makeJevResponse(http.Header{
 		"Content-Type": []string{"application/json"},
 	}, jevResponseBody)
 
@@ -180,8 +180,8 @@ func TestJevSpan_OpenRouterPath(t *testing.T) {
 }
 
 func TestJevSpan_ChoiceQuestion(t *testing.T) {
-	req := makeJevRequest(t, http.MethodPost, "https://api.typesafe.ai/api/v1/systemone", jevRequestBodyWithObjectState)
-	resp := makeJevResponse(http.StatusOK, http.Header{
+	req := makeJevRequest(t, "https://api.typesafe.ai/api/v1/systemone", jevRequestBodyWithObjectState)
+	resp := makeJevResponse(http.Header{
 		"Content-Type": []string{"application/json"},
 	}, jevResponseBodyWithChoice)
 
@@ -200,8 +200,8 @@ func TestJevSpan_ChoiceQuestion(t *testing.T) {
 }
 
 func TestJevSpan_NotJev(t *testing.T) {
-	req := makeJevRequest(t, http.MethodPost, "https://api.example.com/v1/chat", `{"messages":[{"role":"user","content":"hello"}]}`)
-	resp := makeJevResponse(http.StatusOK, http.Header{
+	req := makeJevRequest(t, "https://api.example.com/v1/chat", `{"messages":[{"role":"user","content":"hello"}]}`)
+	resp := makeJevResponse(http.Header{
 		"Content-Type": []string{"application/json"},
 	}, `{"choices":[{"message":{"content":"hi"}}]}`)
 
@@ -214,9 +214,9 @@ func TestJevSpan_NotJev(t *testing.T) {
 func TestJevSpan_MalformedResponseBody(t *testing.T) {
 	h := http.Header{}
 	h.Set("Content-Type", "application/json")
-	resp := makeJevResponse(http.StatusOK, h, `not-json`)
+	resp := makeJevResponse(h, `not-json`)
 
-	req := makeJevRequest(t, http.MethodPost, "https://api.typesafe.ai/api/v1/systemone", jevRequestBody)
+	req := makeJevRequest(t, "https://api.typesafe.ai/api/v1/systemone", jevRequestBody)
 	base := &request.Span{}
 	base.Path = "/api/v1/systemone" // Set the path so Jev detection works
 	span, ok := JevSpan(base, req, resp)
@@ -249,7 +249,7 @@ func TestJevSpan_PartialRequestBody(t *testing.T) {
 		err:  io.ErrUnexpectedEOF,
 	}
 
-	resp := makeJevResponse(http.StatusOK, http.Header{
+	resp := makeJevResponse(http.Header{
 		"Content-Type": []string{"application/json"},
 	}, jevResponseBody)
 	base := &request.Span{ContentLength: int64(len(jevRequestBody))}
@@ -262,12 +262,12 @@ func TestJevSpan_PartialRequestBody(t *testing.T) {
 }
 
 func TestJevSpan_PartialResponseBody(t *testing.T) {
-	req := makeJevRequest(t, http.MethodPost, "https://api.typesafe.ai/api/v1/systemone", jevRequestBody)
+	req := makeJevRequest(t, "https://api.typesafe.ai/api/v1/systemone", jevRequestBody)
 
 	truncated := jevResponseBody[:300]
 	h := http.Header{}
 	h.Set("Content-Type", "application/json")
-	resp := makeJevResponse(http.StatusOK, h, truncated)
+	resp := makeJevResponse(h, truncated)
 
 	base := &request.Span{}
 	base.Path = "/api/v1/systemone"
@@ -281,8 +281,8 @@ func TestJevSpan_PartialResponseBody(t *testing.T) {
 func TestJevSpan_NonSystemOnePath(t *testing.T) {
 	// Even with SDK headers and a Jev-shaped body, requests outside the
 	// System One paths are not classified as Jev.
-	req := makeJevSDKRequest(t, http.MethodPost, "https://api.typesafe.ai/decisions", jevRequestBody)
-	resp := makeJevResponse(http.StatusOK, http.Header{
+	req := makeJevSDKRequest(t, "https://api.typesafe.ai/decisions", jevRequestBody)
+	resp := makeJevResponse(http.Header{
 		"Content-Type": []string{"application/json"},
 	}, jevResponseBody)
 
@@ -301,8 +301,8 @@ func TestJevSpan_ProviderDefault(t *testing.T) {
   "usage": {"input_tokens": 100, "output_tokens": 10}
 }`
 
-	req := makeJevRequest(t, http.MethodPost, "https://api.typesafe.ai/api/v1/systemone", jevRequestBody)
-	resp := makeJevResponse(http.StatusOK, http.Header{
+	req := makeJevRequest(t, "https://api.typesafe.ai/api/v1/systemone", jevRequestBody)
+	resp := makeJevResponse(http.Header{
 		"Content-Type": []string{"application/json"},
 	}, respBodyWithoutProvider)
 
@@ -355,7 +355,7 @@ func TestJevSpan_GetOutput(t *testing.T) {
 
 	// Empty answers
 	jev2 := &request.VendorJev{}
-	assert.Equal(t, "", jev2.GetOutput())
+	assert.Empty(t, jev2.GetOutput())
 }
 
 func TestJevSpan_TokenCounts(t *testing.T) {
@@ -453,8 +453,8 @@ func TestIsJevPath(t *testing.T) {
 
 func TestJevSpan_TruncatedAnswers(t *testing.T) {
 	// Test detection when answers field is present but truncated
-	req := makeJevSDKRequest(t, http.MethodPost, "https://api.example.com/api/v1/systemone", jevRequestBody)
-	resp := makeJevResponse(http.StatusOK, http.Header{
+	req := makeJevSDKRequest(t, "https://api.example.com/api/v1/systemone", jevRequestBody)
+	resp := makeJevResponse(http.Header{
 		"Content-Type": []string{"application/json"},
 	}, jevTruncatedAnswersResponse)
 
@@ -519,11 +519,11 @@ func TestJevSpan_FalsePositivePath(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var req *http.Request
 			if tc.sdk {
-				req = makeJevSDKRequest(t, http.MethodPost, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
+				req = makeJevSDKRequest(t, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
 			} else {
-				req = makeJevRequest(t, http.MethodPost, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
+				req = makeJevRequest(t, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
 			}
-			resp := makeJevResponse(http.StatusOK, http.Header{
+			resp := makeJevResponse(http.Header{
 				"Content-Type": []string{"application/json"},
 			}, tc.respBody)
 
@@ -569,8 +569,8 @@ func TestJevSpan_ProviderNormalization(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := makeJevRequest(t, http.MethodPost, "https://api.typesafe.ai/api/v1/systemone", jevRequestBody)
-			resp := makeJevResponse(http.StatusOK, http.Header{
+			req := makeJevRequest(t, "https://api.typesafe.ai/api/v1/systemone", jevRequestBody)
+			resp := makeJevResponse(http.Header{
 				"Content-Type": []string{"application/json"},
 			}, tc.respBody)
 
@@ -609,8 +609,8 @@ func TestJevSpan_ErrorParsing(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := makeJevRequest(t, http.MethodPost, "https://api.typesafe.ai/api/v1/systemone", jevRequestBody)
-			resp := makeJevResponse(http.StatusOK, http.Header{
+			req := makeJevRequest(t, "https://api.typesafe.ai/api/v1/systemone", jevRequestBody)
+			resp := makeJevResponse(http.Header{
 				"Content-Type": []string{"application/json"},
 			}, tc.respBody)
 
@@ -671,8 +671,8 @@ func TestJevSpan_PartialBodyClassification(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := makeJevRequest(t, http.MethodPost, "https://api.typesafe.ai/api/v1/systemone", tc.reqBody)
-			resp := makeJevResponse(http.StatusOK, http.Header{
+			req := makeJevRequest(t, "https://api.typesafe.ai/api/v1/systemone", tc.reqBody)
+			resp := makeJevResponse(http.Header{
 				"Content-Type": []string{"application/json"},
 			}, tc.respBody)
 
@@ -757,11 +757,11 @@ func TestJevSpan_FailedGatewayRequests(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var req *http.Request
 			if tc.sdk {
-				req = makeJevSDKRequest(t, http.MethodPost, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
+				req = makeJevSDKRequest(t, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
 			} else {
-				req = makeJevRequest(t, http.MethodPost, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
+				req = makeJevRequest(t, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
 			}
-			resp := makeJevResponse(http.StatusOK, http.Header{
+			resp := makeJevResponse(http.Header{
 				"Content-Type": []string{"application/json"},
 			}, tc.respBody)
 
@@ -895,7 +895,7 @@ func TestJevSpan_ModelDiscriminator(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &http.Request{
-				Method: "POST",
+				Method: http.MethodPost,
 				Header: http.Header{
 					"Content-Type": []string{"application/json"},
 				},
@@ -977,8 +977,8 @@ func TestJevSpan_TruncatedRequestDetection(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := makeJevRequest(t, http.MethodPost, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
-			resp := makeJevResponse(http.StatusOK, http.Header{
+			req := makeJevRequest(t, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
+			resp := makeJevResponse(http.Header{
 				"Content-Type": []string{"application/json"},
 			}, tc.respBody)
 
@@ -1062,8 +1062,8 @@ func TestJevSpan_EmptyResponseHandling(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := makeJevRequest(t, http.MethodPost, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
-			resp := makeJevResponse(http.StatusOK, http.Header{
+			req := makeJevRequest(t, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
+			resp := makeJevResponse(http.Header{
 				"Content-Type": []string{"application/json"},
 			}, tc.respBody)
 
@@ -1101,7 +1101,7 @@ func TestHasTypeSafeAgent(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := makeJevRequest(t, http.MethodPost, "https://openrouter.ai/api/v1/systemone", jevRequestBody)
+			req := makeJevRequest(t, "https://openrouter.ai/api/v1/systemone", jevRequestBody)
 			if tc.sdkHeader != "" {
 				req.Header.Set("X-TypeSafe-SDK", tc.sdkHeader)
 			}
@@ -1192,11 +1192,11 @@ func TestJevSpan_MetadataGate(t *testing.T) {
 			if tc.name == "empty body still detected via metadata" {
 				body = ""
 			}
-			req := makeJevRequest(t, http.MethodPost, "https://"+tc.host+tc.path, body)
+			req := makeJevRequest(t, "https://"+tc.host+tc.path, body)
 			for k, v := range tc.headers {
 				req.Header.Set(k, v)
 			}
-			resp := makeJevResponse(http.StatusOK, http.Header{
+			resp := makeJevResponse(http.Header{
 				"Content-Type": []string{"application/json"},
 			}, jevResponseBody)
 

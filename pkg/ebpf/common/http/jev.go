@@ -33,8 +33,8 @@ func isJevHost(req *http.Request) bool {
 		return true
 	}
 
-	if strings.HasSuffix(host, "."+jevKnownHost) {
-		return strings.TrimSuffix(host, "."+jevKnownHost) != ""
+	if rest, ok := strings.CutSuffix(host, "."+jevKnownHost); ok {
+		return rest != ""
 	}
 
 	return false

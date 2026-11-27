@@ -529,8 +529,8 @@ type JevRequest struct {
 type JevUsage struct {
 	InputTokens    TokenCount `json:"input_tokens"`
 	OutputTokens   TokenCount `json:"output_tokens"`
-	ChargedTokens  TokenCount `json:"charged_tokens,omitempty"`
-	ChargedCredits TokenCount `json:"charged_credits,omitempty"`
+	ChargedTokens  TokenCount `json:"charged_tokens,omitzero"`
+	ChargedCredits TokenCount `json:"charged_credits,omitzero"`
 }
 
 func (j *VendorJev) GetInput() string {
@@ -539,9 +539,9 @@ func (j *VendorJev) GetInput() string {
 	if len(j.Request.Questions) > 0 {
 		var inputParts []string
 		if len(j.Request.State) > 0 {
-			inputParts = append(inputParts, fmt.Sprintf(`"state":%s`, string(j.Request.State)))
+			inputParts = append(inputParts, `"state":`+string(j.Request.State))
 		}
-		inputParts = append(inputParts, fmt.Sprintf(`"questions":%s`, string(j.Request.Questions)))
+		inputParts = append(inputParts, `"questions":`+string(j.Request.Questions))
 		inputJSON := fmt.Sprintf("{%s}", strings.Join(inputParts, ","))
 		return wrapTextAsInputMessage(inputJSON)
 	}

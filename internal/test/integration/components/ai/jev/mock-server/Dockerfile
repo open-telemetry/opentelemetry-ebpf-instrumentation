@@ -7,7 +7,7 @@ WORKDIR /app
 COPY main.go .
 RUN CGO_ENABLED=0 go build -o mock-server main.go
 
-FROM alpine:3.20@sha256:77726ef6b3f2d775bfba713f16bdf0d8ee8f1abf1872ff356c83289254d7f1a6
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 COPY --from=builder /app/mock-server /mock-server
 EXPOSE 8084
 CMD ["/mock-server"]

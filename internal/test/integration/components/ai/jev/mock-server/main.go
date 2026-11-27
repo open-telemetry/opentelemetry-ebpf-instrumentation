@@ -87,7 +87,7 @@ func handleSystemOne(w http.ResponseWriter, r *http.Request) {
 	var questions map[string]json.RawMessage
 	if err := json.Unmarshal(req["questions"], &questions); err == nil {
 		for _, q := range questions {
-			var qDef map[string]interface{}
+			var qDef map[string]any
 			if err := json.Unmarshal(q, &qDef); err == nil {
 				if qType, ok := qDef["type"].(string); ok && qType == "choice" {
 					w.WriteHeader(http.StatusOK)
