@@ -19,7 +19,7 @@ const fixtureEnvelope = "hyper::client::dispatch::Envelope<Request>"
 func TestInspectRustcHTTP1(t *testing.T) {
 	profile, err := Inspect("testdata/http1/http1.elf")
 	require.NoError(t, err)
-	require.Equal(t, "1.99.0", profile.Rustc)
+	require.Equal(t, "1.100.0", profile.Rustc)
 	require.Equal(t, "amd64", profile.Arch)
 
 	// Byte offsets from rustc's -Zprint-type-sizes for the pinned fixture.
@@ -36,6 +36,11 @@ func TestInspectRustcHTTP1(t *testing.T) {
 			ListHead: 0, ListIndex: 16, SlotMask: 31,
 			TxTag: 248, TxSome: 256, TxPointer: 264,
 			RxTag: 248, RxSome: 256, RxPointer: 264, RxHeaders: 0, Request: true,
+		},
+		"hyper::client::dispatch::Envelope<http::request::Request<rust_layouts::AlignedBody>, http::response::Response<" + body + ">>": {
+			ListHead: 0, ListIndex: 16, SlotMask: 31,
+			TxTag: 320, TxSome: 328, TxPointer: 336,
+			RxTag: 320, RxSome: 328, RxPointer: 336, RxHeaders: 64, Request: false,
 		},
 	}, profile.Channels)
 }

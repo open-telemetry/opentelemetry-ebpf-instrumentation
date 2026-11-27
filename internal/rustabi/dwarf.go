@@ -229,7 +229,7 @@ func (d *rustDwarfTypes) callbackSender(callback dwarf.Type, base uint32, varian
 }
 
 // messageLayouts measures the Tokio queue slots, callback fields, and request headers for each supported Hyper envelope type.
-func (r *layoutReader) messageLayouts() (map[string]MessageLayout, error) {
+func (r *layoutReader) messageLayouts(requestHeaders uint32) (map[string]MessageLayout, error) {
 	channels := map[string]MessageLayout{}
 	for name := range r.typeEntryOffsets {
 		if !strings.HasPrefix(name, "hyper::client::dispatch::Envelope<") {
@@ -248,7 +248,9 @@ func (r *layoutReader) messageLayouts() (map[string]MessageLayout, error) {
 		}{
 			{"tokio::sync::mpsc::list::Rx<" + name + ">", listOffsets},
 			{"tokio::sync::mpsc::block::Block<" + name + ">", blockOffsets},
-			{name, r.sendOffsets},
+			{name, func(t dwarf.Type, layout *MessageLayout) error {
+				return r.sendOffsets(t, layout, requestHeaders)
+			}},
 			{poll, r.receiveOffsets},
 		} {
 			if err := measureType(r, measurement.name, &layout, measurement.read); err != nil {
@@ -256,7 +258,6 @@ func (r *layoutReader) messageLayouts() (map[string]MessageLayout, error) {
 			}
 		}
 
-		layout.Request = true
 		channels[name] = layout
 	}
 
@@ -289,11 +290,27 @@ func blockOffsets(t dwarf.Type, layout *MessageLayout) error {
 	return nil
 }
 
-func (r *layoutReader) sendOffsets(t dwarf.Type, layout *MessageLayout) error {
+func (r *layoutReader) sendOffsets(t dwarf.Type, layout *MessageLayout, requestHeaders uint32) error {
 	var err error
 	layout.TxTag, layout.TxSome, layout.TxPointer, err = r.callback(t, "__0", "Some", "__0", "__1")
+	if err != nil {
+		return err
+	}
 
-	return err
+	_, requestType, err := r.path(t, "__0", "Some", "__0", "__0")
+	if err != nil {
+		return err
+	}
+
+	headers, err := rustFieldOffset(requestType, 0, "head", "headers")
+	if err != nil {
+		return err
+	}
+
+	// Body alignment can move Request.head. This fallback uses one shared offset.
+	layout.Request = headers == requestHeaders
+
+	return nil
 }
 
 func (r *layoutReader) receiveOffsets(t dwarf.Type, layout *MessageLayout) error {

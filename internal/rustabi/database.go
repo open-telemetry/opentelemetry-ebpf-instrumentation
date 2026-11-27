@@ -46,7 +46,7 @@ func Inspect(path string) (Profile, error) {
 		return Profile{}, err
 	}
 
-	channels, err := reader.messageLayouts()
+	channels, err := reader.messageLayouts(config.RequestHeaders)
 	if err != nil {
 		return Profile{}, err
 	}

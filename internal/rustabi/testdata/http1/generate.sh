@@ -8,7 +8,7 @@ build_dir=$(mktemp -d)
 trap 'rm -rf "$build_dir"' EXIT
 
 export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
-cargo +1.99.0 rustc --locked --release --target x86_64-unknown-linux-gnu --target-dir "$build_dir" -- \
+cargo +1.100.0 rustc --locked --release --target x86_64-unknown-linux-gnu --target-dir "$build_dir" -- \
     -C debuginfo=2 -C codegen-units=1 -C opt-level=z --emit="obj=$build_dir/http1.o" \
     --remap-path-prefix="$PWD=/fixture"
 
