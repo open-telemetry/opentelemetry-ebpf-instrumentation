@@ -8,8 +8,10 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/internal/denotools"
 	"go.opentelemetry.io/obi/pkg/internal/dotnettools"
+	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools"
 	"go.opentelemetry.io/obi/pkg/internal/nodejstools"
 	"go.opentelemetry.io/obi/pkg/internal/phptools"
@@ -20,12 +22,20 @@ import (
 // ProcessResourceDetector finds resources like the service.name, service.namespace and service.version,
 // from the process binary or the process deployment directory.
 type ProcessResourceDetector struct {
-	log *slog.Logger
+	log                                *slog.Logger
+	disableGoServiceNamespaceInference bool
 }
 
+// Deprecated: Use NewProcessResourceDetectorWithConfig(nil) for the default settings.
 func NewProcessResourceDetector() *ProcessResourceDetector {
+	return NewProcessResourceDetectorWithConfig(nil)
+}
+
+// NewProcessResourceDetectorWithConfig uses the default discovery settings when cfg is nil.
+func NewProcessResourceDetectorWithConfig(cfg *services.DiscoveryConfig) *ProcessResourceDetector {
 	return &ProcessResourceDetector{
-		log: slog.With("component", "process.resource.detector"),
+		log:                                slog.With("component", "process.resource.detector"),
+		disableGoServiceNamespaceInference: cfg != nil && cfg.DisableGoServiceNamespaceInference,
 	}
 }
 
@@ -35,6 +45,10 @@ func (r *ProcessResourceDetector) ResolveMetadata(t svc.InstrumentableType, fi *
 	}
 	var err error
 	switch t {
+	case svc.InstrumentableGolang:
+		if !r.disableGoServiceNamespaceInference {
+			err = goexec.ResolveServiceMetadata(fi)
+		}
 	case svc.InstrumentableJava:
 		err = jvmtools.ResolveServiceMetadata(fi)
 	case svc.InstrumentableNodejs:

@@ -573,6 +573,15 @@ func TestDecorationProcessEvents(t *testing.T) {
 		}, deco.File.ServiceAttrs().Metadata)
 	})
 
+	t.Run("pod namespace replaces automatic namespace for an explicitly named service", func(t *testing.T) {
+		service := svc.Attrs{UID: svc.UID{Name: "checkout", Namespace: "acme"}}
+		service.SetAutoNamespace()
+		inputQueue.Send(exec.ProcessEvent{File: exec.New(exec.Init{Pid: 12, Ns: 1012, Service: service}), Type: exec.ProcessEventCreated})
+		deco := testutil.ReadChannel(t, outputCh, timeout)
+		got := deco.File.ServiceAttrs()
+		assert.Equal(t, "the-ns/checkout", got.Job())
+	})
+
 	// When we send 34 we first get naked PID info, the kubernetes metadata was delayed
 	autoPackageSvc := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "acme"}}
 	autoPackageSvc.SetAutoName()

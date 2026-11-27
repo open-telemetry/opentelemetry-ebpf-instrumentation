@@ -1987,6 +1987,10 @@ func applyV2Runtimes(cfg *obi.Config, runtimes schema.CaptureRuntimes, complete 
 		return
 	}
 
+	if infer := runtimes.Go.InferServiceNamespace; infer != nil {
+		cfg.Discovery.DisableGoServiceNamespaceInference = !*infer
+	}
+
 	if enabled := runtimes.Go.ChannelLinks; enabled != nil {
 		cfg.EBPF.DisableGoChannelLinks = !*enabled
 	}

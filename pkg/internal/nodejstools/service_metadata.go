@@ -64,9 +64,7 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		name, namespace, ok := parsePackageName(metadata.Name)
 		if ok {
 			fileInfo.SetAutoServiceName(name)
-			if namespace != "" && service.UID.Namespace == "" {
-				fileInfo.SetAutoServiceNamespace(namespace)
-			}
+			fileInfo.SetAutoServiceNamespace(namespace)
 		} else if name := serviceNameFromEntryPoint(cwd, launch.EntryPoint); name != "" &&
 			nodeEntryPointExists(root, cwd, launch.EntryPoint) {
 			fileInfo.SetAutoServiceName(name)

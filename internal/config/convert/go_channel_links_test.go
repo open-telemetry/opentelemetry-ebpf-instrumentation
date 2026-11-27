@@ -12,16 +12,18 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-func TestGoChannelLinksYAML(t *testing.T) {
+func TestGoRuntimeOptionsYAML(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
-		name     string
-		runtimes string
-		disabled bool
+		name             string
+		runtimes         string
+		disableNamespace bool
+		disabled         bool
 	}{
 		{name: "omitted", runtimes: "{}"},
 		{name: "empty Go section", runtimes: "{go: {}}"},
+		{name: "namespace disabled", runtimes: "{go: {infer_service_namespace: false}}", disableNamespace: true},
 		{name: "enabled", runtimes: "{go: {channel_links: true}}"},
 		{name: "disabled", runtimes: "{go: {channel_links: false}}", disabled: true},
 	} {
@@ -44,6 +46,9 @@ extensions:
 				got, err := V2ToRuntime(ext)
 				require.NoError(t, err)
 				require.Equal(t, test.disabled, got.EBPF.DisableGoChannelLinks)
+				require.Equal(t, test.disableNamespace, got.Discovery.DisableGoServiceNamespaceInference)
+				_, exported := RuntimeToV2(got)
+				require.Equal(t, !test.disableNamespace, *exported.Capture.Runtimes.Go.InferServiceNamespace)
 				require.Equal(t, obi.DefaultConfig.Discovery.SkipGoSpecificTracers, got.Discovery.SkipGoSpecificTracers)
 			}
 		})

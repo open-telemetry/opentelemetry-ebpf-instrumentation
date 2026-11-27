@@ -446,14 +446,7 @@ func (d *DynamicSelector) applyAttrsToInstrumented(pid app.PID, attrs dynamicPID
 	}
 	updated := false
 	if attrs.serviceName != "" || attrs.serviceNamespace != "" {
-		uid := fi.ServiceAttrs().UID
-		if attrs.serviceName != "" {
-			uid.Name = attrs.serviceName
-		}
-		if attrs.serviceNamespace != "" {
-			uid.Namespace = attrs.serviceNamespace
-		}
-		fi.SetUID(uid)
+		fi.SetSelectedServiceIdentity(attrs.serviceName, attrs.serviceNamespace)
 		updated = true
 	}
 	if len(attrs.resourceAttributes) > 0 {

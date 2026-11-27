@@ -282,12 +282,14 @@ func protocolSelected(list []instrumentations.Instrumentation, mapping protocolM
 }
 
 func captureRuntimes(cfg *obi.Config) schema.CaptureRuntimes {
+	inferServiceNamespace := !cfg.Discovery.DisableGoServiceNamespaceInference
 	goChannelLinks := !cfg.EBPF.DisableGoChannelLinks
 
 	return schema.CaptureRuntimes{
 		Go: schema.GoRuntime{
-			Enabled:      !cfg.Discovery.SkipGoSpecificTracers,
-			ChannelLinks: &goChannelLinks,
+			Enabled:               !cfg.Discovery.SkipGoSpecificTracers,
+			ChannelLinks:          &goChannelLinks,
+			InferServiceNamespace: &inferServiceNamespace,
 		},
 		NodeJS: schema.Runtime{
 			Enabled: cfg.NodeJS.Enabled,

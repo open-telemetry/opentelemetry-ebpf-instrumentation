@@ -19,9 +19,10 @@ type Runtime struct {
 
 // GoRuntime describes Go probe enablement and channel span links.
 type GoRuntime struct {
-	Enabled      bool             `yaml:"enabled"`
-	Filter       AttributeFilters `yaml:"filter,omitempty"`
-	ChannelLinks *bool            `yaml:"channel_links,omitempty"`
+	Enabled               bool             `yaml:"enabled"`
+	Filter                AttributeFilters `yaml:"filter,omitempty"`
+	ChannelLinks          *bool            `yaml:"channel_links,omitempty"`
+	InferServiceNamespace *bool            `yaml:"infer_service_namespace,omitempty"`
 }
 
 // JavaRuntime describes Java runtime capture and debug settings.
