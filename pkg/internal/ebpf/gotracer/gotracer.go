@@ -564,6 +564,7 @@ func (p *Tracer) constants(eventsRingBufSize uint32) map[string]any {
 	m["max_transaction_time"] = uint64(p.cfg.MaxTransactionTime.Nanoseconds())
 	// pid_samplers is keyed by the pid OBI's /proc numbers a process with
 	maps.Copy(m, ebpfcommon.PIDFilterConstants())
+	maps.Copy(m, ebpfcommon.ExtraHTTPMethodConstants())
 
 	return m
 }

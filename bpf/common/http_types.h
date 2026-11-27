@@ -140,6 +140,41 @@ static __always_inline u8 is_http_connect_predicate(unsigned char c) {
            (c == '[');
 }
 
+enum { k_extra_http_methods_max = 16, k_extra_http_method_len = MIN_HTTP_SIZE - 2 };
+
+typedef struct extra_http_method {
+    unsigned char name[k_extra_http_method_len];
+    u8 len;
+} extra_http_method_t;
+
+const volatile extra_http_method_t extra_http_methods[k_extra_http_methods_max] = {};
+const volatile u32 extra_http_method_count = 0;
+
+static __always_inline u8 is_extra_http_request(const unsigned char *p) {
+#pragma unroll
+    for (u32 i = 0; i < k_extra_http_methods_max; i++) {
+        if (i >= extra_http_method_count) {
+            break;
+        }
+        u8 len = extra_http_methods[i].len;
+        if (!len || len > k_extra_http_method_len) {
+            continue;
+        }
+        u8 match = 1;
+#pragma unroll
+        for (u32 j = 0; j < k_extra_http_method_len; j++) {
+            if (j < len && p[j] != extra_http_methods[i].name[j]) {
+                match = 0;
+                break;
+            }
+        }
+        if (match && p[len] == ' ' && is_http_request_target(p[len + 1])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static __always_inline u8 is_http_request_buf(const unsigned char *p) {
     unsigned char target;
 
@@ -168,7 +203,7 @@ static __always_inline u8 is_http_request_buf(const unsigned char *p) {
         target = p[8];
         return is_http_connect_predicate(target);
     } else {
-        return 0;
+        return is_extra_http_request(p);
     }
 
     return is_http_request_target(target);

@@ -5,6 +5,7 @@ package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"sync"
 
@@ -76,4 +77,14 @@ var knownHTTPMethods = sync.OnceValue(func() map[string]struct{} {
 func IsKnownHTTPMethod(method string) bool {
 	_, ok := knownHTTPMethods()[method]
 	return ok
+}
+
+// KnownHTTPMethods returns the effective, case-sensitive reporting methods.
+func KnownHTTPMethods() []string {
+	methods := make([]string, 0, len(knownHTTPMethods()))
+	for method := range knownHTTPMethods() {
+		methods = append(methods, method)
+	}
+	slices.Sort(methods)
+	return methods
 }

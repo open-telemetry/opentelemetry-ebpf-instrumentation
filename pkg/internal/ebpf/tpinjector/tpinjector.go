@@ -308,6 +308,7 @@ func (p *Tracer) constants() map[string]any {
 		"g_job_traces_enabled": p.cfg.JobTracesEnabled(),
 	}
 	maps.Copy(m, ebpfcommon.PIDFilterConstants())
+	maps.Copy(m, ebpfcommon.ExtraHTTPMethodConstants())
 
 	return m
 }
