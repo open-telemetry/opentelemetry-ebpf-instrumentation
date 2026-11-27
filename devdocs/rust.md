@@ -18,8 +18,10 @@ request that thread is serving.
 Tokio task tracking is off by default. Enable it in Config v2:
 
 ```yaml
+file_format: "1.0"
 extensions:
   obi:
+    version: "2.0"
     capture:
       runtimes:
         rust:
