@@ -432,3 +432,34 @@ func TestExtractBedrockGuardrailID_NilRequestURL(t *testing.T) {
 	resp := &http.Response{Header: http.Header{}}
 	assert.Empty(t, extractBedrockGuardrailID(req, resp))
 }
+
+func TestIsBedrockHTTP1Path(t *testing.T) {
+	for _, tt := range []struct {
+		path string
+		want bool
+	}{
+		{"/model/anthropic.claude-v1:0/invoke", true},
+		{"/model/anthropic.claude-v1:0/invoke-with-response-stream", true},
+		{"", false},
+		{"/model//invoke", false},
+		{"/model//invoke-with-response-stream", false},
+		{"/model/claude/converse", false},
+		{"/model/claude/converse-stream", false},
+		{"/model/group/claude/invoke", false},
+		{"/model/group/claude/invoke-with-response-stream", false},
+		{"/model/claude/invoke/extra", false},
+		{"/model/claude/invoke-with-response-stream/extra", false},
+		{"/model/claude/invoke/", false},
+		{"/model/claude/invoke-extra", false},
+		{"/model/claude/invoke-with-response-stream-extra", false},
+		{"/models/claude/invoke", false},
+		{"/prefix/model/claude/invoke", false},
+		{"/model/claude", false},
+		{"/model/claude/Invoke", false},
+		{"/model/arn:aws:bedrock:us-east-1:123456789012:inference-profile/profile/invoke", false},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			assert.Equal(t, tt.want, isBedrockHTTP1Path(tt.path))
+		})
+	}
+}

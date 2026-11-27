@@ -68,6 +68,59 @@ func makeCompatibleResponse(body string) *http.Response {
 	}
 }
 
+// Host, case and port rules already covered by the OpenAICompatibleSpan tests
+// are not repeated here.
+func TestMatchOpenAICompatibleGateway(t *testing.T) {
+	tests := []struct {
+		name      string
+		urlHost   string
+		host      string
+		nilURL    bool
+		gateways  []config.OpenAICompatibleGateway
+		wantIndex int
+	}{
+		{
+			name:      "URL host takes precedence",
+			urlHost:   "litellm.local",
+			host:      "other.local",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "other.local"}, {Host: "litellm.local"}},
+			wantIndex: 1,
+		},
+		{
+			name:      "empty URL host falls back to request host",
+			host:      "litellm.local",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local"}},
+			wantIndex: 0,
+		},
+		{
+			name:      "nil URL falls back to request host",
+			host:      "litellm.local",
+			nilURL:    true,
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local"}},
+			wantIndex: 0,
+		},
+		{
+			name:      "first matching gateway wins",
+			urlHost:   "litellm.local",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local"}, {Host: "litellm.local"}},
+			wantIndex: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, "/v1/chat/completions", "")
+			req.URL.Host = tt.urlHost
+			req.Host = tt.host
+			if tt.nilURL {
+				req.URL = nil
+			}
+
+			assert.Same(t, &tt.gateways[tt.wantIndex], matchOpenAICompatibleGateway(req, tt.gateways))
+		})
+	}
+}
+
 func TestOpenAICompatibleSpan_HostMatchWithoutPort(t *testing.T) {
 	gateways := []config.OpenAICompatibleGateway{
 		{Host: "litellm.local", Provider: "litellm"},

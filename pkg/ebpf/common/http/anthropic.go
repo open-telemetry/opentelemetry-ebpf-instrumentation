@@ -99,17 +99,71 @@ func looksLikeAnthropicBody(reqB, respB []byte) bool {
 		extractJSONRawField(reqB, "messages") != nil
 }
 
+// looksLikeAnthropicHTTP1Body is stricter than looksLikeAnthropicBody: without
+// vendor headers, HTTP/1.1 traffic includes unrelated services that also serve
+// /v1/messages.
+func looksLikeAnthropicHTTP1Body(reqB, respB []byte) bool {
+	if extractJSONRawField(reqB, "anthropic_version") != nil {
+		return false
+	}
+
+	if looksLikeJSON(respB) {
+		if extractJSONStringField(respB, "type", responseHeaderSearchWindow) == "message" &&
+			extractJSONStringField(respB, "role", responseHeaderSearchWindow) == "assistant" {
+			return true
+		}
+	} else if startsWithAnthropicMessageStart(respB) {
+		return true
+	}
+
+	return strings.HasPrefix(strings.ToLower(extractModelField(reqB)), "claude") &&
+		extractJSONRawField(reqB, "messages") != nil
+}
+
+// startsWithAnthropicMessageStart reports whether the first SSE event of respB
+// is message_start. Only the first responseHeaderSearchWindow bytes are
+// examined: comment, id and retry lines may precede the event, but an event
+// line that ends outside that window does not match.
+func startsWithAnthropicMessageStart(respB []byte) bool {
+	respB = respB[:min(len(respB), responseHeaderSearchWindow)]
+
+	for line := range bytes.Lines(respB) {
+		line, complete := bytes.CutSuffix(line, []byte("\n"))
+		if !complete {
+			return false
+		}
+
+		line = bytes.TrimSuffix(line, []byte("\r"))
+		if len(line) == 0 ||
+			bytes.HasPrefix(line, []byte(":")) ||
+			bytes.HasPrefix(line, []byte("id:")) ||
+			bytes.HasPrefix(line, []byte("retry:")) {
+			continue
+		}
+
+		event, ok := bytes.CutPrefix(line, []byte("event:"))
+		return ok && bytes.Equal(bytes.TrimSpace(event), []byte("message_start"))
+	}
+
+	return false
+}
+
 func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
 	isAnthropic := isAnthropic(resp.Header)
-	maybeAnthropic := false
+	var looksLikeBody func(reqB, respB []byte) bool
 
 	if !isAnthropic {
 		if !isHTTP2Request(req) || !strings.HasPrefix(baseSpan.Path, "/v1/messages") {
 			return *baseSpan, false
 		}
-		maybeAnthropic = true
+		looksLikeBody = looksLikeAnthropicBody
 	}
 
+	return anthropicSpan(baseSpan, req, resp, looksLikeBody)
+}
+
+// anthropicSpan skips the body evidence check when looksLikeBody is nil.
+func anthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Response, looksLikeBody func(reqB, respB []byte) bool) (request.Span, bool) {
 	reqB, ok := readHTTPRequestBody("AnthropicSpan", req, baseSpan)
 	if !ok {
 		return *baseSpan, false
@@ -120,8 +174,8 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 		return *baseSpan, false
 	}
 
-	if maybeAnthropic {
-		if !looksLikeAnthropicBody(reqB, respB) {
+	if looksLikeBody != nil {
+		if !looksLikeBody(reqB, respB) {
 			return *baseSpan, false
 		}
 	}

@@ -13,7 +13,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 )
 
-func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.Response, gateways []config.OpenAICompatibleGateway) (request.Span, bool) {
+func matchOpenAICompatibleGateway(req *http.Request, gateways []config.OpenAICompatibleGateway) *config.OpenAICompatibleGateway {
+	if len(gateways) == 0 {
+		return nil
+	}
+
 	var reqHost string
 	if req.URL != nil {
 		reqHost = req.URL.Host
@@ -43,6 +47,12 @@ func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.
 		matchedGateway = gw
 		break
 	}
+
+	return matchedGateway
+}
+
+func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.Response, gateways []config.OpenAICompatibleGateway) (request.Span, bool) {
+	matchedGateway := matchOpenAICompatibleGateway(req, gateways)
 
 	if matchedGateway == nil {
 		return *baseSpan, false
