@@ -71,6 +71,7 @@ type Tracer struct {
 	jvmUSDTManager   ebpfcommon.USDTSpecManager
 	pythonRuntime    *pythonRuntimeController
 	rustRuntime      *rustController
+	rustOffHint      sync.Once
 	pythonExceptions *pythonExceptionController
 }
 
@@ -141,7 +142,9 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	if p.rustRuntime != nil {
 		p.rustRuntime.allow(pid, fi)
 	} else if fi.SDKLanguage() == svc.InstrumentableRust {
-		p.log.Info("Rust Tokio task tracking is off; enable it with capture.runtimes.rust.enabled (Config v2)", "pid", pid)
+		p.rustOffHint.Do(func() {
+			p.log.Info("Rust Tokio task tracking is off; enable it with capture.runtimes.rust.enabled (Config v2)", "pid", pid)
+		})
 	}
 	if p.pythonRuntime != nil {
 		p.pythonRuntime.allow(pid, ns, fi, serviceSource)
