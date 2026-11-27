@@ -266,6 +266,7 @@ discovery:
 			BPFFSPath:      "/sys/fs/bpf/",
 			InstrumentCuda: config.CudaModeAuto,
 		},
+		ActiveRequestMaxAge: 5 * time.Minute,
 		NetworkFlows: nc,
 		Stats:        sc,
 		Metrics: perapp.GlobalMetricsConfig{

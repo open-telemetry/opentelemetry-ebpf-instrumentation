@@ -1332,6 +1332,11 @@
           "default": 0,
           "description": "HTTP parser/capture buffer size.\nIf omitted, `0` is used.\n"
         },
+        "active_request_max_age": {
+          "type": "string",
+          "default": "5m0s",
+          "description": "Maximum age of HTTP server requests included in active-request metric counts for OTLP and Prometheus. Older requests are excluded but not deleted from the eBPF map.\nIf omitted, `5m0s` is used.\n"
+        },
         "routes": {
           "type": "object",
           "description": "HTTP route normalization and discovery controls.",

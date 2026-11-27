@@ -80,6 +80,7 @@ instrumentation:
         request_timeout: 0s
         go_http_client_buffer_timeout: 1s
         buffer_size: 0
+        active_request_max_age: 5m0s
         routes:
             incoming:
                 unmatched: heuristic

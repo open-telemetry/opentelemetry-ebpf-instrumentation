@@ -115,6 +115,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		RequestTimeout:            schema.Duration(cfg.EBPF.HTTPRequestTimeout),
 		GoHTTPClientBufferTimeout: schema.Duration(cfg.EBPF.GoHTTPClientBufferTimeout),
 		BufferSize:                cfg.EBPF.BufferSizes.HTTP,
+		ActiveRequestMaxAge:       schema.Duration(cfg.ActiveRequestMaxAge),
 		Routes:                    httpRoutes(cfg),
 		QueryParameters:           schema.HTTPQueryParameters{Redaction: &redaction},
 		PayloadExtraction:         payloadExtraction(cfg),

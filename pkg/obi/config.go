@@ -120,6 +120,7 @@ var (
 
 var DefaultConfig = Config{
 	Logs:                    otelcfg.LogsConfig{BatchMaxSize: 512, QueueSize: 2048, BatchTimeout: time.Second},
+	ActiveRequestMaxAge:     5 * time.Minute,
 	ChannelBufferLen:        50,
 	ChannelSendTimeout:      time.Minute,
 	ChannelSendTimeoutPanic: false,
@@ -385,6 +386,10 @@ var DefaultConfig = Config{
 
 type Config struct {
 	EBPF config.EBPFTracer `yaml:"ebpf"`
+
+	// ActiveRequestMaxAge limits which HTTP server requests are counted as active.
+	// It is configured through Config v2 and is not part of the frozen Config v1 surface.
+	ActiveRequestMaxAge time.Duration `yaml:"-" env:"-" jsonschema:"-" validate:"-"`
 
 	// NetworkFlows configuration for Network Observability feature
 	NetworkFlows NetworkConfig `yaml:"network"`
