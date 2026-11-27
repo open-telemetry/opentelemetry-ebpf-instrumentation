@@ -21,9 +21,11 @@ typedef struct active_request_key {
 } active_request_key_t;
 
 typedef struct active_request {
+    u64 start_monotime_ns;
     pid_info_t pid;
     connection_info_t conn;
     unsigned char path[k_path_max_len];
     unsigned char method[k_method_max_len];
     u8 is_tls;
+    u8 _pad[4];
 } active_request_t;

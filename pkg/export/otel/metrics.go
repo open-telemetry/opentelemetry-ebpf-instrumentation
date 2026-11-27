@@ -17,6 +17,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"go.opentelemetry.io/obi/pkg/activerequests"
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -60,25 +61,27 @@ var MetricTypes = []string{
 	"messaging.",
 }
 
-// MetricsReporter implements the graph node that receives request.Span
-// instances and forwards them as OTEL metrics.
+// MetricsReporter exports application metrics to OpenTelemetry.
 type MetricsReporter struct {
-	ctx              context.Context
-	evictions        sync.WaitGroup
-	cfg              *otelcfg.MetricsConfig
-	jointMetricsCfg  *perapp.GlobalMetricsConfig
-	nodeMeta         metadata.NodeMeta
-	attributes       *attributes.AttrSelector
-	exporter         sdkmetric.Exporter
-	reporters        otelcfg.ReporterPool[*svc.Attrs, *Metrics]
-	systemProvider   *metric.MeterProvider
-	targetInfo       instrument.Int64UpDownCounter
-	tracesTargetInfo instrument.Int64UpDownCounter
-	pidTracker       PidServiceTracker
-	is               instrumentations.InstrumentationSelection
-	targetMetrics    map[svc.UID]*TargetMetrics
-	attrGetters      attributes.NamedGetters[*request.Span, attribute.KeyValue]
-	spanExtraAttrs   spanMetricExtraAttrs
+	ctx                    context.Context
+	evictions              sync.WaitGroup
+	cfg                    *otelcfg.MetricsConfig
+	jointMetricsCfg        *perapp.GlobalMetricsConfig
+	nodeMeta               metadata.NodeMeta
+	attributes             *attributes.AttrSelector
+	exporter               sdkmetric.Exporter
+	reporters              otelcfg.ReporterPool[*svc.Attrs, *Metrics]
+	systemProvider         *metric.MeterProvider
+	targetInfo             instrument.Int64UpDownCounter
+	tracesTargetInfo       instrument.Int64UpDownCounter
+	pidTracker             PidServiceTracker
+	is                     instrumentations.InstrumentationSelection
+	targetMetrics          map[svc.UID]*TargetMetrics
+	attrGetters            attributes.NamedGetters[*request.Span, attribute.KeyValue]
+	spanExtraAttrs         spanMetricExtraAttrs
+	activeRequestsReader   *activerequests.Reader
+	activeRequestsProvider *metric.MeterProvider
+	activeRequestAttrs     []attr.Name
 
 	// user-selected fields for each of the reported metrics
 	attrHTTPDuration              []attributes.Field[*request.Span, attribute.KeyValue]
@@ -259,6 +262,11 @@ func newMetricsReporter(
 		attrGetters:         request.SpanOTELGetters(unresolved),
 	}
 
+	if mr.activeRequestsEnabled(ctxInfo) {
+		mr.activeRequestsReader = activerequests.NewReader(ctxInfo.AppO11y.EBPFEventContext, *ctxInfo.AppO11y.ActiveRequestsConfig)
+		mr.activeRequestAttrs = mr.attributes.For(attributes.HTTPServerActiveRequests)
+	}
+
 	legacySpanExtraAttrs := []attr.Name{}
 	for _, label := range cfg.ExtraSpanResourceLabels {
 		legacySpanExtraAttrs = append(legacySpanExtraAttrs, attr.Name(label))
@@ -405,6 +413,10 @@ func newMetricsReporter(
 		if err := mr.setupSystemMetrics(); err != nil {
 			return nil, err
 		}
+	}
+
+	if mr.activeRequestsReader != nil {
+		mr.setupActiveRequestsMetrics()
 	}
 
 	return &mr, nil
@@ -1014,6 +1026,11 @@ func (mr *MetricsReporter) close() {
 	if mr.systemProvider != nil {
 		if err := mr.systemProvider.Shutdown(shutdownCtx); err != nil {
 			mlog().Warn("error shutting down system metrics provider", "error", err)
+		}
+	}
+	if mr.activeRequestsProvider != nil {
+		if err := mr.activeRequestsProvider.Shutdown(shutdownCtx); err != nil {
+			mlog().Warn("error shutting down active requests metrics provider", "error", err)
 		}
 	}
 	waitWithin(shutdownCtx, &mr.evictions)

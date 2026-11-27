@@ -86,12 +86,10 @@ record_active_go_request(const go_addr_key_t *g_key, void *req, off_table_t *ot)
     }
 
     active_request_key_t key = active_request_key_from_go(g_key);
-    if (bpf_map_lookup_elem(&active_requests, &key)) {
-        return;
-    }
 
     active_request_t active = {};
     task_pid(&active.pid);
+    active.start_monotime_ns = bpf_ktime_get_ns();
 
     if (!read_go_str("method",
                      req,
@@ -129,7 +127,8 @@ record_active_go_request(const go_addr_key_t *g_key, void *req, off_table_t *ot)
         active.conn = server->conn;
     }
 
-    bpf_map_update_elem(&active_requests, &key, &active, BPF_NOEXIST);
+    // HTTP/2 may hit both start probes; a later request may reuse this goroutine key.
+    bpf_map_update_elem(&active_requests, &key, &active, BPF_ANY);
 }
 
 /* HTTP Server */

@@ -24,8 +24,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"go.opentelemetry.io/obi/pkg/activerequests"
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -183,6 +185,66 @@ func TestConnectionInfoRawIPRemainsDistinctDestination(t *testing.T) {
 		}
 		assert.Equal(t, address, labels[attr.Server.Prom()])
 		assert.Empty(t, labels[attr.ServerNamespace.Prom()])
+	}
+}
+
+func TestActiveRequestsPromReporterRegistration(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		features         export.Features
+		instrumentations []instrumentations.Instrumentation
+		wantCollector    bool
+	}{
+		{
+			name:             "active requests without RED metrics",
+			features:         export.FeatureHTTPServerActiveRequests,
+			instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+			wantCollector:    true,
+		},
+		{
+			name:             "feature disabled",
+			features:         export.FeatureApplicationRED,
+			instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		},
+		{
+			name:             "HTTP instrumentation disabled",
+			features:         export.FeatureHTTPServerActiveRequests,
+			instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := testutil.NewPrometheusServer(t)
+			ctxInfo := &global.ContextInfo{Prometheus: server.Manager}
+			ctxInfo.AppO11y.EBPFEventContext = &ebpfcommon.EBPFEventContext{}
+			ctxInfo.AppO11y.ActiveRequestsConfig = &activerequests.Config{}
+
+			reporter, err := newReporter(
+				t.Context(),
+				ctxInfo,
+				&PrometheusConfig{
+					Port:             server.Port,
+					Path:             "/metrics",
+					TTL:              time.Minute,
+					Instrumentations: tc.instrumentations,
+				},
+				&perapp.GlobalMetricsConfig{Features: tc.features, DisableTargetInfo: true},
+				&attributes.SelectorConfig{},
+				request.UnresolvedNames{},
+				nil,
+				msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
+				nil,
+			)
+			require.NoError(t, err)
+			if !tc.wantCollector {
+				require.Nil(t, reporter.activeRequests)
+				require.NotContains(t, getMetrics(t, server.URL), attributes.HTTPServerActiveRequests.Prom)
+				return
+			}
+
+			require.NotNil(t, reporter.activeRequests)
+			reporter.activeRequests.collectCounts([]activerequests.Count{{Attributes: attribute.NewSet(), Value: 1}})
+			require.Contains(t, getMetrics(t, server.URL), attributes.HTTPServerActiveRequests.Prom)
+		})
 	}
 }
 

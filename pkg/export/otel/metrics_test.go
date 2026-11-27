@@ -27,11 +27,13 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
+	"go.opentelemetry.io/obi/pkg/activerequests"
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -101,6 +103,56 @@ func TestOtelHistogramConfig_ExplicitHistogramUsesBuckets(t *testing.T) {
 	aggregation, ok := stream.Aggregation.(sdkmetric.AggregationExplicitBucketHistogram)
 	require.True(t, ok)
 	assert.Equal(t, buckets, aggregation.Boundaries)
+}
+
+func TestActiveRequestsReporterSetup(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		features         export.Features
+		instrumentation  instrumentations.Instrumentation
+		wantActiveReader bool
+	}{
+		{
+			name:             "active requests only",
+			features:         export.FeatureHTTPServerActiveRequests,
+			instrumentation:  instrumentations.InstrumentationHTTP,
+			wantActiveReader: true,
+		},
+		{
+			name:            "feature disabled",
+			features:        export.FeatureApplicationRED,
+			instrumentation: instrumentations.InstrumentationHTTP,
+		},
+		{
+			name:            "HTTP instrumentation disabled",
+			features:        export.FeatureHTTPServerActiveRequests,
+			instrumentation: instrumentations.InstrumentationGRPC,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := shutdownTestConfig(make(chan collector.MetricRecord, 10), 10)
+			cfg.Instrumentations = []instrumentations.Instrumentation{tc.instrumentation}
+			ctxInfo := &global.ContextInfo{
+				OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg},
+				AppO11y: global.AppO11y{
+					EBPFEventContext:     &ebpfcommon.EBPFEventContext{},
+					ActiveRequestsConfig: &activerequests.Config{MaxAge: time.Minute},
+				},
+			}
+			reporter, err := newMetricsReporter(
+				t.Context(), ctxInfo, cfg,
+				&perapp.GlobalMetricsConfig{Features: tc.features, DisableTargetInfo: true},
+				&attributes.SelectorConfig{}, request.UnresolvedNames{},
+				msg.NewQueue[[]request.Span](), msg.NewQueue[exec.ProcessEvent](),
+			)
+			require.NoError(t, err)
+			defer reporter.close()
+
+			assert.Equal(t, tc.wantActiveReader, reporter.activeRequestsReader != nil)
+			assert.Equal(t, tc.wantActiveReader, reporter.activeRequestsProvider != nil)
+			assert.Nil(t, reporter.systemProvider)
+		})
+	}
 }
 
 func TestMetrics_InternalInstrumentation(t *testing.T) {
