@@ -4,7 +4,7 @@ WORKDIR /app
 COPY internal/test/integration/components/php/harvest/laravel/composer.json internal/test/integration/components/php/harvest/laravel/composer.lock ./
 RUN composer install --no-dev --no-interaction --no-scripts --prefer-dist
 
-FROM php:8.5.8-fpm@sha256:0dc450d0a0e81ba501973b8e303f5d45af2ed989e08730f597d8fc07fb289efd
+FROM php:8.6.0-fpm@sha256:df9ead21fc3a43c80587a5461db3b859b0f6e3effe5da33a22fc762d5d8a4364
 
 WORKDIR /var/www/laravel
 COPY --from=dependencies /app/vendor ./vendor
