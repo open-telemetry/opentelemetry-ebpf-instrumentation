@@ -1480,7 +1480,8 @@ int GUARDED_PROG(obi_uprobe_http2ResponseWriterStateWriteHeader, struct pt_regs 
 
 // HTTP 2.0 server support
 static __always_inline void http2_server_conn_run_handler(struct pt_regs *ctx,
-                                                          go_offset_const off_sc_conn_pos) {
+                                                          go_offset_const off_sc_conn_pos,
+                                                          const bool has_http_request) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
@@ -1517,7 +1518,9 @@ static __always_inline void http2_server_conn_run_handler(struct pt_regs *ctx,
         }
     }
 
-    record_active_go_request(&g_key, GO_PARAM3(ctx), ot);
+    if (has_http_request) {
+        record_active_go_request(&g_key, GO_PARAM3(ctx), ot);
+    }
 }
 
 // x/net's server and the one vendored in net/http before Go 1.27
@@ -1525,7 +1528,7 @@ SEC("uprobe/http2serverConn_runHandler")
 int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/http2serverConn_runHandler ===");
 
-    http2_server_conn_run_handler(ctx, _sc_conn_pos);
+    http2_server_conn_run_handler(ctx, _sc_conn_pos, true);
     return 0;
 }
 
@@ -1534,7 +1537,8 @@ SEC("uprobe/http2serverConn_runHandlerInternal")
 int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler_internal, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/http2serverConn_runHandlerInternal ===");
 
-    http2_server_conn_run_handler(ctx, _sc_conn_internal_pos);
+    // Go 1.27 passes ServerRequest here; ServeHTTP records the converted net/http.Request.
+    http2_server_conn_run_handler(ctx, _sc_conn_internal_pos, false);
     return 0;
 }
 
