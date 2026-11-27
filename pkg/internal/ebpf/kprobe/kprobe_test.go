@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -32,6 +33,8 @@ func restoreAttachments(t *testing.T) {
 }
 
 func TestAttach(t *testing.T) {
+	m := useTestMonitor(t)
+	require.NoError(t, os.Remove(m.patchDir))
 	for _, ret := range []bool{false, true} {
 		for _, tc := range []struct {
 			name             string
@@ -90,6 +93,30 @@ func TestAttach(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestAttachResolvesAmbiguousTraceFSName(t *testing.T) {
+	restoreAttachments(t)
+	m := useTestMonitor(t)
+	require.NoError(t, os.WriteFile(m.kallsyms, []byte("0010 T listener\n0020 t listener\t[patch]\n"), 0o600))
+	attachPMU = func(string, *ebpf.Program, bool) (io.Closer, error) { return nil, unix.EACCES }
+	var targets []string
+	attachTraceFSEvent = func(_ *ebpf.Program, opts tracefs.Options) (io.Closer, error) {
+		require.Len(t, opts.Targets, 1)
+		target := opts.Targets[0]
+		targets = append(targets, target)
+		if target == "listener" {
+			return nil, unix.EADDRNOTAVAIL
+		}
+		return &nopCloser{}, nil
+	}
+
+	l, err := Attach("listener", nil, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, l.Close()) })
+	require.Len(t, targets, 3)
+	assert.Equal(t, "listener", targets[0])
+	assert.ElementsMatch(t, []string{"0x10", "patch:listener"}, targets[1:])
 }
 
 func TestTraceFSRetrySyscallPrefix(t *testing.T) {

@@ -7,7 +7,9 @@ package kprobe // import "go.opentelemetry.io/obi/pkg/internal/ebpf/kprobe"
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"runtime"
 
 	"github.com/cilium/ebpf"
@@ -26,13 +28,47 @@ var attachPMU = func(symbol string, prog *ebpf.Program, ret bool) (io.Closer, er
 
 var attachTraceFSEvent = tracefs.Attach
 
-// Attach retries an EACCES from the PMU through tracefs, keeping the kernel's
-// default maxactive for return probes.
+// Attach instruments each resolvable copy of an ambiguous symbol and follows livepatches.
 func Attach(symbol string, prog *ebpf.Program, ret bool) (io.Closer, error) {
-	return tracefs.WithFallback(tracefs.Kprobe,
-		func() (io.Closer, error) { return attachPMU(symbol, prog, ret) },
-		func() (io.Closer, error) { return attachTraceFS(symbol, prog, ret) },
-	)
+	attachByName := func(link io.Closer, err error) (*watchedProbe, error) {
+		if err != nil {
+			return nil, err
+		}
+		return &watchedProbe{symbol: symbol, ret: ret, primary: link, links: map[probeTarget]io.Closer{}}, nil
+	}
+
+	p, err := tracefs.WithFallback(tracefs.Kprobe, tracefs.AttachFuncs[*watchedProbe]{
+		PMU:               func() (*watchedProbe, error) { return attachByName(attachPMU(symbol, prog, ret)) },
+		TraceFS:           func() (*watchedProbe, error) { return attachByName(attachTraceFS(symbol, prog, ret)) },
+		TraceFSDuplicates: func() (*watchedProbe, error) { return attachDuplicates(symbol, prog, ret) },
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return kernelProbes.register(p, prog)
+}
+
+func attachDuplicates(symbol string, prog *ebpf.Program, ret bool) (*watchedProbe, error) {
+	wanted := map[string]bool{symbol: true, syscallPrefix() + symbol: true}
+	symbols, err := readSymbols(kernelProbes.kallsyms, wanted)
+	if err != nil {
+		return nil, err
+	}
+
+	p := &watchedProbe{symbol: symbol, ret: ret, links: map[probeTarget]io.Closer{}}
+	targets, lookupErr := symbols.targets(symbols.resolveName(symbol), nil)
+	attachErr := p.update(prog, targets, lookupErr)
+
+	if len(p.links) == 0 {
+		return nil, errors.Join(fmt.Errorf("no tracefs target attached for %q", symbol), attachErr)
+	}
+
+	slog.Debug("attached ambiguous kprobe through tracefs", "symbol", symbol, "targets", len(p.links))
+	p.report(attachErr)
+
+	return p, nil
 }
 
 func attachTraceFS(symbol string, prog *ebpf.Program, ret bool) (io.Closer, error) {
@@ -48,6 +84,38 @@ func attachTraceFS(symbol string, prog *ebpf.Program, ret bool) (io.Closer, erro
 		return attachTraceFSEvent(prog, opts)
 	}
 	return closer, err
+}
+
+func (p *watchedProbe) update(prog *ebpf.Program, targets map[probeTarget]bool, lookupErr error) error {
+	var err error
+	for target := range targets {
+		if _, exists := p.links[target]; exists {
+			continue
+		}
+
+		link, attachErr := attachTraceFSEvent(prog, tracefs.Options{
+			Type: tracefs.Kprobe, Targets: []string{target.token}, Return: p.ret,
+		})
+
+		if attachErr != nil {
+			err = errors.Join(err, attachErr)
+			continue
+		}
+
+		p.links[target] = link
+	}
+
+	// A partial lookup (e.g. kptr_restrict changed) cannot establish that an old target vanished.
+	if lookupErr == nil {
+		for target, link := range p.links {
+			if !targets[target] {
+				err = errors.Join(err, link.Close())
+				delete(p.links, target)
+			}
+		}
+	}
+
+	return errors.Join(lookupErr, err)
 }
 
 func syscallPrefix() string {
