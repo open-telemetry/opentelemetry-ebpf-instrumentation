@@ -65,8 +65,8 @@ func chooseMapReader(forcedType config.EBPFMapReader, flowMap *ebpf.Map, cacheMa
 	}
 }
 
-// flowMapReaderChooser will choose, during first invocation to lookupAndDeleteMap,
-// between the map Batch reader (if available) and the legacy iterator-based reader (fallback)
+// flowMapReaderChooser tries the batch reader on the first call to lookupAndDeleteMap
+// and falls back to the per-key legacy reader if batch lookup is unsupported.
 type flowMapReaderChooser struct {
 	working flowMapReader
 	batch   *flowMapBatchReader
