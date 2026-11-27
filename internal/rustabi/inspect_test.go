@@ -21,6 +21,12 @@ func TestInspectRustcHTTP1(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "1.100.0", profile.Rustc)
 	require.Equal(t, "amd64", profile.Arch)
+	require.Equal(t, []CrateVersions{{
+		"hyper": {"1.12.0"},
+		"tokio": {"1.54.1"},
+		"http":  {"1.5.0"},
+		"bytes": {"1.12.1"},
+	}}, profile.CrateSets)
 
 	// Byte offsets from rustc's -Zprint-type-sizes for the pinned fixture.
 	require.Equal(t, Layouts{
