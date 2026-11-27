@@ -183,6 +183,7 @@ func TestOTelTraceExportStopsHeaderInjectionOnExistingSocket(t *testing.T) {
 		setup  []byte
 		before []byte
 		after  []byte
+		forked bool
 	}{
 		{
 			name:   "HTTP1 keeps TCP options",
@@ -193,17 +194,41 @@ func TestOTelTraceExportStopsHeaderInjectionOnExistingSocket(t *testing.T) {
 			name: "HTTP2", setup: bytes.Join([][]byte{h2Preface, h2EmptySettings}, nil),
 			before: h2ProbeFrame(1), after: h2ProbeFrame(3),
 		},
+		{
+			name:   "HTTP1 undiscovered worker",
+			before: []byte("GET /before HTTP/1.1\r\nHost: localhost\r\n\r\n"),
+			after:  []byte("GET /after HTTP/1.1\r\nHost: localhost\r\n\r\n"),
+			forked: true,
+		},
+		{
+			name: "HTTP2 undiscovered worker", setup: bytes.Join([][]byte{h2Preface, h2EmptySettings}, nil),
+			before: h2ProbeFrame(1), after: h2ProbeFrame(3), forked: true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			objs := loadSocketGuardHarness(t)
+			constants := ebpfcommon.PIDFilterConstants()
+			constants["filter_pids"] = int32(1)
+			objs := loadSocketGuardHarnessWith(t, constants)
 			cfg := &obi.Config{Discovery: services.DiscoveryConfig{ExcludeOTelInstrumentedServices: true}}
 			filter := ebpfcommon.NewPIDsFilter(&cfg.Discovery, slog.Default(), nil)
 			tracer := New(cfg, filter)
 			tracer.bpfObjects = *objs
+			tracer.backfillDisabled = true
+			tracer.fionreadProbe = func(*ebpf.Map) (bool, error) {
+				t.Fatal("fallback discovery must not attempt scoped socket backfill")
+				return false, nil
+			}
+			require.False(t, tracer.enrollInstrumentedOnly)
 			filter.SetOTelTracesPIDFilter(otelTracesPIDFilter{tracer: tracer})
 			t.Cleanup(func() { filter.RemoveOTelTracesPIDFilter() })
 			pid, ns := app.PID(os.Getpid()), selfPidNamespace(t)
+			if tc.forked {
+				pid = app.PID(os.Getppid())
+			}
 			filter.AllowPID(pid, ns, exec.New(exec.Init{Pid: pid, Ns: ns}), ebpfcommon.PIDTypeKProbes)
+			tracer.AllowPID(pid, ns, nil)
+			var selected ebpfcommon.PIDBitmap
+			require.NoError(t, selected.Set(objs.ValidPids, pid, true))
 
 			conn := newGuardConn(t, objs)
 			key := conn.egressKey(0)
@@ -240,6 +265,29 @@ func TestOTelTraceExportStopsHeaderInjectionOnExistingSocket(t *testing.T) {
 			}
 			fresh.send(tc.after)
 			requirePristine(t, fresh)
+
+			if tc.forked {
+				// Go-only discovery does not add the worker to the generic PID filter.
+				childPID := app.PID(os.Getpid())
+				filter.AllowPID(childPID, ns, exec.New(exec.Init{Pid: childPID, Ns: ns}), ebpfcommon.PIDTypeGo)
+				tracer.AllowPID(childPID, ns, nil)
+				discovered := newGuardConn(t, objs)
+				if len(tc.setup) != 0 {
+					discovered.send(tc.setup)
+				}
+				discovered.send(tc.after)
+				require.Contains(t, string(bytes.ToLower(discovered.received())), "traceparent",
+					"a discovered Go-only worker has its own exporter classification")
+
+				filter.BlockPID(childPID, ns)
+				tracer.BlockPID(childPID, ns)
+				blocked := newGuardConn(t, objs)
+				if len(tc.setup) != 0 {
+					blocked.send(tc.setup)
+				}
+				blocked.send(tc.after)
+				requirePristine(t, blocked)
+			}
 		})
 	}
 }
