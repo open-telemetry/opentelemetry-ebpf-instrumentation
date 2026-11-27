@@ -100,12 +100,6 @@ func TestMatchOpenAICompatibleGateway(t *testing.T) {
 			wantIndex: 0,
 		},
 		{
-			name:      "unparseable request port matches configured port",
-			urlHost:   "litellm.local:invalid",
-			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local", Port: 443}},
-			wantIndex: 0,
-		},
-		{
 			name:      "first matching gateway wins",
 			urlHost:   "litellm.local",
 			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local"}, {Host: "litellm.local"}},

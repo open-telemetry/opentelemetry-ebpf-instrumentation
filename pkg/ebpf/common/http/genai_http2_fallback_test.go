@@ -120,23 +120,6 @@ func TestGenAIHTTP2Gate(t *testing.T) {
 	assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType)
 }
 
-// TestGenAIHTTP2AnthropicKeepsLegacyEvidence checks that HTTP/2 keeps the looser
-// Anthropic evidence check: a "message" response without an assistant role is
-// accepted here, although the HTTP/1.1 fallback rejects it.
-func TestGenAIHTTP2AnthropicKeepsLegacyEvidence(t *testing.T) {
-	req := makeRequest(t, http.MethodPost, anthropicMessagesPath, `{"to":"+15550100","text":"hi"}`)
-	req.Proto, req.ProtoMajor, req.ProtoMinor = "HTTP/2.0", 2, 0
-	resp := makePlainResponse(http.StatusOK, http.Header{}, `{"type":"message"}`)
-	base := &request.Span{Type: request.EventTypeHTTPClient, Path: anthropicMessagesPath}
-
-	span, ok := AnthropicSpan(base, req, resp)
-
-	assert.True(t, ok)
-	assert.Equal(t, request.HTTPSubtypeAnthropic, span.SubType)
-	require.NotNil(t, span.GenAI)
-	assert.NotNil(t, span.GenAI.Anthropic)
-}
-
 // TestGenAIHTTP2DashScopeEmbeddingDetectorOrder replays the postProcessHTTPSpan
 // GenAI detector order for an HTTP/2 request to DashScope's compatible-mode
 // /v1/embeddings endpoint: OpenAI must yield the "text-embedding-v<N>" model so

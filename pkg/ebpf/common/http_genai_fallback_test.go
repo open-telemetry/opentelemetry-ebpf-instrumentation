@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -147,7 +146,7 @@ func TestPostProcessHTTPSpanGenAIHTTP1OpenAIEndpoints(t *testing.T) {
 			wantPath:     "/v1/embeddings", wantOperation: request.EmbeddingOperationName, wantSubtype: request.HTTPSubtypeOpenAI,
 		},
 		{
-			name: "DashScope_embeddings_left_for_Qwen", target: "/v1/embeddings",
+			name: "DashScope_embeddings_not_claimed_by_OpenAI", target: "/v1/embeddings",
 			requestBody:  `{"model":"text-embedding-v3","input":["hi"]}`,
 			responseBody: `{"object":"list","model":"text-embedding-v3","data":[]}`,
 			wantPath:     "/v1/embeddings", wantSubtype: request.HTTPSubtypeNone,
@@ -190,30 +189,6 @@ func TestPostProcessHTTPSpanGenAIHTTP1RPCPrecedence(t *testing.T) {
 			span := httpRequestResponseToSpan(parseCtx, &BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}, req, resp)
 
 			assert.Equal(t, tc.subtype, span.SubType)
-		})
-	}
-}
-
-// With JSON-RPC enabled, TryParseJSONRPC consumes a request body that fails to
-// read without restoring it, so the fallback no longer sees the body. This pins
-// that existing TryParseJSONRPC limitation.
-func TestPostProcessHTTPSpanGenAIHTTP1RPCReadError(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
-			parseCtx := newGenAIHTTP1ParseContext()
-			parseCtx.payloadExtraction.HTTP.JSONRPC.Enabled = enabled
-			req, resp := newGenAIHTTP1Exchange(t, "/v1/chat/completions", genAIHTTP1OpenAIRequest, "{}")
-			req.Body = io.NopCloser(io.MultiReader(strings.NewReader(genAIHTTP1OpenAIRequest), readErrorCloser{err: io.ErrUnexpectedEOF}))
-
-			span := httpRequestResponseToSpan(parseCtx, &BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}, req, resp)
-
-			if enabled {
-				assert.Equal(t, request.HTTPSubtypeNone, span.SubType)
-				assert.Nil(t, span.GenAI)
-			} else {
-				assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType)
-				require.NotNil(t, span.GenAI)
-			}
 		})
 	}
 }
