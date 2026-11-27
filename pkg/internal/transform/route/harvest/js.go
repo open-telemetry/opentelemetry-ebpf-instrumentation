@@ -35,11 +35,15 @@ const (
 	maxJSStatementBytes    = 4 * 1024
 )
 
+// systemSkipDirs lists the Linux root file system directories. They only need
+// to be skipped by walks that can start at the file system root, where they
+// would otherwise drag the whole system into the scan. Inside an application
+// directory the same names (lib, bin, opt...) can hold application code.
+//
 // /root is purposefully missing, since we need it to star the file walk
 // we skip later any root directories we find that don't match our original
 // path
-var skipDirs = map[string]string{
-	// Linux root file system
+var systemSkipDirs = map[string]string{
 	"bin":        "Essential command binaries",
 	"boot":       "Boot loader files",
 	"dev":        "Device files",
@@ -63,14 +67,33 @@ var skipDirs = map[string]string{
 	"flatpak":    "Flatpak packages",
 	"ostree":     "Used by rpm-ostree/Fedora Silverblue for atomic updates",
 	"sysroot":    "Used in some immutable/atomic variants as the actual root filesystem",
-	// Node specific
+}
+
+// commonSkipDirs lists the directories that never hold application route
+// declarations, whatever the language.
+var commonSkipDirs = map[string]string{
+	".git": "git source control",
+}
+
+// nodeSkipDirs lists the Node.js specific directories without application
+// sources.
+var nodeSkipDirs = map[string]string{
 	"node_modules": "Standard node modules",
 	".npm":         "npm build cache",
-	".git":         "git source control",
 	"dist":         "distribution directories",
 	"build":        "build directories",
 	".next":        "Next.js output/metadata directory",
 }
+
+// skipDirs is the skip list of the walks that can start at the file system
+// root: the system, common and Node.js directories together.
+var skipDirs = func() map[string]string {
+	m := make(map[string]string, len(systemSkipDirs)+len(commonSkipDirs)+len(nodeSkipDirs))
+	maps.Copy(m, systemSkipDirs)
+	maps.Copy(m, commonSkipDirs)
+	maps.Copy(m, nodeSkipDirs)
+	return m
+}()
 
 // RoutePattern represents an extracted HTTP route
 type RoutePattern struct {
