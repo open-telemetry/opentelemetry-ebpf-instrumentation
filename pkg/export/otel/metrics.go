@@ -1384,7 +1384,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				}
 			}
 		case request.EventTypeAMQPClient:
-			if mr.is.AMQPEnabled() {
+			if mr.is.AMQPEnabled() && span.SubType != request.AMQPSubtype091 {
 				switch request.MessagingOperationTypeOf(span.Method) {
 				case request.MessagingSend:
 					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)

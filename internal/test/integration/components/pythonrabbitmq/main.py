@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import socket
 import time
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -75,7 +76,51 @@ def kombu_roundtrip(queue: Queue, routing_keys: tuple[str, ...], body: bytes) ->
                 conn.drain_events(timeout=TIMEOUT_SECONDS)
 
 
+def delivery(exchange: str, tag: int) -> bytes:
+    method = pika.spec.Basic.Deliver("c", tag, False, exchange, str(tag))
+    return b"".join((
+        pika.frame.Method(1, method).marshal(),
+        pika.frame.Header(1, 1, pika.BasicProperties()).marshal(),
+        pika.frame.Body(1, b"x").marshal(),
+    ))
+
+
+def receive_chunks(*chunks: bytes) -> None:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        with socket.create_connection(listener.getsockname(), TIMEOUT_SECONDS) as client:
+            peer, _ = listener.accept()
+            with peer:
+                client.sendall(pika.frame.ProtocolHeader().marshal())
+                for chunk in chunks:
+                    peer.sendall(chunk)
+                    if client.recv(len(chunk), socket.MSG_WAITALL) != chunk:
+                        raise ValueError("incomplete delivery read")
+
+
+def receive_delivery_batch() -> None:
+    receive_chunks(b"".join(delivery("batch", tag) for tag in range(1, 66)))
+
+
+def receive_split_method() -> None:
+    for exchange in ("class-cut", "exchange-cut"):
+        first = delivery(exchange, 1)
+        # Seven header bytes and the two-byte class ID, or the start of the
+        # exchange short string (its length byte precedes the exchange name).
+        cut = 7 + 2 if exchange == "class-cut" else first.index(exchange.encode()) - 1
+        receive_chunks(first[:cut], first[cut:] + delivery(exchange, 2))
+
+
+def receive_split_header() -> None:
+    first = delivery("header-cut", 1)
+    receive_chunks(first[:2], first[2:4], first[4:] + delivery("header-cut", 2))
+
+
 ROUTES = {
+    "/split-header": receive_split_header,
+    "/delivery-batch": receive_delivery_batch,
+    "/split-method": receive_split_method,
     "/pika": partial(pika_roundtrip, BROKER_URL, PIKA_QUEUE),
     "/pika-tls": partial(pika_roundtrip, os.getenv("AMQPS_URL", "amqps://localhost:5671/"), "oats-pika-tls"),
     "/kombu": partial(kombu_roundtrip, KOMBU_QUEUE, ("kombu",), b"kombu"),

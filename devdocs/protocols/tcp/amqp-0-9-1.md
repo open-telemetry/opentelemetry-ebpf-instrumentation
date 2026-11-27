@@ -32,5 +32,5 @@ The [Go parser](../../../pkg/internal/ebpf/amqpparser/amqp091.go) decodes the ex
 
 - Sends are parsed from a frame boundary. Splitting a frame across sends can cause missed spans.
 - OBI captures up to 256 bytes of the method payload. A short capture can truncate destination names or prevent span creation.
-- Span duration measures the time OBI spends walking the buffer and emitting the event. `Basic.Get-Ok` produces a span only.
+- Span duration measures the time OBI spends walking the buffer and emitting the event. OBI omits messaging operation duration histograms for AMQP 0-9-1.
 - Trace context propagation through message headers and applications instrumented by OBI's Go tracer are unsupported.

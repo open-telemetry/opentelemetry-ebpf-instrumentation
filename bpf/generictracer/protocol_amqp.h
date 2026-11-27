@@ -54,14 +54,17 @@ typedef struct amqp_walk {
     u8 user;
     u8 walks;
     u8 messages;
+    u8 resume_after_emit;
     // a header kept from the previous buffer and completed from this one; twice
     // the header size, so the completing read stays in bounds
     unsigned char header[2 * k_amqp_frame_header_len];
-    u8 _pad[3];
+    u8 saved_method;
+    u8 _pad;
     // a send starts at a frame boundary, so its state lives only for the buffer
     amqp_stream_t send;
     amqp_msg_ref_t msgs[k_amqp_max_messages];
-    u8 _pad2[4];
+    // The verifier bounds the append offset and read length independently.
+    unsigned char method[2 * k_amqp_method_copy_len];
 } amqp_walk_t;
 
 SCRATCH_MEM_TYPED(amqp_walk, amqp_walk_t)
@@ -184,14 +187,8 @@ static __always_inline amqp_stream_t *amqp_stream_of(const call_protocol_args_t 
     return bpf_map_lookup_elem(&amqp_streams, &args->pid_conn);
 }
 
-static __always_inline bool
-amqp_message_method(const call_protocol_args_t *args, const amqp_walk_t *w, u32 payload, u32 size) {
-    if (size < k_amqp_method_header_len) {
-        return false;
-    }
-
-    unsigned char m[k_amqp_method_header_len];
-    amqp_read(m, sizeof(m), w, payload);
+static __always_inline bool amqp_message_method(const call_protocol_args_t *args,
+                                                const unsigned char *m) {
     if (amqp_be16(m) != k_amqp_class_basic) {
         return false;
     }
@@ -206,7 +203,11 @@ amqp_message_method(const call_protocol_args_t *args, const amqp_walk_t *w, u32 
 static __always_inline void
 amqp_record(const call_protocol_args_t *args, amqp_walk_t *w, u8 type, u32 payload, u32 size) {
     if (type != k_amqp_frame_method || w->messages >= k_amqp_max_messages ||
-        !amqp_message_method(args, w, payload, size)) {
+        size < k_amqp_method_header_len) {
+        return;
+    }
+    unsigned char method[k_amqp_method_header_len];
+    if (amqp_read(method, sizeof(method), w, payload) || !amqp_message_method(args, method)) {
         return;
     }
 
@@ -236,7 +237,18 @@ static __always_inline bool amqp_payload(const call_protocol_args_t *args,
     const u32 avail = w->len - payload;
     if (size > avail) {
         // The payload continues in another read. Count the frame end in skip.
-        amqp_record(args, w, hdr[0], payload, avail);
+        if (args->direction == TCP_RECV && hdr[0] == k_amqp_frame_method &&
+            avail < k_amqp_method_copy_len && size >= k_amqp_method_header_len) {
+            st->method_target = size < k_amqp_method_copy_len ? size : k_amqp_method_copy_len;
+            u32 copy_len = avail;
+            bpf_clamp_umax(copy_len, k_amqp_method_copy_len);
+            st->method_len = copy_len;
+            if (copy_len && amqp_read(st->method, copy_len, w, payload)) {
+                st->method_target = 0;
+            }
+        } else {
+            amqp_record(args, w, hdr[0], payload, avail);
+        }
         st->skip = size - avail + 1;
         return false;
     }
@@ -292,25 +304,53 @@ amqp_resume_header(const call_protocol_args_t *args, amqp_walk_t *w, amqp_stream
     u32 have = st->header_len;
     bpf_clamp_umax(have, k_amqp_frame_header_len);
     const u32 need = k_amqp_frame_header_len - have;
-    st->header_len = 0;
-    if (w->len < need) {
+    u32 take = w->len < need ? w->len : need;
+    bpf_clamp_umax(take, k_amqp_frame_header_len);
+    __builtin_memcpy(w->header, st->header, k_amqp_frame_header_len);
+    if (take && amqp_read(w->header + have, take, w, 0)) {
         amqp_lose_sync(st);
         return false;
     }
 
-    __builtin_memcpy(w->header, st->header, k_amqp_frame_header_len);
-    if (need) {
-        amqp_read(w->header + have, need, w, 0);
-    }
-
-    // This read finished the header exactly. Keep it so the next read can
-    // start directly at the payload.
-    if (w->len == need) {
+    // Keep the accumulated header until a read also contains payload bytes.
+    if (w->len <= need) {
         __builtin_memcpy(st->header, w->header, k_amqp_frame_header_len);
-        st->header_len = k_amqp_frame_header_len;
+        st->header_len = have + take;
         return false;
     }
+    st->header_len = 0;
     return amqp_payload(args, w, st, w->header, need);
+}
+
+static __always_inline void
+amqp_resume_method(const call_protocol_args_t *args, amqp_walk_t *w, amqp_stream_t *st) {
+    const u32 have = st->method_len;
+    const u32 target = st->method_target;
+    if (!target || target > k_amqp_method_copy_len || have >= target) {
+        return;
+    }
+
+    const u32 need = target - have;
+    u32 n = w->len < need ? w->len : need;
+    bpf_clamp_umax(n, k_amqp_method_copy_len);
+    __builtin_memcpy(w->method, st->method, sizeof(st->method));
+    if (amqp_read(w->method + have, n, w, 0)) {
+        st->method_target = 0;
+        return;
+    }
+    if (n < need) {
+        __builtin_memcpy(st->method, w->method, sizeof(st->method));
+        st->method_len = have + n;
+        return;
+    }
+
+    st->method_target = 0;
+    if (amqp_message_method(args, w->method)) {
+        // A method resumed from the previous read is always the first record.
+        w->saved_method = 1;
+        w->msgs[0].size = target;
+        w->messages = 1;
+    }
 }
 
 static __always_inline bool
@@ -323,6 +363,7 @@ amqp_resume(const call_protocol_args_t *args, amqp_walk_t *w, amqp_stream_t *st)
     // end marker before treating any bytes in this read as a new header.
     if (st->skip) {
         if (st->skip > w->len) {
+            amqp_resume_method(args, w, st);
             st->skip -= w->len;
             if (st->skip == sizeof(u8)) {
                 // only the frame end is left, which py-amqp reads untraced
@@ -338,6 +379,7 @@ amqp_resume(const call_protocol_args_t *args, amqp_walk_t *w, amqp_stream_t *st)
             amqp_lose_sync(st);
             return false;
         }
+        amqp_resume_method(args, w, st);
         return true;
     }
 
@@ -371,7 +413,14 @@ amqp_walk(void *ctx, const call_protocol_args_t *args, amqp_walk_t *w, amqp_stre
     // up at w->pos with the message references collected so far.
     if (w->walks < k_amqp_max_walks) {
         w->walks++;
-        preempt_guarded_tail_call_static(ctx, &jump_table, k_tail_protocol_amqp_continue);
+        // Leave room for one message per frame in the next walk.
+        if (w->messages > k_amqp_max_messages - k_amqp_frames_per_walk) {
+            w->resume_after_emit = 1;
+            amqp_emit_recorded(ctx, w);
+            w->resume_after_emit = 0;
+        } else {
+            preempt_guarded_tail_call_static(ctx, &jump_table, k_tail_protocol_amqp_continue);
+        }
         bpf_dbg_printk("failed to continue frame walk: offset=%u", w->pos);
     }
     amqp_lose_sync(st);
@@ -387,7 +436,8 @@ int GUARDED_PROG(obi_protocol_amqp, void *, ctx) {
         return 0;
     }
 
-    __builtin_memset(w, 0, sizeof(*w));
+    // Message references and method bytes are filled before use.
+    __builtin_memset(w, 0, __builtin_offsetof(amqp_walk_t, msgs));
     w->start_monotime_ns = bpf_ktime_get_ns();
     // a receive longer than the kernel copy is walked in the application's buffer
     if (args->user_buf && args->user_len > (u32)args->bytes_len) {
@@ -416,16 +466,13 @@ int GUARDED_PROG(obi_protocol_amqp, void *, ctx) {
     if (args->direction == TCP_RECV) {
         st = bpf_map_lookup_elem(&amqp_streams, &args->pid_conn);
         if (!st) {
-            const amqp_stream_t fresh = {};
-            bpf_map_update_elem(&amqp_streams, &args->pid_conn, &fresh, BPF_NOEXIST);
+            bpf_map_update_elem(&amqp_streams, &args->pid_conn, &w->send, BPF_NOEXIST);
             st = bpf_map_lookup_elem(&amqp_streams, &args->pid_conn);
         }
         if (!st) {
             return 0;
         }
     }
-
-    bpf_dbg_printk("=== amqp len=%d, direction=%d ===", w->len, args->direction);
 
     if (amqp_resume(args, w, st)) {
         preempt_guarded_tail_call_static(ctx, &jump_table, k_tail_protocol_amqp_continue);
@@ -452,15 +499,14 @@ int GUARDED_PROG(obi_protocol_amqp_continue, void *, ctx) {
 
 SEC("kprobe/amqp")
 int GUARDED_PROG(obi_protocol_amqp_emit, void *, ctx) {
-    (void)ctx;
     const call_protocol_args_t *args = protocol_args();
-    const amqp_walk_t *w = amqp_walk_mem();
+    amqp_walk_t *w = amqp_walk_mem();
     amqp_msg_event_t *ev = amqp_msg_event_mem();
     if (!args || !w || !ev) {
         return 0;
     }
 
-    __builtin_memset(ev, 0, sizeof(*ev));
+    bpf_memset(ev, 0, sizeof(*ev));
     ev->type = k_event_type_amqp_message;
     ev->start_monotime_ns = w->start_monotime_ns;
     ev->conn_info = args->pid_conn.conn;
@@ -482,7 +528,11 @@ int GUARDED_PROG(obi_protocol_amqp_emit, void *, ctx) {
         const amqp_msg_ref_t *ref = &w->msgs[i];
         u32 len = ref->size;
         bpf_clamp_umax(len, k_amqp_method_copy_len);
-        amqp_read(ev->method, len, w, ref->off);
+        if (i == 0 && w->saved_method) {
+            bpf_probe_read_kernel(ev->method, len, w->method);
+        } else {
+            amqp_read(ev->method, len, w, ref->off);
+        }
         ev->method_len = len;
 
         ev->parent_status = parent_status;
@@ -495,6 +545,17 @@ int GUARDED_PROG(obi_protocol_amqp_emit, void *, ctx) {
 
         ev->end_monotime_ns = bpf_ktime_get_ns();
         events_ringbuf_output(ev, sizeof(*ev));
+    }
+    if (w->resume_after_emit) {
+        w->saved_method = 0;
+        w->messages = 0;
+        w->resume_after_emit = 0;
+        preempt_guarded_tail_call_static(ctx, &jump_table, k_tail_protocol_amqp_continue);
+        amqp_stream_t *st = amqp_stream_of(args, w);
+        if (st) {
+            amqp_lose_sync(st);
+        }
+        bpf_dbg_printk("failed to continue frame walk: offset=%u", w->pos);
     }
     return 0;
 }

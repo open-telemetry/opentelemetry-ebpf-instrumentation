@@ -13,6 +13,9 @@
 
 typedef struct amqp_stream {
     u32 skip; // Remaining payload bytes plus the frame-end octet.
+    u16 method_len;
+    u16 method_target;
+    unsigned char method[k_amqp_method_copy_len];
     unsigned char header[k_amqp_frame_header_len];
     u8 header_len;
     u8 frame_end_due;

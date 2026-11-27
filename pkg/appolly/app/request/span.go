@@ -365,9 +365,9 @@ type MessagingInfo struct {
 	HasPartition     bool   `json:"hasPartition"`
 	ConsumerGroup    string `json:"consumerGroup"`
 	SubscriptionName string `json:"subscriptionName"`
-	RoutingKey     string `json:"routingKey"`
-	DeliveryTag    uint64 `json:"deliveryTag"`
-	HasDeliveryTag bool   `json:"hasDeliveryTag"`
+	RoutingKey       string `json:"routingKey"`
+	DeliveryTag      uint64 `json:"deliveryTag"`
+	HasDeliveryTag   bool   `json:"hasDeliveryTag"`
 }
 
 type GraphQL struct {

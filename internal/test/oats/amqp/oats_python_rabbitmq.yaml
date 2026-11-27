@@ -9,6 +9,21 @@ fixture:
     command: ../finalize-weaver.sh
     timeout: 3m
 input:
+  - path: /split-header
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+  - path: /split-method
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+  - path: /delivery-batch
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
   - path: /pika
     retry:
       timeout: 10s
@@ -31,6 +46,10 @@ input:
       continue_after_success: true
 expected:
   traces:
+    - traceql: '{ kind=consumer && .messaging.destination.name =~ "header-cut:[12]" } | by(.messaging.destination.name) | count() = 1 | coalesce() | count() = 2'
+    - traceql: '{ kind=consumer && .messaging.destination.name =~ "(class-cut|exchange-cut):[12]" } | by(.messaging.destination.name) | count() = 1 | coalesce() | count() = 4'
+    # Each routing key occurs once, and all 65 deliveries belong to one trace.
+    - traceql: '{ kind=consumer && .messaging.destination.name =~ "batch:[0-9]+" } | by(.messaging.rabbitmq.destination.routing_key) | count() = 1 | coalesce() | count() = 65'
     - traceql: '{ kind=producer && .messaging.system = "rabbitmq" && .messaging.destination.name = "oats-pika" }'
       match_spans:
         - name: publish oats-pika
@@ -134,19 +153,7 @@ expected:
       match_spans:
         - name: publish oats-kombu:kombu
   metrics:
-    - promql: messaging_client_operation_duration_seconds_count{messaging_system="rabbitmq",messaging_destination_name="oats-pika"}
-      value: '> 0'
-    - promql: messaging_client_operation_duration_seconds_count{messaging_system="rabbitmq",messaging_destination_name="oats-kombu:kombu"}
-      value: '> 0'
-    - promql: messaging_client_operation_duration_seconds_bucket{messaging_system="rabbitmq",le="0"}
-      value: == 0
-    - promql: messaging_client_operation_duration_seconds_bucket{messaging_system="rabbitmq",le="10"}
-      value: '> 0'
-    - promql: messaging_process_duration_seconds_count{messaging_system="rabbitmq",messaging_destination_name="oats-pika"}
-      value: '> 0'
-    - promql: messaging_process_duration_seconds_count{messaging_system="rabbitmq",messaging_destination_name="oats-kombu:kombu"}
-      value: '> 0'
-    - promql: messaging_process_duration_seconds_bucket{messaging_system="rabbitmq",le="0"}
-      value: == 0
-    - promql: messaging_process_duration_seconds_bucket{messaging_system="rabbitmq",le="10"}
-      value: '> 0'
+    - promql: absent(messaging_client_operation_duration_seconds_count{messaging_system="rabbitmq"})
+      value: == 1
+    - promql: absent(messaging_process_duration_seconds_count{messaging_system="rabbitmq"})
+      value: == 1
