@@ -6,6 +6,19 @@ access is denied, for example with `kernel.perf_event_paranoid` above 2. Tracefs
 up and we have proper closer path for it. However, in case OBI crashes or is killed (especially while development),
 you may end up with a number of stale/ghost `tracefs` probes that you may want to manually clean up.
 
+Kernel livepatches can introduce multiple copies of a probed function. The PMU reports `EADDRNOTAVAIL`
+for an ambiguous name. When PMU access is denied, tracefs can report `EINVAL` for the same name.
+OBI keeps a working named probe. If the name is ambiguous, OBI uses the original function address from
+`/proc/kallsyms`. Probing both the original and its replacement can count the same call twice.
+
+When kernel addresses are hidden, OBI can use a same-named function in the active patch module.
+It checks `/sys/kernel/livepatch` for patches to that vmlinux function. If several patches apply,
+the kernel's `stack_order` identifies the current one after the transition finishes. On kernels
+without `stack_order`, OBI can resolve a single active patch. While using a replacement, OBI
+rechecks the target every 30 seconds and switches back to the original when it can attach there.
+If rollback leaves the name ambiguous and addresses are still hidden, monitoring resumes when the
+disabled module is unloaded or the original address becomes visible.
+
 Here's how you can check if you have any stale leftover probes:
 
 ```sh

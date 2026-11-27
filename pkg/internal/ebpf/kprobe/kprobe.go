@@ -26,28 +26,50 @@ var attachPMU = func(symbol string, prog *ebpf.Program, ret bool) (io.Closer, er
 
 var attachTraceFSEvent = tracefs.Attach
 
-// Attach retries an EACCES from the PMU through tracefs, keeping the kernel's
-// default maxactive for return probes.
+// Attach instruments one function entry or return, including when a livepatch shadows its name.
 func Attach(symbol string, prog *ebpf.Program, ret bool) (io.Closer, error) {
-	return tracefs.WithFallback(tracefs.Kprobe,
-		func() (io.Closer, error) { return attachPMU(symbol, prog, ret) },
-		func() (io.Closer, error) { return attachTraceFS(symbol, prog, ret) },
-	)
+	return tracefs.WithFallback(tracefs.Kprobe, tracefs.AttachFuncs[io.Closer]{
+		PMU:           func() (io.Closer, error) { return attachPMU(symbol, prog, ret) },
+		TraceFS:       func() (io.Closer, error) { return attachTraceFS(symbol, prog, ret) },
+		ResolveKprobe: func(cause error) (io.Closer, error) { return resolveTraceFS(symbol, prog, ret, cause) },
+	})
 }
 
-func attachTraceFS(symbol string, prog *ebpf.Program, ret bool) (io.Closer, error) {
-	opts := tracefs.Options{Type: tracefs.Kprobe, Targets: []string{symbol}, Return: ret}
-	closer, err := attachTraceFSEvent(prog, opts)
-	if !errors.Is(err, unix.ENOENT) && !errors.Is(err, unix.EINVAL) {
-		return closer, err
-	}
+func attachTraceFS(target string, prog *ebpf.Program, ret bool) (io.Closer, error) {
+	return attachTraceFSEvent(prog, tracefs.Options{
+		Type: tracefs.Kprobe, Targets: []string{target}, Return: ret,
+	})
+}
 
-	// Match Cilium's retry for syscall names such as sys_connect.
-	if prefix := syscallPrefix(); prefix != "" {
-		opts.Targets = []string{prefix + symbol}
-		return attachTraceFSEvent(prog, opts)
+func resolveTraceFS(name string, prog *ebpf.Program, ret bool, cause error) (io.Closer, error) {
+	prefixed := syscallPrefix() + name
+	var lookupErr error
+	for {
+		knownAmbiguous := errors.Is(cause, unix.EADDRNOTAVAIL)
+		if knownAmbiguous || errors.Is(cause, unix.EINVAL) {
+			symbols, err := readSymbols(kernelProbes.kallsyms, map[string]bool{name: true, prefixed: true})
+			if err == nil && (knownAmbiguous || symbols.ambiguousFunction(name)) {
+				return kernelProbes.attachResolved(symbols.resolveName(name), prog, ret, symbols)
+			}
+
+			lookupErr = errors.Join(lookupErr, err)
+			if knownAmbiguous {
+				return nil, errors.Join(cause, lookupErr)
+			}
+		}
+
+		// Match Cilium's retry for syscall names such as sys_connect.
+		if name == prefixed {
+			return nil, errors.Join(cause, lookupErr)
+		}
+
+		name = prefixed
+		probe, err := attachTraceFS(name, prog, ret)
+		if err == nil {
+			return probe, nil
+		}
+		cause = err
 	}
-	return closer, err
 }
 
 func syscallPrefix() string {

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -32,6 +33,7 @@ func restoreAttachments(t *testing.T) {
 }
 
 func TestAttach(t *testing.T) {
+	m := useTestMonitor(t)
 	for _, ret := range []bool{false, true} {
 		for _, tc := range []struct {
 			name             string
@@ -71,6 +73,7 @@ func TestAttach(t *testing.T) {
 				}
 
 				got, err := Attach("tcp_sendmsg", prog, ret)
+				assert.Empty(t, m.probes)
 				assert.Equal(t, 1, pmuCalls)
 				if tc.fallback {
 					assert.Equal(t, 1, traceCalls)
@@ -92,12 +95,79 @@ func TestAttach(t *testing.T) {
 	}
 }
 
+func TestAttachResolvesAmbiguousTraceFSName(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"listener", unix.EADDRNOTAVAIL},
+		{"listener", unix.EINVAL},
+		{syscallPrefix() + "listener", unix.EINVAL},
+	} {
+		t.Run(fmt.Sprintf("%s/%v", tc.name, tc.err), func(t *testing.T) {
+			restoreAttachments(t)
+			m := useTestMonitor(t)
+			base := "0010 T " + tc.name + "\n"
+			require.NoError(t, os.WriteFile(m.kallsyms, []byte(base), 0o600))
+			attachPMU = func(string, *ebpf.Program, bool) (io.Closer, error) { return nil, unix.EACCES }
+			var attached []string
+			attachTraceFSEvent = func(_ *ebpf.Program, opts tracefs.Options) (io.Closer, error) {
+				target := opts.Targets[0]
+				switch target {
+				case tc.name:
+					// The livepatch is visible when tracefs rejects this particular name.
+					require.NoError(t, os.WriteFile(m.kallsyms, []byte(base+"0020 t "+tc.name+"\t[patch]\n"), 0o600))
+					return nil, tc.err
+				case "listener":
+					return nil, unix.ENOENT
+				}
+				attached = append(attached, target)
+				return &nopCloser{}, nil
+			}
+
+			probe, err := Attach("listener", nil, false)
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, probe.Close()) })
+			assert.Equal(t, []string{"0x10"}, attached)
+			assert.Empty(t, m.probes)
+		})
+	}
+}
+
+func TestAttachPreservesUnambiguousTraceFSError(t *testing.T) {
+	restoreAttachments(t)
+	m := useTestMonitor(t)
+	require.NoError(t, os.WriteFile(m.kallsyms, []byte("0010 T listener\n"), 0o600))
+	attachPMU = func(string, *ebpf.Program, bool) (io.Closer, error) { return nil, unix.EACCES }
+	invalid := fmt.Errorf("original name: %w", unix.EINVAL)
+	missing := fmt.Errorf("prefixed name: %w", unix.ENOENT)
+	attachTraceFSEvent = func(_ *ebpf.Program, opts tracefs.Options) (io.Closer, error) {
+		switch opts.Targets[0] {
+		case "listener":
+			return nil, invalid
+		case syscallPrefix() + "listener":
+			return nil, missing
+		}
+		return &nopCloser{}, nil
+	}
+
+	probe, err := Attach("listener", nil, false)
+	require.Nil(t, probe)
+	require.ErrorIs(t, err, unix.EACCES)
+	require.ErrorIs(t, err, invalid)
+	require.ErrorIs(t, err, missing)
+}
+
 func TestTraceFSRetrySyscallPrefix(t *testing.T) {
 	require.NotEmpty(t, syscallPrefix(), "OBI supports amd64 and arm64")
+	m := useTestMonitor(t)
+	require.NoError(t, os.Remove(m.patchDir))
+	require.NoError(t, os.WriteFile(m.kallsyms, []byte("0010 T "+syscallPrefix()+"sys_connect\n"), 0o600))
 	for _, ret := range []bool{false, true} {
 		for _, firstErr := range []error{unix.ENOENT, unix.EINVAL, unix.EACCES, unix.EPERM} {
 			t.Run(fmt.Sprintf("%s/return=%t", firstErr, ret), func(t *testing.T) {
 				restoreAttachments(t)
+				attachPMU = func(string, *ebpf.Program, bool) (io.Closer, error) { return nil, unix.EACCES }
 				var targets []string
 				want := &nopCloser{}
 				attachTraceFSEvent = func(_ *ebpf.Program, opts tracefs.Options) (io.Closer, error) {
@@ -109,7 +179,7 @@ func TestTraceFSRetrySyscallPrefix(t *testing.T) {
 					return want, nil
 				}
 
-				got, err := attachTraceFS("sys_connect", nil, ret)
+				got, err := Attach("sys_connect", nil, ret)
 				if errors.Is(firstErr, unix.ENOENT) || errors.Is(firstErr, unix.EINVAL) {
 					require.NoError(t, err)
 					assert.Same(t, want, got)

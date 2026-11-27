@@ -268,10 +268,10 @@ func multiOptions(opts Options) *link.UprobeMultiOptions {
 }
 
 func attachLegacy(exe *link.Executable, path string, prog *ebpf.Program, opts Options) (io.Closer, error) {
-	return tracefs.WithFallback(tracefs.Uprobe,
-		func() (io.Closer, error) { return attachPerfEvents(exe, prog, opts) },
-		func() (io.Closer, error) { return attachTraceFS(path, prog, opts) },
-	)
+	return tracefs.WithFallback(tracefs.Uprobe, tracefs.AttachFuncs[io.Closer]{
+		PMU:     func() (io.Closer, error) { return attachPerfEvents(exe, prog, opts) },
+		TraceFS: func() (io.Closer, error) { return attachTraceFS(path, prog, opts) },
+	})
 }
 
 func attachPerfEvents(exe *link.Executable, prog *ebpf.Program, opts Options) (io.Closer, error) {

@@ -78,6 +78,27 @@ permissions:
   contents: read
 
 jobs:
+  al2023-livepatch:
+    name: AL2023 livepatch kprobe attachment
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Install VM tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends busybox-static curl libarchive-tools qemu-system-x86
+
+      - name: Run the livepatch regression
+        run: bash internal/test/vm/al2023-livepatch.sh
+
   vm-test-matrix:
     name: "Build matrix"
     runs-on: ubuntu-26.04

@@ -117,6 +117,7 @@ func attach(prog *ebpf.Program, opts Options, attachEvent func(*ebpf.Program, Op
 		}
 	}
 
+	fallbackUsed.Store(true)
 	return &traceFSLinks{links: links, group: group}, nil
 }
 

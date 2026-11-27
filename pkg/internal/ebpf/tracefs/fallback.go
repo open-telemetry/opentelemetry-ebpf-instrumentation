@@ -5,9 +5,9 @@ package tracefs // import "go.opentelemetry.io/obi/pkg/internal/ebpf/tracefs"
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -48,25 +48,55 @@ func EffectiveShutdownTimeout(configured time.Duration) time.Duration {
 	return configured
 }
 
-func WithFallback(kind ProbeType, attachPerf, attachTraceFS func() (io.Closer, error)) (io.Closer, error) {
-	closer, err := attachPerf()
-	if err == nil || !errors.Is(err, unix.EACCES) {
-		return closer, err
+type AttachFuncs[T io.Closer] struct {
+	PMU           func() (T, error)
+	TraceFS       func() (T, error)
+	ResolveKprobe func(error) (T, error)
+}
+
+func WithFallback[T io.Closer](kind ProbeType, attach AttachFuncs[T]) (T, error) {
+	link, pmuErr := attach.PMU()
+	if pmuErr == nil {
+		return link, nil
 	}
 
-	slog.Debug("PMU access denied, trying tracefs", "probe_type", kind, "error", err)
-	closer, traceErr := attachTraceFS()
-	if traceErr != nil {
-		fallbackLogs[kind].failure.Do(func() {
-			slog.Error("tracefs fallback failed; ensure tracefs is writable (CAP_DAC_OVERRIDE may be required)",
-				"probe_type", kind, "error", traceErr)
+	lastErr := pmuErr
+	var traceErr error
+	retry := func(attempt func() (T, error)) {
+		slog.Debug("retrying probe through tracefs", "probe_type", kind, "error", lastErr)
+		link, lastErr = attempt()
+		traceErr = errors.Join(traceErr, lastErr)
+	}
+	if errors.Is(lastErr, unix.EACCES) {
+		retry(attach.TraceFS)
+	}
+
+	// The tracefs parser can turn an ambiguous or missing symbol into EINVAL.
+	namedLookupFailed := traceErr != nil && (errors.Is(lastErr, unix.EINVAL) || errors.Is(lastErr, unix.ENOENT))
+	if kind == Kprobe && attach.ResolveKprobe != nil && (errors.Is(lastErr, unix.EADDRNOTAVAIL) || namedLookupFailed) {
+		retry(func() (T, error) { return attach.ResolveKprobe(lastErr) })
+	}
+
+	if lastErr == nil {
+		fallbackUsed.Store(true)
+		fallbackLogs[kind].success.Do(func() {
+			slog.Info("attached probe through tracefs", "probe_type", kind, "pmu_error", pmuErr)
 		})
-		return nil, errors.Join(err, traceErr)
+		return link, nil
 	}
 
-	fallbackUsed.Store(true)
-	fallbackLogs[kind].success.Do(func() {
-		slog.Info(fmt.Sprintf("attached %s through tracefs because PMU access was denied", kind), "pmu_error", err)
+	if traceErr == nil {
+		return link, pmuErr
+	}
+
+	fallbackLogs[kind].failure.Do(func() {
+		msg := "tracefs fallback failed"
+		if errors.Is(lastErr, os.ErrPermission) {
+			msg += "; ensure tracefs is writable (CAP_DAC_OVERRIDE may be required)"
+		}
+		slog.Error(msg, "probe_type", kind, "pmu_error", pmuErr, "error", traceErr)
 	})
-	return closer, nil
+
+	var zero T
+	return zero, errors.Join(pmuErr, traceErr)
 }
