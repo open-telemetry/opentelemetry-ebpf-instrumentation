@@ -1,12 +1,11 @@
-# OBI AMQP protocol parser
-
-This document describes the AMQP 1.0 protocol parser that OBI provides.
+# OBI AMQP 1.0 protocol parser
 
 ## Protocol Overview
 
 AMQP 1.0 is a binary, frame-oriented messaging protocol standardized by OASIS. A TCP connection opens with an 8-byte protocol header that negotiates the layer (plain AMQP, AMQP over TLS, or SASL), after which the peers exchange variable-size frames with fixed headers. Each frame carries either an AMQP performative (connection, session and link control, or message transfer) or a SASL performative (authentication).
 
-OBI only handles AMQP 1.0. AMQP 0-9-1, which RabbitMQ uses by default, is rejected at the protocol header.
+The AMQP 1.0 parser rejects AMQP 0-9-1 at the protocol header; the kernel classifies 0-9-1 connections
+before their traffic reaches it.
 
 ## Packet Structure
 
@@ -110,8 +109,7 @@ End-to-end tests live in [internal/test/oats/amqp/](../../../internal/test/oats/
 
 ## Limitations
 
-- **Userspace heuristic only**: there is no kernel-assigned AMQP protocol type; detection runs after the packet reaches userspace.
-- **AMQP 1.0 only**: AMQP 0-9-1 (RabbitMQ's default) is rejected at the protocol header.
+- **Userspace heuristic only**: there is no kernel-assigned AMQP 1.0 protocol type; detection runs after the packet reaches userspace.
 - **TRANSFER only**: only TRANSFER performatives produce spans.
 - **Plaintext frame parsing only**: AMQP-TLS protocol headers are recognized, but encrypted frame payloads cannot be decoded.
 - **No destination extraction**: link `target`/`source` and other addressing details inside the TRANSFER performative are not decoded. As a consequence, AMQP spans and metrics omit `messaging.destination.name`, do not emit `messaging.client.id`, use a generic span name (`publish` / `process`), and have empty Prometheus destination labels. Users relying on destination-level attribution should treat the current AMQP support as traffic-level only.
