@@ -821,6 +821,21 @@ static __always_inline void report_failed_connect(struct pt_regs *ctx,
     }
 }
 
+// A one-way multiplexed record can wait for close after TCP has released skc_num.
+static __always_inline void finish_released_tcp_multiplex_req(struct sock *sk,
+                                                              pid_connection_info_t *pid_conn) {
+    const bool resolved = parse_full_sock_info(sk, &pid_conn->conn);
+    if (!resolved || pid_conn->conn.s_port == 0) {
+        return;
+    }
+
+    sort_connection_info(&pid_conn->conn);
+    tcp_req_t *req = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
+    if (req && req->flags == k_event_type_tcp_multiplex) {
+        finish_ongoing_tcp_req(pid_conn, req);
+    }
+}
+
 static __always_inline void finish_tcp_close(struct sock *sk) {
     const u64 id = bpf_get_current_pid_tgid();
 
@@ -830,8 +845,8 @@ static __always_inline void finish_tcp_close(struct sock *sk) {
     u64 sock_p = (u64)sk;
 
     pid_connection_info_t info = {};
-    // A half-closed socket can release skc_num before its pending TCP record is flushed.
-    const bool success = parse_full_sock_info(sk, &info.conn);
+    const bool success = parse_sock_info(sk, &info.conn);
+    const u16 local_port = info.conn.s_port;
 
     bool unreadable = false;
     if (success) {
@@ -846,9 +861,15 @@ static __always_inline void finish_tcp_close(struct sock *sk) {
         //dbg_print_http_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
         terminate_http_request_if_needed(&info, &current_key);
-        finish_ongoing_tcp_req(&info);
+        tcp_req_t *req = bpf_map_lookup_elem(&ongoing_tcp_req, &info);
+        finish_ongoing_tcp_req(&info, req);
         bpf_map_delete_elem(&ongoing_http2_connections, &info);
         bpf_map_delete_elem(&connection_tracker, &info.conn);
+
+        // Final reads can use port zero. Clean up their trace before recovering the old port.
+        if (local_port == 0) {
+            finish_released_tcp_multiplex_req(sk, &info);
+        }
     }
 
     bpf_map_delete_elem(&active_send_args, &id);

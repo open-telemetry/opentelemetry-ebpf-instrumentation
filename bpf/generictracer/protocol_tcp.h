@@ -111,8 +111,8 @@ static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
     }
 }
 
-static __always_inline void finish_ongoing_tcp_req(pid_connection_info_t *pid_conn) {
-    tcp_req_t *existing_tcp = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
+static __always_inline void finish_ongoing_tcp_req(pid_connection_info_t *pid_conn,
+                                                   tcp_req_t *existing_tcp) {
     if (!existing_tcp) {
         return;
     }
