@@ -72,7 +72,8 @@ COPY cmd/ cmd/
 COPY internal/goabi/ internal/goabi/
 COPY internal/goversion/ internal/goversion/
 COPY internal/config/ internal/config/
-COPY internal/rustexec/ internal/rustexec/
+COPY internal/dwarfutil/ internal/dwarfutil/
+COPY internal/rustabi/ internal/rustabi/
 COPY pkg/ pkg/
 COPY Makefile ./
 COPY --from=javaagent-builder /build/build/obi-java-agent.jar /src/pkg/internal/java/embedded/obi-java-agent.jar

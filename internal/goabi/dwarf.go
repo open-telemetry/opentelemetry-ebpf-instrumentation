@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"go.opentelemetry.io/obi/internal/dwarfutil"
 	"go.opentelemetry.io/obi/internal/goversion"
 )
 
@@ -101,16 +102,14 @@ func (q fieldQuery) extract(data *dwarf.Data, entry *dwarf.Entry) (uint64, bool,
 	if !ok {
 		return 0, false, nil
 	}
-	for _, field := range structInfo.Field {
-		if field.Name != q.fieldName {
-			continue
-		}
-		if field.ByteOffset < 0 {
-			return 0, false, fmt.Errorf("negative offset for %s.%s", q.typeName, q.fieldName)
-		}
-		return uint64(field.ByteOffset), true, nil
+	field := dwarfutil.FieldByName(structInfo, q.fieldName)
+	if field == nil {
+		return 0, false, nil
 	}
-	return 0, false, nil
+	if field.ByteOffset < 0 {
+		return 0, false, fmt.Errorf("negative offset for %s.%s", q.typeName, q.fieldName)
+	}
+	return uint64(field.ByteOffset), true, nil
 }
 
 func (q sizeQuery) name() string {

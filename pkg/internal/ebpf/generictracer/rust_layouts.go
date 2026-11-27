@@ -11,21 +11,21 @@ import (
 	"encoding/json"
 	"sync"
 
-	"go.opentelemetry.io/obi/internal/rustexec"
+	"go.opentelemetry.io/obi/internal/rustabi"
 )
 
 //go:embed rust_offsets.json
 var rustOffsetData []byte
 
-// Compiler identity records are shared across executable attachments.
-var rustOffsetDatabase = sync.OnceValues(func() (rustexec.Database, error) {
-	var database rustexec.Database
+// All attachments share one decoded copy of the read-only ABI database.
+var rustOffsetDatabase = sync.OnceValues(func() (rustabi.Database, error) {
+	var database rustabi.Database
 	err := json.Unmarshal(rustOffsetData, &database)
 	return database, err
 })
 
-func checkRustCompiler(f *elf.File) error {
-	build, err := rustexec.ReadBuild(f)
+func (e *rustExecutable) resolveABI(f *elf.File) error {
+	build, err := rustabi.ReadCompiler(f)
 	if err != nil {
 		return err
 	}
