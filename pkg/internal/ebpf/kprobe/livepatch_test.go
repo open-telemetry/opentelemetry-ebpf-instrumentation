@@ -114,6 +114,19 @@ func TestDuplicateAttachRetriesPartialFailure(t *testing.T) {
 	require.Empty(t, m.probes)
 }
 
+func TestScanSkipsMissingLivepatchDir(t *testing.T) {
+	m := useTestMonitor(t)
+	primary := &watchedProbe{symbol: "listener", primary: nopCloser{}}
+	duplicate := &watchedProbe{symbol: "other"}
+	m.probes = map[*watchedProbe]bool{primary: true, duplicate: true}
+
+	// The duplicate needs kallsyms, which is also missing.
+	require.NoError(t, os.Remove(m.patchDir))
+	require.NoError(t, m.scan())
+	require.NoError(t, os.Mkdir(m.patchDir, 0o755))
+	require.ErrorIs(t, m.scan(), os.ErrNotExist)
+}
+
 func TestScanLivepatchTransitions(t *testing.T) {
 	restoreAttachments(t)
 	m := useTestMonitor(t)
@@ -150,9 +163,12 @@ func TestScanLivepatchTransitions(t *testing.T) {
 	require.ErrorIs(t, m.scan(), os.ErrNotExist)
 	assert.Zero(t, added[0].closes)
 	require.NoError(t, os.Rename(m.kallsyms+".away", m.kallsyms))
-	require.NoError(t, os.Remove(filepath.Join(root, "enabled")))
-	require.ErrorIs(t, m.scan(), os.ErrNotExist)
+	enabled := filepath.Join(root, "enabled")
+	require.NoError(t, os.Remove(enabled))
+	require.NoError(t, os.Mkdir(enabled, 0o755))
+	require.NoError(t, m.scan())
 	assert.Zero(t, added[0].closes)
+	require.NoError(t, os.Remove(enabled))
 	writeState("enabled", "0")
 	writeState("transition", "1")
 	require.NoError(t, m.scan())

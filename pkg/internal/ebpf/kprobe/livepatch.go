@@ -120,12 +120,18 @@ func (m *probeMonitor) scan() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var patches map[string]map[string]bool
-	var patchErr error
 	for p := range m.probes {
-		if p.primary != nil {
-			patches, patchErr = livepatchTargets(m.patchDir)
-			break
+		if p.primary == nil {
+			continue
 		}
+
+		var err error
+		patches, err = livepatchTargets(m.patchDir)
+		if err != nil {
+			// Keep existing probe links until sysfs can be read again.
+			return nil
+		}
+		break
 	}
 
 	wanted := map[string]bool{}
@@ -141,7 +147,7 @@ func (m *probeMonitor) scan() error {
 		var err error
 		symbols, err = readSymbols(m.kallsyms, wanted)
 		if err != nil {
-			return errors.Join(patchErr, err)
+			return err
 		}
 	}
 
@@ -150,10 +156,6 @@ func (m *probeMonitor) scan() error {
 		var modules map[string]bool
 
 		if p.primary != nil {
-			if patchErr != nil {
-				continue
-			}
-
 			modules = patches[symbol]
 			if len(modules) == 0 {
 				p.report(p.update(p.program, nil, nil))
@@ -165,7 +167,7 @@ func (m *probeMonitor) scan() error {
 		p.report(p.update(p.program, targets, lookupErr))
 	}
 
-	return patchErr
+	return nil
 }
 
 func (p *watchedProbe) report(err error) {
