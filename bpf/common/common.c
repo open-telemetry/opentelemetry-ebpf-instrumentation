@@ -14,6 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <common/amqp_defs.h>
 #include <common/common.h>
 #include <common/event_defs.h>
 #include <common/exception_event.h>
@@ -52,3 +53,4 @@ const process_event_t *unused_25 __attribute__((unused));
 const sampler_t *unused_26 __attribute__((unused));
 const pid_info_t *unused_27 __attribute__((unused));
 const python_exception_payload_t *unused_28 __attribute__((unused));
+const amqp_msg_event_t *unused_29 __attribute__((unused));

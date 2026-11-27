@@ -24,6 +24,8 @@
 
 #include <pid/pid.h>
 
+enum { k_event_loop_wakeup_len = 1 };
+
 static __always_inline struct unix_sock *unix_sock_from_socket(struct socket *sock) {
     struct sock *sk;
     BPF_CORE_READ_INTO(&sk, sock, sk);
@@ -301,7 +303,9 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_unix_stream_sendmsg, int sent_len) {
         // which serves as the extra_runtime id. This is enough to differentiate the
         // various requests, because we communicate this extra id to the receiving side
         // and is able to correlate the incoming request.
-        if (s_args->sock_ptr) {
+        // An event loop's wakeup byte on its socketpair (pika, asyncio) is no request:
+        // its inode would rekey the thread and hide the request it is serving.
+        if (s_args->sock_ptr && sent_len > k_event_loop_wakeup_len) {
             struct sock *sk = (struct sock *)s_args->sock_ptr;
             unsigned long inode_number;
             BPF_CORE_READ_INTO(&inode_number, sk, sk_socket, file, f_inode, i_ino);

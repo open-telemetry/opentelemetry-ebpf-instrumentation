@@ -94,6 +94,7 @@ through language-specific library instrumentation documented later in this file.
 | MQTT | `3.1.1/5.0` | `publish`, `subscribe` | No | No | Only the first topic filter is used for subscribe; payload not captured |
 | NATS | All | `publish`, `process` | No | No | Only `PUB`/`HPUB` and delivered `MSG`/`HMSG` frames are traced; control traffic is ignored; TLS is not parsed |
 | AMQP | `1.0` | `publish`, `process` | No | No | Userspace heuristic only; only transfer performatives create spans |
+| AMQP (RabbitMQ) | `0-9-1` | `publish`, `process`, `receive` | No | No | Reported as `messaging.system` `rabbitmq`; consumer destinations omit the queue, which deliveries do not carry; a connection opened before OBI started is recognized at its first Basic method frame; Go applications instrumented by the Go tracer produce no spans; TLS is supported for OpenSSL clients |
 | SunRPC (ONC RPC) | All | TCP CALL on common programs (portmapper, mount, nfs, …) | Yes | No | TCP only; kernel + userspace fallback; RPCSEC_GSS hides arguments; procedure names not mapped yet |
 | DNS | All | Lookups | No | No | Not enabled by default for traces; DNS-over-TLS/HTTPS is not parsed |
 | GraphQL | All | All | Yes | No | Requires HTTP payload capture and `ebpf.payload_extraction.http.graphql.enabled` |

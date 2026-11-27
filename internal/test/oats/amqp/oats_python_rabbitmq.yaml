@@ -1,0 +1,159 @@
+name: python rabbitmq
+fixture:
+  compose:
+    template: none
+    files:
+    - docker-compose-lgtm.yml
+    - docker-compose-obi-python-rabbitmq.yml
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+  - path: /split-header
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+  - path: /split-method
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+  - path: /delivery-batch
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+  - path: /pika
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+  - path: /pika-tls
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+  - path: /kombu
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+  - path: /kombu-short
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+expected:
+  traces:
+    - traceql: '{ kind=consumer && .messaging.destination.name =~ "header-cut:[12]" } | by(.messaging.destination.name) | count() = 1 | coalesce() | count() = 2'
+    - traceql: '{ kind=consumer && .messaging.destination.name =~ "(class-cut|exchange-cut):[12]" } | by(.messaging.destination.name) | count() = 1 | coalesce() | count() = 4'
+    # Each routing key occurs once, and all 65 deliveries belong to one trace.
+    - traceql: '{ kind=consumer && .messaging.destination.name =~ "batch:[0-9]+" } | by(.messaging.rabbitmq.destination.routing_key) | count() = 1 | coalesce() | count() = 65'
+    - traceql: '{ kind=producer && .messaging.system = "rabbitmq" && .messaging.destination.name = "oats-pika" }'
+      match_spans:
+        - name: publish oats-pika
+          attributes:
+            - key: messaging.operation.name
+              value: publish
+            - key: messaging.operation.type
+              value: send
+            - key: messaging.rabbitmq.destination.routing_key
+              value: oats-pika
+            - key: server.port
+              value: "5672"
+    - traceql: '{ kind=consumer && .messaging.system = "rabbitmq" && .messaging.destination.name = "oats-pika" }'
+      match_spans:
+        - name: process oats-pika
+          attributes:
+            - key: messaging.operation.name
+              value: process
+            - key: messaging.operation.type
+              value: process
+            - key: messaging.rabbitmq.destination.routing_key
+              value: oats-pika
+            - key: server.port
+              value: "5672"
+    - traceql: '{ kind=client && .messaging.system = "rabbitmq" && .messaging.destination.name = "oats-pika" }'
+      match_spans:
+        - name: receive oats-pika
+          attributes:
+            - key: messaging.operation.name
+              value: receive
+            - key: messaging.operation.type
+              value: receive
+            - key: server.port
+              value: "5672"
+    - traceql: '{ kind=producer && .messaging.system = "rabbitmq" && .messaging.destination.name = "oats-pika-tls" }'
+      match_spans:
+        - name: publish oats-pika-tls
+          attributes:
+            - key: messaging.operation.name
+              value: publish
+            - key: messaging.operation.type
+              value: send
+            - key: messaging.rabbitmq.destination.routing_key
+              value: oats-pika-tls
+            - key: server.port
+              value: "5671"
+    - traceql: '{ kind=consumer && .messaging.system = "rabbitmq" && .messaging.destination.name = "oats-pika-tls" }'
+      match_spans:
+        - name: process oats-pika-tls
+          attributes:
+            - key: messaging.operation.name
+              value: process
+            - key: messaging.operation.type
+              value: process
+            - key: messaging.rabbitmq.destination.routing_key
+              value: oats-pika-tls
+            - key: server.port
+              value: "5671"
+    - traceql: '{ kind=client && .messaging.system = "rabbitmq" && .messaging.destination.name = "oats-pika-tls" }'
+      match_spans:
+        - name: receive oats-pika-tls
+          attributes:
+            - key: messaging.operation.name
+              value: receive
+            - key: messaging.operation.type
+              value: receive
+            - key: server.port
+              value: "5671"
+    - traceql: '{ kind=producer && .messaging.system = "rabbitmq" && .messaging.destination.name = "oats-kombu:kombu" }'
+      match_spans:
+        - name: publish oats-kombu:kombu
+          attributes:
+            - key: messaging.operation.name
+              value: publish
+            - key: messaging.rabbitmq.destination.routing_key
+              value: kombu
+            - key: server.port
+              value: "5672"
+    - traceql: '{ kind=consumer && .messaging.system = "rabbitmq" && .messaging.destination.name = "oats-kombu:kombu" }'
+      match_spans:
+        - name: process oats-kombu:kombu
+          attributes:
+            - key: messaging.operation.name
+              value: process
+            - key: messaging.rabbitmq.destination.routing_key
+              value: kombu
+            - key: server.port
+              value: "5672"
+    # short-b is delivered right after short-a's one-byte body, which py-amqp reads untraced
+    - traceql: '{ kind=consumer && .messaging.system = "rabbitmq" && .messaging.destination.name = "oats-kombu:short-a" }'
+      match_spans:
+        - name: process oats-kombu:short-a
+    - traceql: '{ kind=consumer && .messaging.system = "rabbitmq" && .messaging.destination.name = "oats-kombu:short-b" }'
+      match_spans:
+        - name: process oats-kombu:short-b
+    # a publish belongs to the trace of the request the thread serves
+    - traceql: '{ .http.route = "/pika" } >> { kind=producer && .messaging.system = "rabbitmq" }'
+      match_spans:
+        - name: publish oats-pika
+    - traceql: '{ .http.route = "/kombu" } >> { kind=producer && .messaging.system = "rabbitmq" }'
+      match_spans:
+        - name: publish oats-kombu:kombu
+  metrics:
+    - promql: absent(messaging_client_operation_duration_seconds_count{messaging_system="rabbitmq"})
+      value: == 1
+    - promql: absent(messaging_process_duration_seconds_count{messaging_system="rabbitmq"})
+      value: == 1

@@ -60,8 +60,8 @@ attributes:
         - id: amqp
           value: 'amqp'
           brief: >
-            An AMQP 0-9-1 broker (e.g. RabbitMQ). OBI detects the wire
-            protocol, not the broker product behind it.
+            An AMQP 1.0 broker. OBI detects the wire protocol, not the broker
+            product behind it; AMQP 0-9-1 spans report `rabbitmq`.
           stability: development
         - id: mqtt
           value: 'mqtt'
@@ -77,7 +77,8 @@ attribute_groups:
   # Overrides `messaging.system`: extends the upstream enum with `amqp`,
   # `mqtt` and `nats` — messaging protocols OBI detects that upstream semconv
   # has no member for. OBI identifies the protocol on the wire, not the broker
-  # product behind it, so `amqp` is reported as-is rather than assuming
+  # product behind it, so AMQP 1.0, which several brokers implement, is
+  # reported as `amqp`; AMQP 0-9-1 is RabbitMQ's protocol and is reported as
   # `rabbitmq`. Emitters: pkg/appolly/app/request/span_getters.go
   # (attr.MessagingSystem) and pkg/export/otel/tracesgen/tracesgen.go.
   #

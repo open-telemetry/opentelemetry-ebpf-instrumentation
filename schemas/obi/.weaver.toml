@@ -396,6 +396,33 @@ when = '''
 signal = "obi.messaging.amqp.consumer"
 
 [[live-check.matchers]]
+id = "match.span.messaging.rabbitmq.producer"
+sample_type = "span"
+when = '''
+"messaging.system" in attributes && attributes["messaging.system"] == "rabbitmq"
+  && "messaging.operation.type" in attributes && attributes["messaging.operation.type"] == "send"
+'''
+signal = "obi.messaging.rabbitmq.producer"
+
+[[live-check.matchers]]
+id = "match.span.messaging.rabbitmq.consumer"
+sample_type = "span"
+when = '''
+"messaging.system" in attributes && attributes["messaging.system"] == "rabbitmq"
+  && "messaging.operation.type" in attributes && attributes["messaging.operation.type"] == "process"
+'''
+signal = "obi.messaging.rabbitmq.consumer"
+
+[[live-check.matchers]]
+id = "match.span.messaging.rabbitmq.client"
+sample_type = "span"
+when = '''
+"messaging.system" in attributes && attributes["messaging.system"] == "rabbitmq"
+  && "messaging.operation.type" in attributes && attributes["messaging.operation.type"] == "receive"
+'''
+signal = "obi.messaging.rabbitmq.client"
+
+[[live-check.matchers]]
 id = "match.span.request.phase"
 sample_type = "span"
 when = '''

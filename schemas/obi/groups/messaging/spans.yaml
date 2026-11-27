@@ -271,3 +271,95 @@ spans:
     brief: OBI AMQP span for a process operation.
     attributes:
       - ref_group: attributes.obi.messaging.common
+
+  # AMQP 0-9-1 is RabbitMQ's protocol, so its spans report `rabbitmq`. A
+  # Basic.Deliver does not name the queue it came from, so the consumer-side
+  # destination is the exchange and routing key only.
+  - type: obi.messaging.rabbitmq.producer
+    annotations:
+      obi:
+        upstream: [messaging.rabbitmq, messaging.attributes]
+        upstream_omits:
+          messaging.destination.template: only the application knows the template a destination name was built from
+          messaging.consumer.group.name: a consumer group applies only to receiving messages
+          messaging.destination.subscription.name: a subscription applies only to receiving messages
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          error.type: OBI does not report broker errors
+          messaging.batch.message_count: each span describes a single message
+          messaging.rabbitmq.message.delivery_tag: the broker numbers a message when it delivers it, after the publish
+    kind: producer
+    name:
+      templates:
+        - "{messaging.operation.name} {messaging.destination.name}"
+        - "{messaging.operation.name}"
+    stability: development
+    requirement_level: recommended
+    brief: OBI RabbitMQ (AMQP 0-9-1) span for a Basic.Publish.
+    attributes:
+      - ref_group: attributes.obi.messaging.common
+      - ref: messaging.destination.name
+        requirement_level: required
+      - ref: messaging.rabbitmq.destination.routing_key
+        requirement_level:
+          conditionally_required: if the routing key is not empty
+
+  - type: obi.messaging.rabbitmq.consumer
+    annotations:
+      obi:
+        upstream: [messaging.rabbitmq, messaging.attributes]
+        upstream_omits:
+          messaging.destination.template: only the application knows the template a destination name was built from
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          error.type: OBI does not report broker errors
+          messaging.batch.message_count: each span describes a single message
+          messaging.consumer.group.name: RabbitMQ has no consumer groups
+          messaging.destination.subscription.name: a delivery names its consumer by a per-channel tag, not a subscription name
+    kind: consumer
+    name:
+      templates:
+        - "{messaging.operation.name} {messaging.destination.name}"
+        - "{messaging.operation.name}"
+    stability: development
+    requirement_level: recommended
+    brief: OBI RabbitMQ (AMQP 0-9-1) span for a Basic.Deliver.
+    attributes:
+      - ref_group: attributes.obi.messaging.common
+      - ref: messaging.destination.name
+        requirement_level: required
+      - ref: messaging.rabbitmq.destination.routing_key
+        requirement_level:
+          conditionally_required: if the routing key is not empty
+      - ref: messaging.rabbitmq.message.delivery_tag
+        requirement_level: required
+
+  - type: obi.messaging.rabbitmq.client
+    annotations:
+      obi:
+        upstream: [messaging.rabbitmq, messaging.attributes]
+        upstream_omits:
+          messaging.destination.template: only the application knows the template a destination name was built from
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          error.type: OBI does not report broker errors
+          messaging.batch.message_count: each span describes a single message
+          messaging.consumer.group.name: RabbitMQ has no consumer groups
+          messaging.destination.subscription.name: a pulled message involves no subscription
+    kind: client
+    name:
+      templates:
+        - "{messaging.operation.name} {messaging.destination.name}"
+        - "{messaging.operation.name}"
+    stability: development
+    requirement_level: recommended
+    brief: OBI RabbitMQ (AMQP 0-9-1) span for a Basic.Get-Ok, a pulled message.
+    attributes:
+      - ref_group: attributes.obi.messaging.common
+      - ref: messaging.destination.name
+        requirement_level: required
+      - ref: messaging.rabbitmq.destination.routing_key
+        requirement_level:
+          conditionally_required: if the routing key is not empty
+      - ref: messaging.rabbitmq.message.delivery_tag
+        requirement_level: required

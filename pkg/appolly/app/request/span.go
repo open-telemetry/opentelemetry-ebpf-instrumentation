@@ -132,6 +132,10 @@ const (
 	HTTPSubtypeCohere           = 19 // http + Cohere native chat API
 )
 
+// AMQPSubtype091 is the SubType of EventTypeAMQPClient spans of AMQP 0-9-1,
+// RabbitMQ's protocol; AMQP 1.0 spans keep SubType 0.
+const AMQPSubtype091 = 1
+
 // IsGenAISubtype reports whether a subtype is recorded on the GenAI client
 // metrics. MCP is deliberately absent: it is a tool and resource protocol
 // rather than a model provider, so it has no `gen_ai.provider.name` to report,
@@ -361,6 +365,9 @@ type MessagingInfo struct {
 	HasPartition     bool   `json:"hasPartition"`
 	ConsumerGroup    string `json:"consumerGroup"`
 	SubscriptionName string `json:"subscriptionName"`
+	RoutingKey       string `json:"routingKey"`
+	DeliveryTag      uint64 `json:"deliveryTag"`
+	HasDeliveryTag   bool   `json:"hasDeliveryTag"`
 }
 
 type GraphQL struct {

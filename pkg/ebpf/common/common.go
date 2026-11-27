@@ -40,7 +40,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target $BPF_TARGETS -type protocol_type -type event_type -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t -type node_span_event_t -type process_event_t -type pid_namespace_mode -type valid_pids_size -type ringbuf_write_stats_t -type ringbuf_id -type sampler_t -type exception_event_header_t -type exception_runtime -type exception_owner -type pid_info_t -type python_exception_payload_t -type python_exception_flags -type python_exception_link_t -type python_exception_message_t -type python_exception_frame_t -type python_exception_arg_kind -type python_exception_relation Bpf ../../../bpf/common/common.c -- -I../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target $BPF_TARGETS -type protocol_type -type event_type -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t -type node_span_event_t -type process_event_t -type pid_namespace_mode -type valid_pids_size -type ringbuf_write_stats_t -type ringbuf_id -type sampler_t -type exception_event_header_t -type exception_runtime -type exception_owner -type pid_info_t -type python_exception_payload_t -type python_exception_flags -type python_exception_link_t -type python_exception_message_t -type python_exception_frame_t -type python_exception_arg_kind -type python_exception_relation -type amqp_msg_event_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
@@ -107,6 +107,7 @@ const (
 	EventTypeJVMGCDuration         = uint8(BpfEventTypeK_eventTypeJvmGcDuration) // JVM garbage-collection duration
 	EventTypeProcessFork           = uint8(BpfEventTypeK_eventTypeProcessFork)   // An instrumented process forked a process
 	EventTypeProcessExec           = uint8(BpfEventTypeK_eventTypeProcessExec)   // A forked process ran exec
+	EventTypeAMQPMessage           = uint8(BpfEventTypeK_eventTypeAmqpMessage)   // AMQP 0-9-1 publish or delivery
 )
 
 // Kernel-side classification. These alias the bpf2go-generated constants
@@ -122,7 +123,7 @@ const (
 	ProtocolTypeMSSQL     = BpfProtocolTypeK_protocolTypeMssql
 	ProtocolTypeSunRPC    = BpfProtocolTypeK_protocolTypeSunrpc
 	ProtocolTypeNATS      = BpfProtocolTypeK_protocolTypeNats // placeholder for future kernel-space detection
-	ProtocolTypeAMQP      = BpfProtocolTypeK_protocolTypeAmqp // placeholder for future kernel-space detection
+	ProtocolTypeAMQP      = BpfProtocolTypeK_protocolTypeAmqp // AMQP 0-9-1, walked by bpf/generictracer/protocol_amqp.h
 	ProtocolTypeAerospike = BpfProtocolTypeK_protocolTypeAerospike
 )
 
@@ -719,6 +720,9 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoChannelLink:
 		return readGoChannelLinkEvent(parseCtx, record)
+	case EventTypeAMQPMessage:
+		span, ignore, err := ReadAMQP091MessageIntoSpan(record, filter)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	}
 
 	event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)

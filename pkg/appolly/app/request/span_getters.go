@@ -267,6 +267,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			case EventTypeNATSClient, EventTypeNATSServer:
 				return semconv.MessagingSystemKey.String("nats")
 			case EventTypeAMQPClient:
+				if span.SubType == AMQPSubtype091 {
+					return semconv.MessagingSystemRabbitMQ
+				}
 				return semconv.MessagingSystemKey.String("amqp")
 			}
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {

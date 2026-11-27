@@ -1492,7 +1492,7 @@ func (r *metricsReporter) observe(span *request.Span) {
 				}
 			}
 		case request.EventTypeAMQPClient:
-			if r.is.AMQPEnabled() {
+			if r.is.AMQPEnabled() && span.SubType != request.AMQPSubtype091 {
 				switch request.MessagingOperationTypeOf(span.Method) {
 				case request.MessagingSend:
 					r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
