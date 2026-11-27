@@ -25,7 +25,7 @@ func main() {
 
 func inspect(binary, output string) error {
 	if binary == "" {
-		return errors.New("-binary is required; use make update-rust-offsets to build the version matrix")
+		return errors.New("-binary is required, for example go run ./scripts/rust-offsets -binary internal/rustabi/testdata/http1/http1.elf -output offsets.json")
 	}
 
 	profile, err := rustabi.Inspect(binary)
