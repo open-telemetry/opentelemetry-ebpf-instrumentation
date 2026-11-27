@@ -111,13 +111,25 @@ func (d *rustDwarfTypes) discriminant(t dwarf.Type) (uint32, error) {
 
 	r := d.data.Reader()
 	r.Seek(offset)
-	for range 8 {
+	parent, err := r.Next()
+	if err != nil {
+		return 0, err
+	}
+	if parent == nil || !parent.Children {
+		return 0, errors.New("rust type has no variant part")
+	}
+
+	for {
 		e, err := r.Next()
-		if err != nil || e == nil {
+		if err != nil {
+			return 0, err
+		}
+		if e == nil || e.Tag == 0 {
 			break
 		}
 
 		if e.Tag != dwarf.TagVariantPart {
+			r.SkipChildren()
 			continue
 		}
 

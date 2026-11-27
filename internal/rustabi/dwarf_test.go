@@ -5,6 +5,7 @@ package rustabi
 
 import (
 	"debug/dwarf"
+	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -20,4 +21,70 @@ func TestRustFieldOffsetLimit(t *testing.T) {
 	field.ByteOffset++
 	_, _, err = rustDwarfField(s, "value")
 	require.Error(t, err)
+}
+
+func TestRustDiscriminantScope(t *testing.T) {
+	// These abbreviations describe a DWARF 4 unit with one-byte attributes and references.
+	const (
+		end = iota
+		unit
+		word
+		structure
+		leaf
+		variantPart
+		tagMember
+	)
+	const (
+		data1 = 0x0b // DW_FORM_data1
+		ref1  = 0x11 // DW_FORM_ref1
+	)
+	abbrev := []byte{
+		unit, byte(dwarf.TagCompileUnit), 1, 0, 0,
+		word, byte(dwarf.TagBaseType), 0, byte(dwarf.AttrEncoding), data1, byte(dwarf.AttrByteSize), data1, 0, 0,
+		structure, byte(dwarf.TagStructType), 1, 0, 0,
+		leaf, byte(dwarf.TagStructType), 0, 0, 0,
+		variantPart, byte(dwarf.TagVariantPart), 1, byte(dwarf.AttrDiscr), ref1, 0, 0,
+		tagMember, byte(dwarf.TagMember), 0, byte(dwarf.AttrType), ref1, byte(dwarf.AttrDataMemberLoc), data1, 0, 0,
+		end,
+	}
+	for _, tc := range []struct {
+		name    string
+		entries []byte
+		hasTag  bool
+	}{
+		{"childless sender before enum", []byte{leaf, structure, variantPart, end}, false},
+		{"sender with children before enum", []byte{structure, leaf, end, structure, variantPart, end}, false},
+		{"nested enum", []byte{structure, structure, variantPart, end, end}, false},
+		{"late direct variant part", []byte{structure, leaf, leaf, leaf, leaf, leaf, leaf, leaf, leaf, variantPart, end}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := []byte{0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 8, unit}
+			wordOffset := byte(len(info))
+			info = append(info, word, 0x07, 8) // DW_ATE_unsigned, eight bytes
+			root := dwarf.Offset(len(info))
+			const tagOffset = 16
+			for _, entry := range tc.entries {
+				info = append(info, entry)
+				if entry == variantPart {
+					// DW_AT_discr points to the member immediately after the reference.
+					info = append(info, byte(len(info)+1), tagMember, wordOffset, tagOffset, end)
+				}
+			}
+			info = append(info, end)
+			binary.LittleEndian.PutUint32(info, uint32(len(info)-4))
+
+			data, err := dwarf.New(abbrev, nil, nil, info, nil, nil, nil, nil)
+			require.NoError(t, err)
+			sender, err := data.Type(root)
+			require.NoError(t, err)
+			types := rustDwarfTypes{data: data, names: map[string][]dwarf.Offset{"": {root}}}
+			offset, err := types.discriminant(sender)
+			if tc.hasTag {
+				require.NoError(t, err)
+				require.EqualValues(t, tagOffset, offset)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
 }
