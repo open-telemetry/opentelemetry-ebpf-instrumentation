@@ -5,6 +5,12 @@ attribute_groups:
     attributes:
       - ref: mti
         requirement_level: required
+      - ref: stan
+        requirement_level:
+          conditionally_required: when field 11 is available in the reply or its matched request
+      - ref: rrn
+        requirement_level:
+          conditionally_required: when field 37 is available in a supported reply or its matched request
       - ref: duration.source
         requirement_level: required
       - ref: network.protocol.name

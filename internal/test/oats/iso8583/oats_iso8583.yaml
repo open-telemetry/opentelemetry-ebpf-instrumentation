@@ -44,10 +44,10 @@ expected:
     - traceql: '{ kind=server && span.mti = "0320" && span.duration.source = "field_7" && duration >= 3s }'
       match_spans:
         - name: ISO 8583 0320
-    - traceql: '{ kind=client && span.mti = "0200" }'
+    - traceql: '{ kind=client && span.mti = "0200" && span.rrn = "000000000001" && span.stan =~ "[0-9]{6}" }'
       match_spans:
         - name: ISO 8583 0200
-    - traceql: '{ kind=server && span.mti = "0200" }'
+    - traceql: '{ kind=server && span.mti = "0200" && span.rrn = "000000000001" && span.stan =~ "[0-9]{6}" }'
       match_spans:
         - name: ISO 8583 0200
     - traceql: '{ kind=client && span.mti = "0800" }'
@@ -65,6 +65,8 @@ expected:
             - key: server.port
               value: "8584"
   metrics:
+    - promql: sum(iso8583_request_duration_seconds_count{stan!=""} or iso8583_request_duration_seconds_count{rrn!=""}) or vector(0)
+      value: '== 0'
     - promql: count(count by (request_type, auth_outcome) (iso8583_request_duration_seconds_count{mti="0102",duration_source="capture",request_type=~"client|server",auth_outcome=~"approved|declined|technical_error"} > 0))
       value: '== 6'
     - promql: |

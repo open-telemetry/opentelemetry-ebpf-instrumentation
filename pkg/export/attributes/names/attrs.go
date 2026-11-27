@@ -253,6 +253,8 @@ const (
 
 const (
 	ISO8583MTI            = Name("mti")
+	ISO8583STAN           = Name("stan")
+	ISO8583RRN            = Name("rrn")
 	ISO8583DurationSource = Name("duration.source")
 	ISO8583Kind           = Name("request.type")
 	ISO8583AuthOutcome    = Name("auth.outcome")

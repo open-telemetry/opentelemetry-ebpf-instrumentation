@@ -507,10 +507,12 @@ Name, from the first template that applies: `ISO 8583 {mti}`.
 | `network.peer.address` | string | `recommended`: if the remote socket address is known | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | `recommended`: if the remote socket port is known | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.name` | string | `required` | stable | [OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent. | amqp; http; mqtt |
+| `rrn` | string | `conditionally_required`: when field 37 is available in a supported reply or its matched request | development | Retrieval reference number from ISO 8583 field 37. | 000ABC123456 |
 | `server.address` | string | `conditionally_required`: if the server address is known | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the server port is known | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+| `stan` | string | `conditionally_required`: when field 11 is available in the reply or its matched request | development | Six-digit systems trace audit number from ISO 8583 field 11. | 000123 |
 
 ## `obi.iso8583.server`
 
@@ -529,9 +531,11 @@ Name, from the first template that applies: `ISO 8583 {mti}`.
 | `network.peer.address` | string | `recommended`: if the remote socket address is known | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | `recommended`: if the remote socket port is known | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.name` | string | `required` | stable | [OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent. | amqp; http; mqtt |
+| `rrn` | string | `conditionally_required`: when field 37 is available in a supported reply or its matched request | development | Retrieval reference number from ISO 8583 field 37. | 000ABC123456 |
 | `server.address` | string | `conditionally_required`: if the server address is known | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the server port is known | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+| `stan` | string | `conditionally_required`: when field 11 is available in the reply or its matched request | development | Six-digit systems trace audit number from ISO 8583 field 11. | 000123 |
 
 ## `obi.jsonrpc.client`
 

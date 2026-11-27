@@ -1795,6 +1795,10 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attr.ISO8583MTI.OTEL().String(span.Method),
 			attr.ISO8583DurationSource.OTEL().String(span.ISO8583DurationSource()),
 		}
+		if refs := span.ISO8583References; refs != nil {
+			attrs = appendIfSet(attrs, attr.ISO8583STAN.OTEL().String, refs.STAN)
+			attrs = appendIfSet(attrs, attr.ISO8583RRN.OTEL().String, refs.RRN)
+		}
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		if span.HostPort != 0 {
 			attrs = append(attrs, request.ServerPort(span.HostPort))

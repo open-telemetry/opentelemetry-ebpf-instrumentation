@@ -89,6 +89,8 @@ ISO 8583 attributes defined by OBI.
 | `duration.source` | enum | development | Source of the ISO 8583 exchange duration. | field_7; capture |
 | `mti` | string | development | Four-digit initiating message type indicator, inferred from the reply when the request was not observed. | 0100; 0200; 0420; 0800 |
 | `request.type` | enum | development | Role of the observed endpoint in the ISO 8583 exchange. | client; server |
+| `rrn` | string | development | Retrieval reference number from ISO 8583 field 37. | 000ABC123456 |
+| `stan` | string | development | Six-digit systems trace audit number from ISO 8583 field 11. | 000123 |
 
 ## `registry.obi.k8s`
 

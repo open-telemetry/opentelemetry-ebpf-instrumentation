@@ -3,6 +3,11 @@
 
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
+type ISO8583References struct {
+	STAN string
+	RRN  string
+}
+
 type ISO8583AuthOutcome uint8
 
 const (

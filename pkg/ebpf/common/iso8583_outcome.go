@@ -23,10 +23,15 @@ const (
 	isoBytes
 )
 
+const (
+	iso8583RRNField          = 37
+	iso8583ResponseCodeField = 39
+)
+
 // Wire layouts up to DE39 in the jPOS ISO87 and ISO93 ASCII/binary packagers.
 // Text fields retain their byte width in a packed message. The 1987 signed
 // fees (DE28–31) occupy one sign byte and four packed amount bytes.
-var iso8583OutcomeFields = [39][2]iso8583FieldFormat{
+var iso8583FieldFormats = [39][2]iso8583FieldFormat{
 	//      1987                   1993
 	12: {{6, 0, isoDigits}, {12, 0, isoDigits}},
 	13: {{4, 0, isoDigits}, {4, 0, isoDigits}},
@@ -57,14 +62,14 @@ var iso8583OutcomeFields = [39][2]iso8583FieldFormat{
 	38: {{6, 0, isoBytes}, {6, 0, isoBytes}},
 }
 
-func (m *iso8583Message) readAuthOutcome(buf *largebuf.LargeBuffer, offset, frameEnd, laterFields int) request.ISO8583AuthOutcome {
+func (m *iso8583Message) readReferenceAndOutcome(buf *largebuf.LargeBuffer, offset, frameEnd, secondaryFields, lastField int) {
 	version := m.mti[0] - '0'
 	end := min(frameEnd, buf.Len())
 	fields := m.bitmap & (iso8583FieldBit(11) - iso8583FieldBit(38))
 	for fields != 0 {
 		field := bits.LeadingZeros64(fields) + 1
 		fields &^= iso8583FieldBit(field)
-		format := iso8583OutcomeFields[field][version]
+		format := iso8583FieldFormats[field][version]
 		width := format.width
 
 		if format.lengthDigits != 0 {
@@ -75,14 +80,14 @@ func (m *iso8583Message) readAuthOutcome(buf *largebuf.LargeBuffer, offset, fram
 			}
 
 			if offset+n > end {
-				return request.ISO8583Unknown
+				return
 			}
 
 			_ = buf.CopyAt(offset, length[:n])
 
 			width = iso8583DecimalLength(length[:n], m.packed)
 			if width < 0 || width > format.width {
-				return request.ISO8583Unknown
+				return
 			}
 
 			offset += n
@@ -91,6 +96,21 @@ func (m *iso8583Message) readAuthOutcome(buf *largebuf.LargeBuffer, offset, fram
 			width = (width + 1) / 2
 		}
 
+		if offset+width > end {
+			return
+		}
+
+		if field == iso8583RRNField {
+			var rrn [12]byte
+			_ = buf.CopyAt(offset, rrn[:])
+			if validISO8583RRN(rrn) {
+				m.rrn = rrn
+			}
+
+			if lastField == iso8583RRNField {
+				return
+			}
+		}
 		offset += width
 	}
 
@@ -100,9 +120,12 @@ func (m *iso8583Message) readAuthOutcome(buf *largebuf.LargeBuffer, offset, fram
 		n = 3
 	}
 
+	// Fields after DE39 occupy the low bits of the primary bitmap and the entire secondary bitmap.
+	remainingPrimary := m.bitmap & (iso8583FieldBit(iso8583ResponseCodeField) - 1)
+	laterFields := bits.OnesCount64(remainingPrimary) + secondaryFields
 	after := frameEnd - (offset + n)
 	if offset+n > end || after < laterFields || (laterFields == 0 && after != 0) {
-		return request.ISO8583Unknown
+		return
 	}
 
 	var code [3]byte
@@ -111,13 +134,29 @@ func (m *iso8583Message) readAuthOutcome(buf *largebuf.LargeBuffer, offset, fram
 		// The ISO93 binary packager right-pads the three digits with a zero nibble.
 		a, b := code[0], code[1]
 		if b&15 != 0 || a>>4 > 9 || a&15 > 9 || b>>4 > 9 {
-			return request.ISO8583Unknown
+			return
 		}
 
 		code = [3]byte{'0' + a>>4, '0' + a&15, '0' + b>>4}
 		n = 3
 	}
-	return iso8583ClassifyOutcome(code[:n])
+	m.outcome = iso8583ClassifyOutcome(code[:n])
+}
+
+// DE37 is a fixed-width text field in both supported packagers.
+func validISO8583RRN(rrn [12]byte) bool {
+	hasValue := false
+	for _, c := range rrn {
+		if c < ' ' || c > '~' {
+			return false
+		}
+
+		if c != ' ' {
+			hasValue = true
+		}
+	}
+
+	return hasValue
 }
 
 // Processor-specific and ambiguous codes retain the unknown outcome.

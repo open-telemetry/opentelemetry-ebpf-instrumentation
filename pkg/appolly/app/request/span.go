@@ -1605,6 +1605,7 @@ type Span struct {
 	// duration is a measurement is recorded separately, by ignoreDurations.
 	ResponseObservation ResponseObservation `json:"-"`
 
+	ISO8583References   *ISO8583References `json:"-"`
 	ISO8583Field7Timing bool               `json:"-"`
 	ISO8583Outcome      ISO8583AuthOutcome `json:"-"`
 
@@ -1826,12 +1827,21 @@ func spanAttributes(s *Span) SpanAttributes {
 			"subject":    s.Path,
 		}
 	case EventTypeISO8583Client, EventTypeISO8583Server:
-		return SpanAttributes{
+		attrs := SpanAttributes{
 			"serverAddr":                      SpanHost(s),
 			"serverPort":                      strconv.Itoa(s.HostPort),
 			attr.ISO8583MTI.Prom():            s.Method,
 			attr.ISO8583DurationSource.Prom(): s.ISO8583DurationSource(),
 		}
+		if refs := s.ISO8583References; refs != nil {
+			if refs.STAN != "" {
+				attrs[attr.ISO8583STAN.Prom()] = refs.STAN
+			}
+			if refs.RRN != "" {
+				attrs[attr.ISO8583RRN.Prom()] = refs.RRN
+			}
+		}
+		return attrs
 	case EventTypeSunRPCServer, EventTypeSunRPCClient:
 		attrs := SpanAttributes{
 			"serverAddr":                  SpanHost(s),

@@ -170,6 +170,55 @@ func BenchmarkISO8583AuthOutcome(b *testing.B) {
 	}
 }
 
+func TestISO8583ReferenceCapture(t *testing.T) {
+	for _, tc := range []struct {
+		name, mti, value, want string
+		packed                 bool
+	}{
+		{"1987 ASCII request", "0200", "00ABC1234567", "00ABC1234567", false},
+		{"1987 packed advice", "0430", "00ABC1234567", "00ABC1234567", true},
+		{"1993 ASCII", "1210", "000000000000", "000000000000", false},
+		{"1993 packed", "1210", "00ABC       ", "00ABC", true},
+		{"blank", "0110", "            ", "", false},
+		{"non-text", "0110", "00ABC\x01123456", "", false},
+		{"2003 field layout", "2110", "00ABC1234567", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prefix := "000123041234" // DE11, then an LLVAR acquirer ID in DE32.
+			if tc.packed {
+				prefix = "\x00\x01\x23\x04\x12\x34"
+			}
+			body := iso8583TestBody(t, tc.mti, tc.packed, []int{11, 32, 37}, prefix+tc.value)
+			buf := largebuf.NewLargeBufferFrom(body[:len(body)-1])
+			read := func() *request.ISO8583References {
+				msg, ok := readISO8583Message(buf, 0, len(body))
+				require.True(t, ok)
+				return msg.references(iso8583Message{})
+			}
+			assert.Equal(t, &request.ISO8583References{STAN: "000123"}, read())
+			buf.AppendChunk(body[len(body)-1:])
+			assert.Equal(t, &request.ISO8583References{STAN: "000123", RRN: tc.want}, read())
+		})
+	}
+
+	// A short DE37 must not borrow its last byte from the next frame.
+	body := iso8583TestFrame("01100000000008000000" + "12345678901")
+	next := iso8583AuthReply("000123", "00")
+	buf := largebuf.NewLargeBufferFrom(append(body, next...))
+	stream := readISO8583Stream(buf, 2, buf.Len(), false)
+	require.Len(t, stream.messages, 2)
+	assert.Nil(t, stream.messages[0].references(iso8583Message{}))
+}
+
+func TestISO8583RequestOnlyReferences(t *testing.T) {
+	call := iso8583TestFrame(string(iso8583TestBody(t, "0100", false, []int{11, 37}, "000123"+"00ABC1234567")))
+	reply := iso8583TestFrame(string(iso8583TestBody(t, "0110", false, []int{39}, "00")))
+	event := newTCPTestRecord(directionSend, 100, 300, call, reply)
+	spans := iso8583TestDispatch(t)(event.raw())
+	require.Len(t, spans, 1)
+	assert.Equal(t, &request.ISO8583References{STAN: "000123", RRN: "00ABC1234567"}, spans[0].ISO8583References)
+}
+
 func TestISO8583ResponseTime(t *testing.T) {
 	ny, err := time.LoadLocation("America/New_York")
 	require.NoError(t, err)
@@ -585,8 +634,14 @@ func iso8583TestDispatch(t *testing.T) func([]byte) []request.Span {
 }
 
 func TestISO8583MultiplexedAuthorizations(t *testing.T) {
-	a, b := iso8583AuthCall("123456"), iso8583AuthCall("123457")
-	approved, declined := iso8583AuthReply("123456", "00"), iso8583AuthReply("123457", "51")
+	a := iso8583TestFrame(string(iso8583TestBody(t, "0100", false, []int{11, 37}, "123456"+"000REQ000001")))
+	b := iso8583TestFrame(string(iso8583TestBody(t, "0100", false, []int{11, 37}, "123457"+"000REQ000002")))
+	approved := iso8583TestFrame(string(iso8583TestBody(t, "0110", false, []int{11, 37, 39}, "123456"+"000RES000001"+"00")))
+	declined := iso8583AuthReply("123457", "51")
+	references := map[request.ISO8583AuthOutcome]*request.ISO8583References{
+		request.ISO8583Approved: {STAN: "123456", RRN: "000RES000001"},
+		request.ISO8583Declined: {STAN: "123457", RRN: "000REQ000002"},
+	}
 	for _, direction := range []uint8{directionSend, directionRecv} {
 		for _, reverse := range []bool{false, true} {
 			t.Run(fmt.Sprintf("direction=%d/reverse=%t", direction, reverse), func(t *testing.T) {
@@ -608,6 +663,7 @@ func TestISO8583MultiplexedAuthorizations(t *testing.T) {
 					span := spans[0]
 					assert.Equal(t, "0100", span.Method)
 					assert.Equal(t, outcome, span.ISO8583Outcome)
+					assert.Equal(t, references[outcome], span.ISO8583References)
 					assert.Equal(t, "capture", span.ISO8583DurationSource())
 					assert.Equal(t, start, span.Start)
 					assert.Equal(t, end, span.End)

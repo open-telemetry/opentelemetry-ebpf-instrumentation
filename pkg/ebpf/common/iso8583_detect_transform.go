@@ -4,9 +4,11 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
+	"cmp"
 	"encoding/binary"
 	"encoding/hex"
 	"math/bits"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -46,6 +48,7 @@ type iso8583Message struct {
 	mti          [iso8583MTISize]byte
 	transmission [10]byte // DE7, MMDDhhmmss
 	stan         [6]byte  // DE11, systems trace audit number
+	rrn          [12]byte // DE37, retrieval reference number
 	packed       bool
 	outcome      request.ISO8583AuthOutcome
 }
@@ -74,6 +77,27 @@ func (m iso8583Message) acceptsResponse(r iso8583Message) bool {
 	shared := m.bitmap & r.bitmap
 	return (shared&iso8583FieldBit(iso8583TransmissionField) == 0 || (m.transmission[0] != 0 && m.transmission == r.transmission)) &&
 		(shared&iso8583FieldBit(iso8583STANField) == 0 || (m.stan[0] != 0 && m.stan == r.stan))
+}
+
+// lastFieldToRead returns the last field OBI needs in wire order, or zero to skip the payload.
+func (m *iso8583Message) lastFieldToRead(decision bool) int {
+	supportedLayout := m.mti[0]-'0' != iso8583Version2003
+	switch {
+	case supportedLayout && decision && m.hasField(iso8583ResponseCodeField):
+		return iso8583ResponseCodeField
+	case supportedLayout && m.hasField(iso8583RRNField):
+		return iso8583RRNField
+	case m.hasField(iso8583STANField):
+		return iso8583STANField
+	case m.hasField(iso8583TransmissionField):
+		return iso8583TransmissionField
+	default:
+		return 0
+	}
+}
+
+func (m *iso8583Message) hasField(field int) bool {
+	return m.bitmap&iso8583FieldBit(field) != 0
 }
 
 func iso8583PayloadSize(prefix []byte) int {
@@ -154,7 +178,7 @@ func readISO8583Message(buf *largebuf.LargeBuffer, start, size int) (iso8583Mess
 		return m, false
 	}
 
-	fields := bits.OnesCount64(primary &^ iso8583Extended)
+	secondaryFields := 0
 	if primary&iso8583Extended != 0 {
 		if offset+bitmapSize > len(data) {
 			return m, false
@@ -164,11 +188,12 @@ func readISO8583Message(buf *largebuf.LargeBuffer, start, size int) (iso8583Mess
 			return m, false
 		}
 
-		fields += bits.OnesCount64(secondary)
+		secondaryFields = bits.OnesCount64(secondary)
 		offset += bitmapSize
 	}
 
-	if size-offset < fields {
+	fieldCount := bits.OnesCount64(primary&^iso8583Extended) + secondaryFields
+	if size-offset < fieldCount {
 		return m, false
 	}
 
@@ -180,13 +205,14 @@ func readISO8583Message(buf *largebuf.LargeBuffer, start, size int) (iso8583Mess
 		m.outcome = request.ISO8583NotApplicable
 	}
 
-	readOutcome := decision && primary&iso8583FieldBit(39) != 0 && m.mti[0]-'0' != iso8583Version2003
-	if readOutcome || primary&(iso8583FieldBit(iso8583TransmissionField)|iso8583FieldBit(iso8583STANField)) != 0 {
-		used := m.readTimingFields(primary, data[offset:])
-		if readOutcome && used >= 0 {
-			laterFields := fields - bits.OnesCount64((primary&^iso8583Extended)>>(64-39))
-			m.outcome = m.readAuthOutcome(buf, start+offset+used, start+size, laterFields)
-		}
+	lastField := m.lastFieldToRead(decision)
+	if lastField == 0 {
+		return m, true
+	}
+
+	used := m.readTimingFields(data[offset:])
+	if used >= 0 && lastField > iso8583STANField {
+		m.readReferenceAndOutcome(buf, start+offset+used, start+size, secondaryFields, lastField)
 	}
 
 	return m, true
@@ -338,6 +364,7 @@ func iso8583Responses(event *TCPRequestInfo, stream iso8583Stream, first bool, o
 		span := iso8583Span(event, string(mti[:]), first, start, observed)
 		span.ISO8583Field7Timing = estimated
 		span.ISO8583Outcome = reply.outcome
+		span.ISO8583References = reply.references(matched.message)
 		if paired != nil && matched.observed == event.StartMonotimeNs {
 			span.ContentLength = int64(event.ReqLen)
 			span.TraceID = event.Tp.TraceId
@@ -351,6 +378,26 @@ func iso8583Responses(event *TCPRequestInfo, stream iso8583Stream, first bool, o
 	}
 
 	return spans
+}
+
+// Use the reply's identifiers when available, falling back to its matched request.
+func (m iso8583Message) references(call iso8583Message) *request.ISO8583References {
+	stan := cmp.Or(m.stan, call.stan)
+	rrn := cmp.Or(m.rrn, call.rrn)
+	if stan[0] == 0 && rrn[0] == 0 {
+		return nil
+	}
+
+	refs := &request.ISO8583References{}
+	if stan[0] != 0 {
+		refs.STAN = string(stan[:])
+	}
+
+	if rrn[0] != 0 {
+		refs.RRN = strings.TrimRight(string(rrn[:]), " ")
+	}
+
+	return refs
 }
 
 func iso8583Span(event *TCPRequestInfo, mti string, first bool, start, end uint64) request.Span {

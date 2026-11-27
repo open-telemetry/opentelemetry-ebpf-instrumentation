@@ -536,7 +536,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCClient, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCServer, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeISO8583Client, Method: "0200", ISO8583Field7Timing: true, ISO8583Outcome: request.ISO8583Approved, RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeISO8583Client, Method: "0200", ISO8583References: &request.ISO8583References{STAN: "000123", RRN: "00ABC1234567"}, ISO8583Field7Timing: true, ISO8583Outcome: request.ISO8583Approved, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeISO8583Server, Method: "0200", ISO8583Outcome: request.ISO8583Declined, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
@@ -560,6 +560,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			for _, record := range m {
 				operations = append(operations, record.Attributes["db.operation.name"])
 				if record.Name == "iso8583.request.duration" {
+					assert.NotContains(t, record.Attributes, "stan")
+					assert.NotContains(t, record.Attributes, "rrn")
 					assert.Equal(t, "0200", record.Attributes["mti"])
 					iso8583SourcesByType[record.Attributes["request.type"]] = record.Attributes["duration.source"]
 					assert.Equal(t, map[string]string{"client": "approved", "server": "declined"}[record.Attributes["request.type"]], record.Attributes["auth.outcome"])

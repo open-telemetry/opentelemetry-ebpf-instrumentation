@@ -56,11 +56,11 @@ func readISO8583Digits(encoded, digits []byte, packed bool) {
 }
 
 // readTimingFields returns the byte offset after DE11, or -1 for an incomplete prefix.
-func (m *iso8583Message) readTimingFields(bitmap uint64, data []byte) int {
+func (m *iso8583Message) readTimingFields(data []byte) int {
 	initialSize := len(data)
 
 	// DE2 is LLVAR. Only its length is needed to skip the account number.
-	if bitmap&iso8583FieldBit(2) != 0 {
+	if m.hasField(2) {
 		size := 2
 		if m.packed {
 			size = 1
@@ -89,7 +89,7 @@ func (m *iso8583Message) readTimingFields(bitmap uint64, data []byte) int {
 	// Fixed numeric widths in digits for DE3 through DE11 in these packagers.
 	for i, width := range [...]int{6, 12, 12, 12, 10, 8, 8, 8, 6} {
 		field := i + 3
-		if bitmap&iso8583FieldBit(field) == 0 {
+		if !m.hasField(field) {
 			continue
 		}
 
