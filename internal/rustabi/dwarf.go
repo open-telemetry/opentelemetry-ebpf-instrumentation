@@ -90,15 +90,15 @@ func (d *rustDwarfTypes) path(t dwarf.Type, path ...string) (uint32, dwarf.Type,
 
 	for _, name := range path {
 		offset, field, err := rustDwarfField(t, name)
-		if err != nil {
-			typeOffset, err := d.typeOffset(t)
-			if err != nil {
-				return 0, nil, err
+		if errors.Is(err, dwarfutil.ErrFieldNotFound) {
+			typeOffset, lookupErr := d.typeOffset(t)
+			if lookupErr != nil {
+				return 0, nil, lookupErr
 			}
 			offset, field, err = d.variant(typeOffset, name)
-			if err != nil {
-				return 0, nil, err
-			}
+		}
+		if err != nil {
+			return 0, nil, err
 		}
 
 		total += offset
@@ -218,7 +218,10 @@ func (d *rustDwarfTypes) callbackSender(callback dwarf.Type, base uint32, varian
 	}
 
 	offset, ptrType, err := d.path(sender, "inner", "Some", "__0", "ptr", "pointer")
-	if err != nil || ptrType.Size() != 8 {
+	if err != nil {
+		return 0, 0, fmt.Errorf("rust callback %s oneshot pointer: %w", variant, err)
+	}
+	if ptrType.Size() != 8 {
 		return 0, 0, fmt.Errorf("rust callback %s oneshot pointer is not validated", variant)
 	}
 	return some, base + offset, nil

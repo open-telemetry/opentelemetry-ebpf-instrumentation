@@ -52,6 +52,7 @@ func TestInspectRejectsInvalidCallback(t *testing.T) {
 		wantErr  string
 	}{
 		{"missing NoRetry sender", callbackFixture{missingNoRetrySender: true, noRetryOffset: 8}, "rust callback NoRetry sender"},
+		{"inner field outside sender", callbackFixture{senderInnerOffset: 12, noRetryOffset: 8}, `field "inner" exceeds its containing type`},
 		{"different sender pointer locations", callbackFixture{noRetryOffset: 16}, "rust callback variants"},
 		{"different option tags with the same pointer", callbackFixture{tagged: true, noRetryOffset: 8, noRetryTag: 16}, "rust callback variants"},
 	} {
@@ -66,6 +67,7 @@ func TestInspectRejectsInvalidCallback(t *testing.T) {
 type callbackFixture struct {
 	tagged                    bool
 	missingNoRetrySender      bool
+	senderInnerOffset         uint16
 	noRetryOffset, noRetryTag uint16
 }
 
@@ -128,7 +130,7 @@ func (d *fixtureDWARF) callbackType(word, pointer, nonNull dwarf.Offset, callbac
 	arc := d.structure("Arc", 8, fixtureMember{"ptr", 0, nonNull})
 	// None is the null pointer. Some stores Arc at the same address.
 	inner := d.option("Option<Arc>", 8, 0, pointer, 0, arc, 0, defaultVariant)
-	sender := d.structure("Sender", 8, fixtureMember{"inner", 0, inner})
+	sender := d.structure("Sender", 8, fixtureMember{"inner", callback.senderInnerOffset, inner})
 	retrySender, noRetrySender := sender, sender
 	if callback.tagged {
 		d.namespace("retry", func() { retrySender = d.option("Option<Sender>", 16, 0, word, 8, sender, 0, 1) })

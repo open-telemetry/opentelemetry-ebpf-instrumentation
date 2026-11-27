@@ -25,7 +25,7 @@ func TestFieldPath(t *testing.T) {
 	assert.EqualValues(t, 16, offset)
 	assert.Equal(t, word, leaf)
 	_, _, err = FieldPath(outer, "missing")
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrFieldNotFound)
 	_, _, err = FieldPath(outer, "inner", "value", "invalid")
 	require.Error(t, err)
 	for _, invalidOffset := range []int64{-1, 12, math.MaxInt64} {
@@ -33,4 +33,8 @@ func TestFieldPath(t *testing.T) {
 		_, _, err = FieldPath(inner, "value")
 		require.Error(t, err)
 	}
+	inner.Field[0].Type = nil
+	_, _, err = FieldPath(inner, "value")
+	require.ErrorContains(t, err, "has no type")
+	require.NotErrorIs(t, err, ErrFieldNotFound)
 }
