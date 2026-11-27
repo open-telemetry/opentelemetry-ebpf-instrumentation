@@ -2439,7 +2439,7 @@
             "$ref": "#/$defs/OpenAICompatibleGateway"
           },
           "type": "array",
-          "description": "Opt-in allowlist of gateway destinations to match by host (case-insensitive) with optional port and provider name"
+          "description": "Additional gateway destinations to match by host (case-insensitive) with optional port and provider name, checked before the built-in Groq, Mistral and Together hosts"
         }
       },
       "type": "object"

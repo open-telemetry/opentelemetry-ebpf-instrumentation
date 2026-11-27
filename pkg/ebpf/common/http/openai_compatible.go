@@ -13,6 +13,29 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 )
 
+// defaultOpenAICompatibleGateways are hosted providers that serve the OpenAI API
+// from their own hosts. They are matched after the configured gateways, so a
+// configured entry for the same host takes precedence.
+var defaultOpenAICompatibleGateways = []config.OpenAICompatibleGateway{
+	{Host: "api.groq.com", Provider: "groq"},
+	{Host: "api.mistral.ai", Provider: "mistral_ai"},
+	{Host: "api.together.xyz", Provider: "together_ai"},
+}
+
+func matchOpenAICompatibleGateway(host string, port int, gateways []config.OpenAICompatibleGateway) *config.OpenAICompatibleGateway {
+	for i := range gateways {
+		gw := &gateways[i]
+		if !strings.EqualFold(host, gw.Host) {
+			continue
+		}
+		if gw.Port > 0 && port > 0 && gw.Port != port {
+			continue
+		}
+		return gw
+	}
+	return nil
+}
+
 func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.Response, gateways []config.OpenAICompatibleGateway) (request.Span, bool) {
 	var reqHost string
 	if req.URL != nil {
@@ -31,17 +54,9 @@ func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.
 		}
 	}
 
-	var matchedGateway *config.OpenAICompatibleGateway
-	for i := range gateways {
-		gw := &gateways[i]
-		if !strings.EqualFold(hostOnly, gw.Host) {
-			continue
-		}
-		if gw.Port > 0 && port > 0 && gw.Port != port {
-			continue
-		}
-		matchedGateway = gw
-		break
+	matchedGateway := matchOpenAICompatibleGateway(hostOnly, port, gateways)
+	if matchedGateway == nil {
+		matchedGateway = matchOpenAICompatibleGateway(hostOnly, port, defaultOpenAICompatibleGateways)
 	}
 
 	if matchedGateway == nil {

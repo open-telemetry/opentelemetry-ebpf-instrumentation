@@ -196,7 +196,7 @@ type CohereConfig struct {
 type OpenAICompatibleConfig struct {
 	// Enable OpenAI-compatible gateway payload extraction and parsing
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED" validate:"boolean"`
-	// Opt-in allowlist of gateway destinations to match by host (case-insensitive) with optional port and provider name
+	// Additional gateway destinations to match by host (case-insensitive) with optional port and provider name, checked before the built-in Groq, Mistral and Together hosts
 	Gateways []OpenAICompatibleGateway `yaml:"gateways" validate:"dive"`
 }
 
