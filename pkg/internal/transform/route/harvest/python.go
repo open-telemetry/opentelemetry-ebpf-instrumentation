@@ -324,6 +324,36 @@ func pyDelimitedEnd(stmt string, open int) int {
 	return -1
 }
 
+// unescapePython decodes a non-raw string literal. It returns false for escapes
+// that Python interprets other than backslashes and quotes.
+func unescapePython(literal string) (string, bool) {
+	if !strings.Contains(literal, `\`) {
+		return literal, true
+	}
+
+	var decoded strings.Builder
+	for i := 0; i < len(literal); i++ {
+		if literal[i] != '\\' {
+			decoded.WriteByte(literal[i])
+			continue
+		}
+		if i+1 == len(literal) {
+			return "", false
+		}
+		i++
+		switch char := literal[i]; {
+		case char == '\\' || char == '\'' || char == '"':
+			decoded.WriteByte(char)
+		case strings.IndexByte("abfnrtvxuUN01234567", char) >= 0:
+			return "", false
+		default:
+			decoded.WriteByte('\\')
+			decoded.WriteByte(char)
+		}
+	}
+	return decoded.String(), true
+}
+
 func addPyMatch(routes map[string]struct{}, re *regexp.Regexp, line string) {
 	match := re.FindStringSubmatch(line)
 	for i := 1; i < len(match); i++ {

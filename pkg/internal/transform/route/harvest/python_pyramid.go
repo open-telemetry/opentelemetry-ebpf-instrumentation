@@ -22,9 +22,7 @@ var (
 	// RFC 3986 path characters except ':', which the route matcher reads as a placeholder.
 	pyramidLiteralSegment = regexp.MustCompile(`^[A-Za-z0-9._~%!$&'()+,;=@-]*$`)
 	pyFullLiteral         = regexp.MustCompile(`^([rRuU]?)(?:"([^"\r\n]*)"|'([^'\r\n]*)')$`)
-	// Escapes Python decodes in non-raw strings; others such as \d are kept as written.
-	pyDecodedEscape     = regexp.MustCompile(`\\[\\'"abfnrtvxNuU0-7]`)
-	pyKeywordArgPattern = regexp.MustCompile(`^([A-Za-z_]\w*)\s*=(.*)$`)
+	pyKeywordArgPattern   = regexp.MustCompile(`^([A-Za-z_]\w*)\s*=(.*)$`)
 )
 
 func startsPyramid(line string) bool {
@@ -228,12 +226,10 @@ func pyStringLiteral(arg string) (string, bool) {
 		return "", false
 	}
 	value := match[2] + match[3]
-	// The source text differs from the runtime value when Python decodes an escape.
-	raw := strings.EqualFold(match[1], "r")
-	if !raw && pyDecodedEscape.MatchString(value) {
-		return "", false
+	if strings.EqualFold(match[1], "r") {
+		return value, true
 	}
-	return value, true
+	return unescapePython(value)
 }
 
 // pyKeywordArg splits a name=value argument; comparisons such as a == b are not keywords.
