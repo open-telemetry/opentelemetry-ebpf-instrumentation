@@ -108,11 +108,29 @@ func TestAddAuditableCrateVersions(t *testing.T) {
 	}
 }
 
-func TestReadBuildCrateMetadata(t *testing.T) {
+func TestReadCompilerWithMalformedCrates(t *testing.T) {
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	f := testELF(t, []testELFSection{
+		{Name: rustAuditableSection, Data: []byte("invalid zlib")},
+		{Name: ".comment", Data: []byte("rustc version 1.99.0 (012345678)")},
+		{Name: ".rodata", Data: []byte("/rustc/" + commit + "/library/core/src/lib.rs")},
+	})
+	build, err := ReadCompiler(f)
+	require.NoError(t, err)
+	require.Equal(t, Build{Arch: "amd64", Rustc: "1.99.0", CompilerCommit: commit}, build)
+
+	// A readable compiler comment is sufficient even when source paths are unreadable.
+	f.Section(".rodata").Type = elf.SHT_NOBITS
+	build, err = ReadCompiler(f)
+	require.NoError(t, err)
+	require.Equal(t, Build{Arch: "amd64", Rustc: "1.99.0"}, build)
+}
+
+func TestReadCrates(t *testing.T) {
 	tests := []struct {
 		name     string
 		sections []testELFSection
-		want     Build
+		want     map[string][]string
 		wantErr  string
 	}{
 		{
@@ -121,7 +139,7 @@ func TestReadBuildCrateMetadata(t *testing.T) {
 				{Name: ".comment", Data: []byte("rustc version 1.91.1 (ed61e7d7e 2025-11-07)")},
 				{Name: ".rodata", Data: []byte("/cargo/registry/src/tokio-1.48.0/src/runtime.rs")},
 			},
-			want: Build{Arch: "amd64", Rustc: "1.91.1", Crates: map[string][]string{"tokio": {"1.48.0"}}},
+			want: map[string][]string{"tokio": {"1.48.0"}},
 		},
 		{
 			name: "merges and deduplicates source and auditable versions",
@@ -132,18 +150,19 @@ func TestReadBuildCrateMetadata(t *testing.T) {
 					rustAuditablePackage{Name: "hyper", Version: "1.7.0", Source: jsonString("registry"), Kind: "runtime"},
 				))},
 			},
-			want: Build{Arch: "amd64", Crates: map[string][]string{"tokio": {"1.48.0"}, "hyper": {"1.7.0"}}},
+			want: map[string][]string{"tokio": {"1.48.0"}, "hyper": {"1.7.0"}},
 		},
 		{
-			name:     "malformed zlib data",
-			sections: []testELFSection{{Name: rustAuditableSection, Data: []byte("not zlib")}},
-			want:     Build{Arch: "amd64", Crates: map[string][]string{}},
-			wantErr:  "reading .dep-v0",
+			name: "malformed zlib discards partial crate versions",
+			sections: []testELFSection{
+				{Name: ".rodata", Data: []byte("/cargo/tokio-1.48.0/src/runtime.rs")},
+				{Name: rustAuditableSection, Data: []byte("not zlib")},
+			},
+			wantErr: "reading .dep-v0",
 		},
 		{
 			name:     "malformed JSON data",
 			sections: []testELFSection{{Name: rustAuditableSection, Data: zlibData(t, []byte("not JSON"))}},
-			want:     Build{Arch: "amd64", Crates: map[string][]string{}},
 			wantErr:  "reading .dep-v0",
 		},
 		{
@@ -152,7 +171,6 @@ func TestReadBuildCrateMetadata(t *testing.T) {
 				Name: rustAuditableSection,
 				Data: zlibData(t, bytes.Repeat([]byte{' '}, rustAuditableMaxBytes+1)),
 			}},
-			want:    Build{Arch: "amd64", Crates: map[string][]string{}},
 			wantErr: "dependency list exceeds the size limit",
 		},
 	}
@@ -160,8 +178,8 @@ func TestReadBuildCrateMetadata(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			f := testELF(t, test.sections)
-			build, err := ReadBuild(f)
-			require.Equal(t, test.want, build)
+			crates, err := ReadCrates(f)
+			require.Equal(t, test.want, crates)
 			if test.wantErr == "" {
 				require.NoError(t, err)
 			} else {

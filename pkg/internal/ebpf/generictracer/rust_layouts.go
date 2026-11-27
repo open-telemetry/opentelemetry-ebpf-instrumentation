@@ -25,7 +25,7 @@ var rustOffsetDatabase = sync.OnceValues(func() (rustabi.Database, error) {
 })
 
 func (e *rustExecutable) resolveABI(f *elf.File) error {
-	build, err := rustabi.ReadBuild(f)
+	build, err := rustabi.ReadCompiler(f)
 	if err != nil {
 		return err
 	}

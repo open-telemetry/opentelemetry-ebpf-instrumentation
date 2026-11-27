@@ -25,7 +25,12 @@ func Inspect(path string) (Profile, error) {
 	}
 
 	defer f.Close()
-	build, err := ReadBuild(f)
+	build, err := ReadCompiler(f)
+	if err != nil {
+		return Profile{}, err
+	}
+
+	crates, err := ReadCrates(f)
 	if err != nil {
 		return Profile{}, err
 	}
@@ -50,7 +55,7 @@ func Inspect(path string) (Profile, error) {
 	}
 
 	return Profile{
-		Arch: build.Arch, Rustc: build.Rustc, Crates: build.Crates, Config: config, Channels: channels,
+		Arch: build.Arch, Rustc: build.Rustc, Crates: crates, Config: config, Channels: channels,
 		CompilerCommit: build.CompilerCommit,
 	}, nil
 }

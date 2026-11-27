@@ -110,8 +110,9 @@ type rustAuditablePackage struct {
 	Kind   string          `json:"kind"`
 }
 
-func ReadBuild(f *elf.File) (Build, error) {
-	b := Build{Crates: map[string][]string{}}
+// ReadCompiler identifies the architecture and rustc independently of Cargo metadata.
+func ReadCompiler(f *elf.File) (Build, error) {
+	var b Build
 	switch f.Machine {
 	case elf.EM_X86_64:
 		b.Arch = "amd64"
@@ -121,27 +122,15 @@ func ReadBuild(f *elf.File) (Build, error) {
 		return b, errors.New("unsupported Rust ELF architecture")
 	}
 
+	var readErr error
 	for _, section := range f.Sections {
-		if section.Name == rustAuditableSection {
-			data, err := section.Data()
-			if err != nil {
-				return b, err
-			}
-
-			if err := addAuditableCrateVersions(b.Crates, data); err != nil {
-				return b, fmt.Errorf("reading %s: %w", rustAuditableSection, err)
-			}
-
+		if !hasRustSourcePaths(section) {
 			continue
 		}
-
-		if section.Name != ".comment" && !strings.HasPrefix(section.Name, ".rodata") {
-			continue
-		}
-
 		data, err := section.Data()
 		if err != nil {
-			return b, err
+			readErr = err
+			continue
 		}
 
 		if version := rustCompilerVersion.FindSubmatch(data); len(version) > 0 {
@@ -151,11 +140,39 @@ func ReadBuild(f *elf.File) (Build, error) {
 		if commit := rustCompilerCommit.FindSubmatch(data); len(commit) > 0 {
 			b.CompilerCommit = string(commit[1])
 		}
-
-		addPathCrateVersions(b.Crates, data)
 	}
-
+	if b.Rustc == "" && b.CompilerCommit == "" {
+		return b, readErr
+	}
 	return b, nil
+}
+
+// ReadCrates combines source paths and cargo-auditable metadata. An incomplete
+// list cannot safely distinguish multiple linked versions for layout selection.
+func ReadCrates(f *elf.File) (map[string][]string, error) {
+	crates := map[string][]string{}
+	for _, section := range f.Sections {
+		if section.Name != rustAuditableSection && !hasRustSourcePaths(section) {
+			continue
+		}
+
+		data, err := section.Data()
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", section.Name, err)
+		}
+		if section.Name == rustAuditableSection {
+			if err := addAuditableCrateVersions(crates, data); err != nil {
+				return nil, fmt.Errorf("reading %s: %w", section.Name, err)
+			}
+		} else {
+			addPathCrateVersions(crates, data)
+		}
+	}
+	return crates, nil
+}
+
+func hasRustSourcePaths(section *elf.Section) bool {
+	return section.Name == ".comment" || strings.HasPrefix(section.Name, ".rodata")
 }
 
 func addCrateVersion(crates map[string][]string, name, version string) {
