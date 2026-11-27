@@ -206,6 +206,13 @@ section empty once drained.
   stats configuration documents. Deployments that set `stats.cidrs` only for `filter.stats`
   get the attributes too, and their series split by range when more than one range is
   exported. `attributes.select` can exclude them.
+- Go services with a recognizable main module and no explicit or Kubernetes namespace receive
+  an inferred `service.namespace`. Set
+  `capture.runtimes.go.infer_service_namespace: false` in standalone Config v2 or
+  `runtimes.go.infer_service_namespace: false` in the Collector receiver, to disable this feature.
+
+- Docker preserves automatically detected service namespaces, including Node.js and Deno package scopes,
+  when it assigns a container or Compose service name.
 
 ## Hosting notes
 

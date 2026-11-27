@@ -317,6 +317,7 @@ extensions:
                 go:
                     enabled: true
                     channel_links: true
+                    infer_service_namespace: true
                 nodejs:
                     enabled: true
                 java:
