@@ -65,7 +65,8 @@ func testContainerMetaMetrics(t *testing.T, exporter string) {
 		`container_id=~"[0-9a-fA-F]{12}",` +
 		`container_name="integration-testserver-as-in-compose-1",` +
 		`service_name="testserver-as-in-compose",` +
-		`instance="testserver-as-in-compose.integration-testserver-as-in-compose-1"` +
+		`job="opentelemetry/testserver-as-in-compose",` +
+		`instance="opentelemetry.testserver-as-in-compose.integration-testserver-as-in-compose-1"` +
 		`}`)
 	require.NoError(t, err)
 	assert.NotEmpty(t, results)
@@ -99,4 +100,5 @@ func testContainerMetaTraces(t *testing.T) {
 	}
 	assert.Regexp(t, "^[0-9a-fA-F]{12}$", tags["container.id"])
 	assert.Equal(t, "integration-testserver-as-in-compose-1", tags["container.name"])
+	assert.Equal(t, "opentelemetry", tags["service.namespace"])
 }

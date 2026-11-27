@@ -2,8 +2,9 @@ services:
   testserver-as-in-compose:
     build:
       context: ../../..
-      dockerfile: internal/test/integration/components/testserver/Dockerfile
-    image: hatest-testserver
+      # The /smoke fixture is built as a Go package and embeds its main module.
+      dockerfile: internal/test/integration/components/tpinjector-server/Dockerfile
+    image: hatest-tpinjector-server
     ports:
       - "8080:8080"
     environment:
