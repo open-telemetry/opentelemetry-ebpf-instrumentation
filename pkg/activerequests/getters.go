@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package activerequests
+package activerequests // import "go.opentelemetry.io/obi/pkg/activerequests"
 
 import (
 	"go.opentelemetry.io/otel/attribute"
