@@ -49,9 +49,9 @@ func EffectiveShutdownTimeout(configured time.Duration) time.Duration {
 }
 
 type AttachFuncs[T io.Closer] struct {
-	PMU               func() (T, error)
-	TraceFS           func() (T, error)
-	TraceFSDuplicates func() (T, error)
+	PMU           func() (T, error)
+	TraceFS       func() (T, error)
+	ResolveKprobe func(error) (T, error)
 }
 
 func WithFallback[T io.Closer](kind ProbeType, attach AttachFuncs[T]) (T, error) {
@@ -71,9 +71,10 @@ func WithFallback[T io.Closer](kind ProbeType, attach AttachFuncs[T]) (T, error)
 		retry(attach.TraceFS)
 	}
 
-	// Either the PMU or the named tracefs attempt can report an ambiguous symbol.
-	if kind == Kprobe && errors.Is(lastErr, unix.EADDRNOTAVAIL) && attach.TraceFSDuplicates != nil {
-		retry(attach.TraceFSDuplicates)
+	// The tracefs parser can turn an ambiguous or missing symbol into EINVAL.
+	namedLookupFailed := traceErr != nil && (errors.Is(lastErr, unix.EINVAL) || errors.Is(lastErr, unix.ENOENT))
+	if kind == Kprobe && attach.ResolveKprobe != nil && (errors.Is(lastErr, unix.EADDRNOTAVAIL) || namedLookupFailed) {
+		retry(func() (T, error) { return attach.ResolveKprobe(lastErr) })
 	}
 
 	if lastErr == nil {

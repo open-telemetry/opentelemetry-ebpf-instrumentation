@@ -24,9 +24,9 @@ func TestWithFallback(t *testing.T) {
 	for _, kind := range []ProbeType{Uprobe, Kprobe} {
 		t.Run(string(kind), func(t *testing.T) {
 			for _, tc := range []struct {
-				name                            string
-				perfErr, traceErr, duplicateErr error
-				byName, duplicates              bool
+				name                          string
+				perfErr, traceErr, resolveErr error
+				byName, resolve               bool
 			}{
 				{name: "PMU success"},
 				{name: "EACCES", perfErr: unix.EACCES, byName: true},
@@ -35,10 +35,12 @@ func TestWithFallback(t *testing.T) {
 				{name: "EINVAL", perfErr: unix.EINVAL},
 				{name: "ENOENT", perfErr: unix.ENOENT},
 				{name: "tracefs failure", perfErr: unix.EACCES, traceErr: unix.EROFS, byName: true},
-				{name: "ambiguous PMU symbol", perfErr: fmt.Errorf("opening perf event: %w", unix.EADDRNOTAVAIL), duplicates: true},
-				{name: "duplicate attachment fails", perfErr: unix.EADDRNOTAVAIL, duplicateErr: unix.EACCES, duplicates: true},
-				{name: "ambiguous tracefs symbol", perfErr: unix.EACCES, traceErr: fmt.Errorf("creating event: %w", unix.EADDRNOTAVAIL), byName: true, duplicates: true},
-				{name: "all attempts fail", perfErr: unix.EACCES, traceErr: unix.EADDRNOTAVAIL, duplicateErr: unix.EROFS, byName: true, duplicates: true},
+				{name: "tracefs rejects name", perfErr: unix.EACCES, traceErr: fmt.Errorf("writing kprobe_events: %w", unix.EINVAL), byName: true, resolve: true},
+				{name: "tracefs cannot find name", perfErr: unix.EACCES, traceErr: unix.ENOENT, byName: true, resolve: true},
+				{name: "ambiguous PMU symbol", perfErr: fmt.Errorf("opening perf event: %w", unix.EADDRNOTAVAIL), resolve: true},
+				{name: "duplicate attachment fails", perfErr: unix.EADDRNOTAVAIL, resolveErr: unix.EACCES, resolve: true},
+				{name: "ambiguous tracefs symbol", perfErr: unix.EACCES, traceErr: fmt.Errorf("creating event: %w", unix.EADDRNOTAVAIL), byName: true, resolve: true},
+				{name: "all attempts fail", perfErr: unix.EACCES, traceErr: unix.EADDRNOTAVAIL, resolveErr: unix.EROFS, byName: true, resolve: true},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					fallbackUsed.Store(false)
@@ -55,9 +57,16 @@ func TestWithFallback(t *testing.T) {
 						}
 					}
 					got, err := WithFallback(kind, AttachFuncs[io.Closer]{
-						PMU:               attempt("PMU", tc.perfErr),
-						TraceFS:           attempt("tracefs", tc.traceErr),
-						TraceFSDuplicates: attempt("duplicates", tc.duplicateErr),
+						PMU:     attempt("PMU", tc.perfErr),
+						TraceFS: attempt("tracefs", tc.traceErr),
+						ResolveKprobe: func(cause error) (io.Closer, error) {
+							if tc.byName {
+								assert.Equal(t, tc.traceErr, cause)
+							} else {
+								assert.Equal(t, tc.perfErr, cause)
+							}
+							return attempt("resolve", tc.resolveErr)()
+						},
 					})
 					wantCalls := []string{"PMU"}
 					lastErr := tc.perfErr
@@ -65,9 +74,9 @@ func TestWithFallback(t *testing.T) {
 						wantCalls = append(wantCalls, "tracefs")
 						lastErr = tc.traceErr
 					}
-					if tc.duplicates && kind == Kprobe {
-						wantCalls = append(wantCalls, "duplicates")
-						lastErr = tc.duplicateErr
+					if tc.resolve && kind == Kprobe {
+						wantCalls = append(wantCalls, "resolve")
+						lastErr = tc.resolveErr
 					}
 					assert.Equal(t, wantCalls, calls)
 					if lastErr == nil {

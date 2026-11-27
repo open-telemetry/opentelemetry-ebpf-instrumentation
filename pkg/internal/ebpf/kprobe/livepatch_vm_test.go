@@ -6,6 +6,7 @@
 package kprobe
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"runtime"
@@ -18,6 +19,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
+
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/tracefs"
 )
 
 // The AL2023 VM runner supplies the matching signed module to this disposable guest.
@@ -85,6 +88,29 @@ func TestAL2023Livepatch(t *testing.T) {
 	require.Equal(t, want, functionHits(t, retHits), "return probes on both functions")
 	waitForBothFunctions(t, earlyHits, base[0], replacement[0])
 	t.Logf("IPv4 and IPv6 closes each hit entry and return probes at vmlinux %#x and livepatch_inet_reject %#x", base[0], replacement[0])
+
+	for _, ret := range []bool{false, true} {
+		t.Run(fmt.Sprintf("PMU denied/return=%t", ret), func(t *testing.T) {
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
+			hits, prog := newFunctionIPCounter(t)
+			bare, err := tracefs.Attach(prog, tracefs.Options{Type: tracefs.Kprobe, Targets: []string{symbol}, Return: ret})
+			if bare != nil {
+				require.NoError(t, bare.Close())
+			}
+			require.ErrorIs(t, err, unix.EINVAL, "tracefs rejects the ambiguous name")
+
+			pmu := attachPMU
+			t.Cleanup(func() { attachPMU = pmu })
+			attachPMU = func(string, *ebpf.Program, bool) (io.Closer, error) { return nil, unix.EACCES }
+
+			probe, err := Attach(symbol, prog, ret)
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, probe.Close()) })
+			closeListeners(t)
+			require.Equal(t, want, functionHits(t, hits))
+		})
+	}
 
 	const restrict = "/proc/sys/kernel/kptr_restrict"
 	initial, err := os.ReadFile(restrict)

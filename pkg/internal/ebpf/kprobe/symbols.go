@@ -93,6 +93,19 @@ func (symbols kallsyms) resolveName(symbol string) string {
 	return symbol
 }
 
+func (symbols kallsyms) ambiguousFunction(name string) bool {
+	count := 0
+	hasFunction := false
+	for _, locations := range symbols[name] {
+		count += locations.count
+		hasFunction = hasFunction || len(locations.functions) > 0
+		if count > 1 && hasFunction {
+			return true
+		}
+	}
+	return false
+}
+
 func (symbols kallsyms) targets(symbol string, modules map[string]bool) (map[probeTarget]bool, error) {
 	owners := symbols[symbol]
 	targets := map[probeTarget]bool{}
