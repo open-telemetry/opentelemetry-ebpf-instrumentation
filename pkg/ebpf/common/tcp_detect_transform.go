@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"unsafe"
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 
@@ -46,7 +47,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		return request.Span{}, true, nil
 	}
 
-	requestBuffer, responseBuffer := getBuffers(parseCtx, event)
+	requestBuffer, responseBuffer, firstLarge := getBuffers(parseCtx, event)
 
 	if cfg.ProtocolDebug {
 		slog.Debug("ReadTCPRequestIntoSpan: received TCP event",
@@ -58,7 +59,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		logTCPBuffers("", requestBuffer, responseBuffer)
 	}
 
-	if span, ignore, matched, err := dispatchKernelAssignedProtocol(parseCtx, cfg, event, requestBuffer, responseBuffer); matched {
+	if span, ignore, matched, err := dispatchKernelAssignedProtocol(parseCtx, event, requestBuffer, responseBuffer); matched {
 		span.ParentConditional = event.ParentStatus == parentStatusConditional
 		return span, ignore, err
 	}
@@ -68,7 +69,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		return span, ignore, err
 	}
 
-	if span, ignore, matched, err := detectTCPFallback(parseCtx, cfg, event, requestBuffer, responseBuffer); matched {
+	if span, ignore, matched, err := detectTCPFallback(parseCtx, cfg, event, requestBuffer, responseBuffer, firstLarge, record.RawSample[unsafe.Sizeof(*event):]); matched {
 		return span, ignore, err
 	}
 
@@ -95,7 +96,7 @@ func emitTCPExtraSpans(parseCtx *EBPFParseContext, event *TCPRequestInfo, spans 
 
 // dispatchKernelAssignedProtocol handles events where the kernel has already classified the protocol.
 // returns matched=false for ProtocolTypeUnknown or when MySQL/Postgres fall back to generic detection.
-func dispatchKernelAssignedProtocol(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
+func dispatchKernelAssignedProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
 	switch event.ProtocolType {
 	case ProtocolTypeKafka:
 		return dispatchKafka(parseCtx, event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName)
@@ -111,10 +112,6 @@ func dispatchKernelAssignedProtocol(parseCtx *EBPFParseContext, cfg *config.EBPF
 		return dispatchSunRPC(event, requestBuffer, responseBuffer)
 	case ProtocolTypeAerospike:
 		return dispatchAerospike(event, requestBuffer, responseBuffer)
-	case ProtocolTypeISO8583:
-		// The kernel emits a tentative copy. Consume it even if validation fails.
-		span, ok := detectISO8583(parseCtx, cfg, event, requestBuffer, responseBuffer)
-		return span, !ok, true, nil
 	}
 
 	return request.Span{}, false, false, nil
@@ -374,12 +371,16 @@ func matchMemcachedNoreply(parseCtx *EBPFParseContext, event *TCPRequestInfo, re
 	return request.Span{}, false, false, nil
 }
 
-func detectTCPFallback(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
+func detectTCPFallback(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer, firstLarge *largebuf.LargeBuffer, trailer []byte) (request.Span, bool, bool, error) {
 	span, ignore, matched, err := detectHeuristicProtocol(parseCtx, event, requestBuffer, responseBuffer)
 	if matched {
 		span.ParentConditional = event.ParentStatus == parentStatusConditional
-	} else if isPossibleISO8583Exchange(event, requestBuffer, responseBuffer) {
-		span, matched = detectISO8583(parseCtx, cfg, event, requestBuffer, responseBuffer)
+	} else if event.ProtocolType == ProtocolTypeUnknown {
+		spans := parseCtx.tcpMultiplex.decode(cfg, newTCPExchange(event, requestBuffer, responseBuffer, firstLarge, trailer))
+		if len(spans) != 0 {
+			parseCtx.emitExtraSpans(spans[1:]...)
+			return spans[0], false, true, nil
+		}
 	}
 	return span, ignore, matched, err
 }
@@ -643,7 +644,7 @@ func matchKafkaFallback(parseCtx *EBPFParseContext, event *TCPRequestInfo, reque
 	return span, ignore, matched, nil
 }
 
-func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req *largebuf.LargeBuffer, resp *largebuf.LargeBuffer) {
+func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req, resp, firstLarge *largebuf.LargeBuffer) {
 	l := int(event.Len)
 	if l < 0 || len(event.Buf) < l {
 		l = len(event.Buf)
@@ -657,15 +658,26 @@ func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req *largebu
 	resp = largebuf.NewLargeBufferFrom(event.Rbuf[:l])
 
 	if event.HasLargeBuffers == 1 {
-		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, packetTypeRequest, directionByPacketType(packetTypeRequest, !event.IsServer), event.ConnInfo, event.ProtocolType); ok {
-			req = b
+		conn := event.ConnInfo
+		first, second := uint8(packetTypeRequest), uint8(packetTypeResponse)
+		if event.ProtocolType == ProtocolTypeUnknown {
+			// The generic wire buffers use the sorted tuple and physical packet direction.
+			sortConnectionInfo(&conn)
+			if event.Direction != directionByPacketType(first, !event.IsServer) {
+				first, second = second, first
+			}
 		}
-		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, packetTypeResponse, directionByPacketType(packetTypeResponse, !event.IsServer), event.ConnInfo, event.ProtocolType); ok {
+
+		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, first, directionByPacketType(first, !event.IsServer), conn, event.ProtocolType); ok {
+			req, firstLarge = b, b
+		}
+
+		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, second, directionByPacketType(second, !event.IsServer), conn, event.ProtocolType); ok {
 			resp = b
 		}
 	}
 
-	return req, resp
+	return req, resp, firstLarge
 }
 
 func reverseTCPEvent(trace *TCPRequestInfo) {

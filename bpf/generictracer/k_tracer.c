@@ -830,7 +830,8 @@ static __always_inline void finish_tcp_close(struct sock *sk) {
     u64 sock_p = (u64)sk;
 
     pid_connection_info_t info = {};
-    const bool success = parse_sock_info(sk, &info.conn);
+    // A half-closed socket can release skc_num before its pending TCP record is flushed.
+    const bool success = parse_full_sock_info(sk, &info.conn);
 
     bool unreadable = false;
     if (success) {

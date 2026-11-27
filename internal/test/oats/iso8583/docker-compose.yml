@@ -7,15 +7,26 @@ services:
     ports:
       - "127.0.0.1::8080"
 
-  jpos:
+  jpos-switch:
     build:
       context: ../../../..
       dockerfile: ./internal/test/integration/components/javaiso8583/Dockerfile
     image: javaiso8583
+    command: ["switch"]
     network_mode: "service:testserver"
     pid: "service:testserver"
     depends_on:
       testserver:
+        condition: service_started
+
+  jpos-client:
+    image: javaiso8583
+    pull_policy: never
+    command: ["client"]
+    network_mode: "service:testserver"
+    pid: "service:testserver"
+    depends_on:
+      jpos-switch:
         condition: service_started
 
   autoinstrumenter:
@@ -24,7 +35,7 @@ services:
     network_mode: "service:testserver"
     pid: "service:testserver"
     environment:
-      OTEL_EBPF_OPEN_PORT: "8080,8583,8584,8585"
+      OTEL_EBPF_AUTO_TARGET_LANGUAGE: "{java,python}"
       OTEL_EBPF_TRACES_INSTRUMENTATIONS: "iso8583,mqtt,http"
       OTEL_EBPF_METRICS_INSTRUMENTATIONS: "iso8583,mqtt"
       OTEL_EBPF_METRICS_INTERVAL: "1s"
@@ -34,5 +45,5 @@ services:
     depends_on:
       testserver:
         condition: service_started
-      jpos:
+      jpos-client:
         condition: service_started

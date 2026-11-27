@@ -27,7 +27,6 @@ enum protocol_type : u8 {
     k_protocol_type_nats = 8,
     k_protocol_type_amqp = 9,
     k_protocol_type_aerospike = 10,
-    k_protocol_type_iso8583 = 11,
 };
 
 // Struct to keep information on the connections in flight

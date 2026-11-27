@@ -15,7 +15,6 @@
 #include <generictracer/protocol_aerospike.h>
 #include <generictracer/protocol_http.h>
 #include <generictracer/protocol_http2.h>
-#include <generictracer/protocol_iso8583.h>
 #include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
@@ -222,12 +221,6 @@ static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
         } else if (args->protocols.tcp && !info) {
             // SSL requests will see both TCP traffic and text traffic, ignore the TCP if
             // we are processing SSL request. HTTP2 is already checked in handle_buf_with_connection.
-            if (args->protocol_type == k_protocol_type_unknown &&
-                iso8583_timed_response(args->small_buf, args->bytes_len)) {
-                // Timestamp a possible standalone reply before TCP combines buffers.
-                // Userspace still needs the original buffer for protocol detection.
-                maybe_emit_iso8583_response(args);
-            }
             preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
         }
     }

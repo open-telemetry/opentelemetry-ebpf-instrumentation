@@ -11,7 +11,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/timing"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
@@ -116,44 +115,6 @@ func hasISO8583Prefix(buf *largebuf.LargeBuffer) bool {
 	return iso8583PayloadSize(header[:iso8583ASCIILength]) >= iso8583MinPayload && validISO8583MTI(header[iso8583ASCIILength:])
 }
 
-// The probe copies a possible standalone reply without consuming it. Leave protocol state,
-// HTTP/2 rerouting and span emission to the normal TCP record if the copy is ambiguous.
-func matchesOtherStandaloneTCPProtocol(cfg *config.EBPFTracer, event *TCPRequestInfo, buf, empty *largebuf.LargeBuffer) bool {
-	if event.EventSource == GenericEventSourceTypeKProbes && isHTTP2(buf, int(event.Len)) {
-		return true
-	}
-
-	if _, ok := parsePostgresStartup(buf); ok {
-		return true
-	}
-
-	if buf.Len() >= msgHeaderSize {
-		if header, err := parseMongoHeader(buf.UnsafeView()); err == nil && header.OpCode == opMsg {
-			return true
-		}
-	}
-
-	var stateless EBPFParseContext
-	// MongoDB correlation needs a live request cache. Its OP_MSG header above is
-	// sufficient for a standalone copy. The other generic matchers can run without state.
-	if _, _, matched, _ := matchSQL(&stateless, cfg, event, buf, empty); matched {
-		return true
-	}
-	if _, _, matched, _ := matchFastCGI(event, buf, empty); matched {
-		return true
-	}
-	if _, _, matched, _ := matchCouchbase(&stateless, cfg, event, buf, empty); matched {
-		return true
-	}
-	if _, _, matched, _ := matchMemcachedNoreply(&stateless, event, buf, empty); matched {
-		return true
-	}
-
-	_, _, matched, _ := detectHeuristicProtocol(&stateless, event, buf, empty)
-
-	return matched
-}
-
 func iso8583Bitmap(data []byte) (uint64, bool) {
 	if len(data) == iso8583BitmapSize {
 		return binary.BigEndian.Uint64(data), true
@@ -232,12 +193,13 @@ func readISO8583Message(buf *largebuf.LargeBuffer, start, size int) (iso8583Mess
 }
 
 type iso8583Stream struct {
+	prefix   int
 	messages []iso8583Message
 	complete bool
 }
 
 func readISO8583Stream(buf *largebuf.LargeBuffer, prefix, observed int, capped bool) iso8583Stream {
-	var stream iso8583Stream
+	stream := iso8583Stream{prefix: prefix}
 	var length [iso8583ASCIILength]byte
 	for offset := 0; offset+prefix <= buf.Len() && len(stream.messages) < iso8583MaxFrames; {
 		_ = buf.CopyAt(offset, length[:prefix])
@@ -255,64 +217,92 @@ func readISO8583Stream(buf *largebuf.LargeBuffer, prefix, observed int, capped b
 
 		stream.messages = append(stream.messages, message)
 		stream.complete = frameEnd >= observed
+		if stream.complete {
+			break
+		}
 		offset = frameEnd
 	}
 
 	return stream
 }
 
-// Only unclassified exchanges with plausible headers on both sides reach the decoder.
-func isPossibleISO8583Exchange(event *TCPRequestInfo, req, resp *largebuf.LargeBuffer) bool {
-	return event.ProtocolType == ProtocolTypeUnknown && hasISO8583Prefix(req) && hasISO8583Prefix(resp)
-}
+func (conn *iso8583Connection) exchange(x tcpExchange) ([]request.Span, bool) {
+	firstOp, recordedFirst := x.firstOperation()
+	opposite := x.oppositeOperation()
 
-func detectISO8583(ctx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, req, resp *largebuf.LargeBuffer) (request.Span, bool) {
-	reqLen := max(int(event.ReqLen), int(event.Len), req.Len())
-	respLen := max(int(event.RespLen), resp.Len())
-	for _, prefix := range [...]int{iso8583BinaryLength, iso8583ASCIILength} {
-		first := readISO8583Stream(req, prefix, reqLen, false)
+	var first, second iso8583Stream
+	if hasISO8583Prefix(firstOp.data) && hasISO8583Prefix(opposite.data) {
+		first, second = readISO8583Exchange(firstOp, opposite)
+	}
 
-		// An embedded frame can carry a valid DE7 while ending in the middle of a foreign write.
-		if !first.complete {
-			continue
-		}
+	var confirmed *iso8583Connection
+	if second.complete {
+		confirmed = conn
+		conn.prefix, conn.packed = first.prefix, first.messages[0].packed
+	}
 
-		var spans []request.Span
-		// A standalone reply can also enter TCP aggregation as its first buffer.
-		// Report it once, from the probe's timestamped copy.
-		if event.ProtocolType == ProtocolTypeISO8583 {
-			spans = iso8583Responses(event, first, true, event.StartMonotimeNs, cfg.ISO8583TransmissionLocation, nil)
-		} else {
-			second := readISO8583Stream(resp, prefix, respLen, int(event.RespLen) == len(event.Rbuf))
-			if !second.complete || first.messages[0].packed != second.messages[0].packed {
-				continue
+	var spans []request.Span
+	for op := range x.initialOperations {
+		for _, prefix := range [...]int{iso8583BinaryLength, iso8583ASCIILength} {
+			stream := readISO8583Stream(op.data, prefix, op.length, false)
+			if stream.complete {
+				spans = append(spans, iso8583Responses(x.event, stream, true, op.observed, conn.zone, nil, confirmed)...)
+				break
 			}
-
-			var paired *iso8583Message
-			if len(first.messages) == 1 && len(second.messages) == 1 && first.messages[0].acceptsResponse(second.messages[0]) {
-				paired = &first.messages[0]
-			}
-
-			spans = iso8583Responses(event, second, false, event.EndMonotimeNs, cfg.ISO8583TransmissionLocation, paired)
-		}
-		if len(spans) != 0 {
-			if event.ProtocolType == ProtocolTypeISO8583 && matchesOtherStandaloneTCPProtocol(cfg, event, req, resp) {
-				return request.Span{}, false
-			}
-
-			ctx.emitExtraSpans(spans[1:]...)
-			return spans[0], true
 		}
 	}
 
-	return request.Span{}, false
+	if !second.complete {
+		return spans, false
+	}
+
+	var paired *iso8583Message
+	if len(first.messages) == 1 {
+		call := first.messages[0]
+		if !recordedFirst && !call.isResponse() {
+			conn.remember(call, first.prefix, firstOp.direction, firstOp.observed)
+		}
+
+		if firstOp.length == x.initialWireLen() &&
+			len(second.messages) == 1 && call.acceptsResponse(second.messages[0]) {
+			paired = &call
+		}
+	}
+
+	return append(spans, iso8583Responses(x.event, second, false, opposite.observed, conn.zone, paired, confirmed)...), true
 }
 
-func iso8583Responses(event *TCPRequestInfo, stream iso8583Stream, first bool, observed uint64, zone *time.Location, paired *iso8583Message) []request.Span {
+func readISO8583Exchange(initial, opposite tcpOperation) (iso8583Stream, iso8583Stream) {
+	for _, prefix := range [...]int{iso8583BinaryLength, iso8583ASCIILength} {
+		first := readISO8583Stream(initial.data, prefix, initial.length, false)
+		if !first.complete {
+			continue
+		}
+		second := readISO8583Stream(opposite.data, prefix, opposite.length, opposite.capped)
+		if second.complete && first.messages[0].packed == second.messages[0].packed {
+			return first, second
+		}
+	}
+	return iso8583Stream{}, iso8583Stream{}
+}
+
+func iso8583Responses(event *TCPRequestInfo, stream iso8583Stream, first bool, observed uint64, zone *time.Location, paired *iso8583Message, conn *iso8583Connection) []request.Span {
 	var spans []request.Span
+	if observed == 0 {
+		return nil
+	}
+
+	direction := event.Direction
+	if !first {
+		direction = reverseDirection(direction)
+	}
+
 	var wallTime time.Time
 	for _, reply := range stream.messages {
-		if !reply.isResponse() || observed == 0 {
+		if !reply.isResponse() {
+			if conn != nil && (!first || (stream.prefix == conn.prefix && reply.packed == conn.packed)) {
+				conn.remember(reply, stream.prefix, direction, observed)
+			}
 			continue
 		}
 
@@ -323,10 +313,17 @@ func iso8583Responses(event *TCPRequestInfo, stream iso8583Stream, first bool, o
 		age, estimated := iso8583ResponseTime(reply.transmission, wallTime, zone)
 		mti := reply.mti
 		mti[2]--
-		var start uint64
+
+		var direct iso8583Pending
 		if paired != nil {
-			mti = paired.mti
-			start = event.StartMonotimeNs
+			direct = iso8583Pending{message: *paired, observed: event.StartMonotimeNs}
+		}
+
+		matched := conn.take(reply, stream.prefix, direction, observed, direct)
+		start := matched.observed
+
+		if start != 0 {
+			mti = matched.message.mti
 		}
 
 		estimated = estimated && uint64(age) <= observed
@@ -341,7 +338,7 @@ func iso8583Responses(event *TCPRequestInfo, stream iso8583Stream, first bool, o
 		span := iso8583Span(event, string(mti[:]), first, start, observed)
 		span.ISO8583Field7Timing = estimated
 		span.ISO8583Outcome = reply.outcome
-		if paired != nil {
+		if paired != nil && matched.observed == event.StartMonotimeNs {
 			span.ContentLength = int64(event.ReqLen)
 			span.TraceID = event.Tp.TraceId
 			span.SpanID = event.Tp.SpanId

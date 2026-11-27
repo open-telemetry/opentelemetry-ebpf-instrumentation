@@ -53,12 +53,21 @@ public final class IsoSwitch {
   private IsoSwitch() {}
 
   public static void main(String[] args) throws Exception {
-    startServer(ASCII_PORT, new NACChannel(new ISO87APackager(), NO_TPDU));
-    startServer(BINARY_PORT, new ASCIIChannel(new ISO87BPackager()));
-
-    while (true) {
-      runExchanges();
-      Thread.sleep(EXCHANGE_INTERVAL_MS);
+    if (args.length != 1) {
+      throw new IllegalArgumentException("Expected a role of switch or client");
+    }
+    switch (args[0]) {
+      case "switch" -> {
+        startServer(ASCII_PORT, new NACChannel(new ISO87APackager(), NO_TPDU));
+        startServer(BINARY_PORT, new ASCIIChannel(new ISO87BPackager()));
+      }
+      case "client" -> {
+        while (true) {
+          runExchanges();
+          Thread.sleep(EXCHANGE_INTERVAL_MS);
+        }
+      }
+      default -> throw new IllegalArgumentException("Unknown role " + args[0]);
     }
   }
 
@@ -69,9 +78,7 @@ public final class IsoSwitch {
     server.setConfiguration(new SimpleConfiguration());
     server.addISORequestListener(IsoSwitch::respond);
 
-    Thread thread = new Thread(server, "iso-server-" + port);
-    thread.setDaemon(true);
-    thread.start();
+    new Thread(server, "iso-server-" + port).start();
   }
 
   private static boolean respond(ISOSource source, ISOMsg request) {

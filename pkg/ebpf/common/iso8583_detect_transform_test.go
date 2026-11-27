@@ -237,8 +237,12 @@ func TestISO8583EncodedTimingFields(t *testing.T) {
 	}
 }
 
+func decodeTestTCP(event *TCPRequestInfo, req, resp, large *largebuf.LargeBuffer, trailer []byte) []request.Span {
+	var mux tcpMultiplex
+	return mux.decode(&config.EBPFTracer{}, newTCPExchange(event, req, resp, large, trailer))
+}
+
 func TestISO8583AsynchronousResponse(t *testing.T) {
-	var cfg config.EBPFTracer
 	now := uint64(timing.MonoTimeNow())
 	f7 := timing.KernelTime(now).UTC().Add(-5 * time.Second).Format("0102150405")
 	message := func(mti, stamp, stan string) []byte {
@@ -252,70 +256,72 @@ func TestISO8583AsynchronousResponse(t *testing.T) {
 	empty := largebuf.NewLargeBuffer()
 	event := TCPRequestInfo{StartMonotimeNs: now - uint64(time.Millisecond), EndMonotimeNs: now, Direction: directionSend}
 	event.Tp.TraceId[0], event.Tp.SpanId[0], event.Tp.ParentId[0] = 1, 2, 3
-	span, ok := detectISO8583(nil, &cfg, &event, largebuf.NewLargeBufferFrom(call), largebuf.NewLargeBufferFrom(reply))
-	require.True(t, ok)
+	exchange := func(req, resp []byte) []request.Span {
+		return decodeTestTCP(&event, largebuf.NewLargeBufferFrom(req), largebuf.NewLargeBufferFrom(resp), nil, nil)
+	}
+	spans := exchange(call, reply)
+	require.Len(t, spans, 1)
+	span := spans[0]
 	assert.True(t, span.ISO8583Field7Timing)
 	assert.EqualValues(t, event.Tp.TraceId, span.TraceID)
 	assert.InDelta(t, 5.5, time.Duration(span.End-span.Start).Seconds(), 0.51)
 
 	// The response follows an unrelated request with the same MTI.
 	other := message("0200", f7, "222222")
-	span, ok = detectISO8583(nil, &cfg, &event, largebuf.NewLargeBufferFrom(other), largebuf.NewLargeBufferFrom(reply))
-	require.True(t, ok)
+	spans = exchange(other, reply)
+	require.Len(t, spans, 1)
+	span = spans[0]
 	assert.False(t, span.ParentSpanID.IsValid())
 	assert.False(t, span.TraceID.IsValid())
 	assert.True(t, span.ISO8583Field7Timing)
 
 	// A response in the first buffer is timestamped when the write occurred.
-	event.ProtocolType = ProtocolTypeISO8583
 	event.EndMonotimeNs = now + uint64(time.Minute)
-	span, ok = detectISO8583(nil, &cfg, &event, largebuf.NewLargeBufferFrom(reply), empty)
-	require.True(t, ok)
+	standalone := func(data []byte) []request.Span {
+		r := newTCPTestRecord(event.Direction, event.StartMonotimeNs, event.EndMonotimeNs, data, nil)
+		r.ConnInfo = event.ConnInfo
+		return decodeTestTCP(&r.TCPRequestInfo, largebuf.NewLargeBufferFrom(data), empty, nil, r.trailer())
+	}
+	spans = standalone(reply)
+	require.Len(t, spans, 1)
+	span = spans[0]
 	assert.Equal(t, request.EventTypeISO8583Server, span.Type)
 	assert.Equal(t, "0200", span.Method)
 	assert.EqualValues(t, event.StartMonotimeNs, span.End)
 	assert.InDelta(t, 5.5, time.Duration(span.End-span.Start).Seconds(), 0.51)
 	assert.Empty(t, span.Statement)
 
-	ctx := NewEBPFParseContext(nil, nil, nil)
-	var extras []request.Span
-	ctx.emitSpans = func(spans []request.Span) { extras = append(extras, spans...) }
 	batch := append(bytes.Clone(reply), message("0430", f7, "222222")...)
 	event.Direction = directionRecv
 	event.ConnInfo = BpfConnectionInfoT{S_port: 45000, D_port: 8583}
-	span, ok = detectISO8583(ctx, &cfg, &event, largebuf.NewLargeBufferFrom(batch), empty)
-	require.True(t, ok)
-	require.Len(t, extras, 1)
+	spans = standalone(batch)
+	require.Len(t, spans, 2)
+	span = spans[0]
 	assert.Equal(t, "0200", span.Method)
-	assert.Equal(t, "0420", extras[0].Method)
+	assert.Equal(t, "0420", spans[1].Method)
 	assert.Equal(t, request.ISO8583Declined, span.ISO8583Outcome)
-	assert.Equal(t, request.ISO8583NotApplicable, extras[0].ISO8583Outcome)
-	assert.Equal(t, request.EventTypeISO8583Client, extras[0].Type)
-	assert.Equal(t, 45000, extras[0].HostPort)
-	assert.Equal(t, 8583, extras[0].PeerPort)
-	assert.Equal(t, span.End, extras[0].End)
-	assert.False(t, extras[0].ParentSpanID.IsValid())
-	_, ok = detectISO8583(ctx, &cfg, &event, largebuf.NewLargeBufferFrom(append(bytes.Clone(batch), 0xff)), empty)
-	assert.False(t, ok)
-	assert.Len(t, extras, 1)
+	assert.Equal(t, request.ISO8583NotApplicable, spans[1].ISO8583Outcome)
+	assert.Equal(t, request.EventTypeISO8583Client, spans[1].Type)
+	assert.Equal(t, 45000, spans[1].HostPort)
+	assert.Equal(t, 8583, spans[1].PeerPort)
+	assert.Equal(t, span.End, spans[1].End)
+	assert.False(t, spans[1].ParentSpanID.IsValid())
+	assert.Empty(t, standalone(append(bytes.Clone(batch), 0xff)))
 
 	stale := message("0210", "0231000099", "111111")
-	_, ok = detectISO8583(nil, &cfg, &event, largebuf.NewLargeBufferFrom(stale), empty)
-	assert.False(t, ok)
-	event.ProtocolType = ProtocolTypeUnknown
+	assert.Empty(t, standalone(stale))
 	event.EndMonotimeNs = now
 	sameCall := message("0200", "0231000099", "111111")
-	span, ok = detectISO8583(nil, &cfg, &event, largebuf.NewLargeBufferFrom(sameCall), largebuf.NewLargeBufferFrom(stale))
-	require.True(t, ok)
+	spans = exchange(sameCall, stale)
+	require.Len(t, spans, 1)
+	span = spans[0]
 	assert.False(t, span.ISO8583Field7Timing)
 	assert.Equal(t, time.Millisecond, time.Duration(span.End-span.Start))
 	// An invalid or absent DE7 cannot make a mismatched STAN look like a measured exchange.
-	_, ok = detectISO8583(nil, &cfg, &event, largebuf.NewLargeBufferFrom(other), largebuf.NewLargeBufferFrom(stale))
-	assert.False(t, ok)
+	assert.Empty(t, exchange(other, stale))
 	badCall := message("0200", "0231000099", "??????")
 	badReply := message("0210", "0231000099", "??????")
-	_, ok = detectISO8583(nil, &cfg, &event, largebuf.NewLargeBufferFrom(badCall), largebuf.NewLargeBufferFrom(badReply))
-	assert.False(t, ok)
+	assert.Empty(t, exchange(badCall, badReply))
 }
 
 func TestISO8583TCPExchange(t *testing.T) {
@@ -374,7 +380,6 @@ func TestISO8583TCPExchange(t *testing.T) {
 }
 
 func TestISO8583DetectionPriority(t *testing.T) {
-	var cfg config.EBPFTracer
 	now := uint64(timing.MonoTimeNow())
 	stamp := timing.KernelTime(now).UTC().Add(-time.Second).Format("0102150405")
 	reply := iso8583TestFrame("02100200000000000000" + stamp)
@@ -392,7 +397,13 @@ func TestISO8583DetectionPriority(t *testing.T) {
 	amqp := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(testDescriptorTransfer)...)
 	mqtt := mqttFuzzPacket(0x30, append([]byte{0, 1, 't'}, reply...)...)
 
-	read := func(t *testing.T, protocol BpfProtocolType, req, resp []byte, includeISO8583 bool) (request.Span, bool, error) {
+	const (
+		nativeDetectors = iota
+		unmarkedTCP
+		markedInline
+		markedLarge
+	)
+	read := func(t *testing.T, protocol BpfProtocolType, req, resp []byte, mode int) (request.Span, bool, error) {
 		t.Helper()
 		ctx, cfg, filter := newTraceDispatcherTestContext()
 		defer ctx.Close()
@@ -404,12 +415,35 @@ func TestISO8583DetectionPriority(t *testing.T) {
 		}
 		event.Len = uint32(copy(event.Buf[:], req))
 		event.RespLen = uint32(copy(event.Rbuf[:], resp))
-		if includeISO8583 {
-			return ReadTCPRequestIntoSpan(ctx, cfg, &ringbuf.Record{RawSample: traceRecordBytes(&event)}, filter)
+		if mode == markedLarge {
+			event.HasLargeBuffers = 1
+			event.LbReqBytes, event.LbResBytes = uint32(len(req)), uint32(len(resp))
+			kind := protocolToLargeBufferKind(protocol)
+			ctx.largeBuffers.Add(largeBufferKey{packetType: packetTypeRequest, direction: directionSend, kind: kind}, largebuf.NewLargeBufferFrom(req))
+			if len(resp) > 0 {
+				ctx.largeBuffers.Add(largeBufferKey{packetType: packetTypeResponse, direction: directionRecv, kind: kind}, largebuf.NewLargeBufferFrom(resp))
+			}
+		}
+		if mode != nativeDetectors {
+			ctx.emitSpans = func(spans []request.Span) {
+				for _, span := range spans {
+					assert.NotEqual(t, request.EventTypeISO8583Server, span.Type)
+					assert.NotEqual(t, request.EventTypeISO8583Client, span.Type)
+				}
+			}
+			raw := traceRecordBytes(&event)
+			if mode == markedInline || mode == markedLarge {
+				event.Flags = EventTypeTCPMultiplex
+				r := tcpTestRecord{TCPRequestInfo: event, operations: []BpfTcpIoRangeT{{
+					Timestamp: now, Len: uint32(len(req)), InlineLen: uint16(event.Len), LargeLen: event.LbReqBytes,
+				}}}
+				raw = r.raw()
+			}
+			return ReadBPFTraceAsSpan(ctx, cfg, &ringbuf.Record{RawSample: raw}, filter)
 		}
 		// Replay the other three detection stages on a fresh context to compare their exact result.
-		requestBuf, responseBuf := getBuffers(ctx, &event)
-		if s, ignore, matched, err := dispatchKernelAssignedProtocol(ctx, cfg, &event, requestBuf, responseBuf); matched {
+		requestBuf, responseBuf, _ := getBuffers(ctx, &event)
+		if s, ignore, matched, err := dispatchKernelAssignedProtocol(ctx, &event, requestBuf, responseBuf); matched {
 			return s, ignore, err
 		}
 		if s, ignore, matched, err := detectGenericProtocol(ctx, cfg, &event, requestBuf, responseBuf); matched {
@@ -446,28 +480,23 @@ func TestISO8583DetectionPriority(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			rerouted := startMisclassifiedEventReceiver(t)
-			// A tentative standalone tag still requires a decodable reply with a valid DE7.
-			for _, payload := range [][]byte{tt.req, tt.resp} {
-				_, ignore, err := read(t, ProtocolTypeISO8583, payload, nil, true)
-				require.NoError(t, err)
-				require.True(t, ignore)
-			}
-
 			tags := []BpfProtocolType{ProtocolTypeUnknown}
 			if tt.tag != ProtocolTypeUnknown {
 				tags = append(tags, tt.tag)
 			}
 			for _, tag := range tags {
-				span, ignore, err := read(t, tag, tt.req, tt.resp, true)
-				require.NoError(t, err)
-				require.Equal(t, tt.want == 0, ignore)
-				require.Equal(t, tt.want, span.Type)
-				if tt.name == "HTTP2" {
-					select {
-					case e := <-rerouted:
-						require.Equal(t, EventTypeKHTTP2, e.EventType)
-					case <-time.After(time.Second):
-						t.Fatal("HTTP/2 record was not rerouted")
+				for _, mode := range []int{markedInline, markedLarge} {
+					span, ignore, err := read(t, tag, tt.req, tt.resp, mode)
+					require.NoError(t, err)
+					require.Equal(t, tt.want == 0, ignore)
+					require.Equal(t, tt.want, span.Type)
+					if tt.name == "HTTP2" {
+						select {
+						case e := <-rerouted:
+							require.Equal(t, EventTypeKHTTP2, e.EventType)
+						case <-time.After(time.Second):
+							t.Fatal("HTTP/2 record was not rerouted")
+						}
 					}
 				}
 
@@ -475,8 +504,8 @@ func TestISO8583DetectionPriority(t *testing.T) {
 				// including protocols that require both buffers to recognize the exchange.
 				for _, iso := range [][]byte{reply, packedReply} {
 					for _, pair := range [][2][]byte{{tt.req, iso}, {iso, tt.req}, {tt.resp, iso}, {iso, tt.resp}} {
-						want, wantIgnore, wantErr := read(t, tag, pair[0], pair[1], false)
-						got, ignore, err := read(t, tag, pair[0], pair[1], true)
+						want, wantIgnore, wantErr := read(t, tag, pair[0], pair[1], nativeDetectors)
+						got, ignore, err := read(t, tag, pair[0], pair[1], unmarkedTCP)
 						assert.Equal(t, errorText(wantErr), errorText(err))
 						assert.Equal(t, wantIgnore, ignore)
 						assert.Equal(t, want, got)
@@ -496,58 +525,422 @@ func TestISO8583DetectionPriority(t *testing.T) {
 		packet := appendFastCGIRecord(nil, fcgiFrameTypeParams, params)
 		// A FastCGI request ID can be a packed response MTI, and the content length can advertise DE7.
 		binary.BigEndian.PutUint16(packet[2:4], 0x0210)
-		_, ignore, err := read(t, ProtocolTypeISO8583, packet, nil, true)
-		require.NoError(t, err)
-		require.True(t, ignore)
 		// A read ending at the ISO length boundary is valid in both decoders.
 		overlap := packet[:iso8583BinaryLength+int(binary.BigEndian.Uint16(packet))]
-		_, ignore, err = read(t, ProtocolTypeISO8583, overlap, nil, true)
-		require.NoError(t, err)
-		require.True(t, ignore)
 		response := iso8583TestFrame(string(packedBody))
 		event := TCPRequestInfo{ReqLen: uint32(len(overlap)), StartMonotimeNs: now, EndMonotimeNs: now}
-		_, ok := detectISO8583(nil, &cfg, &event, largebuf.NewLargeBufferFrom(overlap), largebuf.NewLargeBufferFrom(response))
-		require.True(t, ok)
-		s, ignore, err := read(t, ProtocolTypeUnknown, overlap, response, true)
+		require.NotEmpty(t, decodeTestTCP(&event, largebuf.NewLargeBufferFrom(overlap), largebuf.NewLargeBufferFrom(response), nil, nil))
+		s, ignore, err := read(t, ProtocolTypeUnknown, overlap, response, markedInline)
 		require.NoError(t, err)
 		require.False(t, ignore)
 		assert.Equal(t, request.EventTypeHTTPClient, s.Type)
 		assert.Equal(t, "GET", s.Method)
 	})
 
-	span, ignore, err := read(t, ProtocolTypeISO8583, reply, nil, true)
+	span, ignore, err := read(t, ProtocolTypeUnknown, reply, nil, markedInline)
 	require.NoError(t, err)
 	require.False(t, ignore)
 	assert.Equal(t, request.EventTypeISO8583Server, span.Type)
 	// A real 260-byte ISO response has the same leading bytes as FastCGI PARAMS.
 	longReply := iso8583TestFrame("02100200000000010000" + stamp + "227" + strings.Repeat("X", 227))
-	span, ignore, err = read(t, ProtocolTypeISO8583, longReply, nil, true)
+	span, ignore, err = read(t, ProtocolTypeUnknown, longReply, nil, markedInline)
 	require.NoError(t, err)
 	require.False(t, ignore)
 	assert.Equal(t, "0200", span.Method)
-	// The kernel also retains this write in normal TCP aggregation.
-	_, ignore, err = read(t, ProtocolTypeUnknown, reply, nil, true)
+	// An unmarked first-direction buffer alone cannot emit a standalone reply.
+	_, ignore, err = read(t, ProtocolTypeUnknown, reply, nil, unmarkedTCP)
 	require.NoError(t, err)
 	assert.True(t, ignore)
-	_, ignore, err = read(t, ProtocolTypeUnknown, reply, iso8583TestFrame("08002000000000000000000000"), true)
+	_, ignore, err = read(t, ProtocolTypeUnknown, reply, iso8583TestFrame("08002000000000000000000000"), unmarkedTCP)
 	require.NoError(t, err)
 	assert.True(t, ignore)
-	_, ignore, err = read(t, ProtocolTypeUnknown, reply, iso8583TestFrame(string(packedBody)), true)
+	_, ignore, err = read(t, ProtocolTypeUnknown, reply, iso8583TestFrame(string(packedBody)), unmarkedTCP)
 	require.NoError(t, err)
 	assert.True(t, ignore)
 }
 
-func TestISO8583StandaloneMongoHeader(t *testing.T) {
-	cfg := &config.EBPFTracer{}
-	event := &TCPRequestInfo{ProtocolType: ProtocolTypeISO8583, Direction: directionSend}
-	payload := getRequestPayload(nil, 0, sectionTypeBody, nil)
-	buf := largebuf.NewLargeBufferFrom(payload)
-	empty := largebuf.NewLargeBuffer()
-	assert.True(t, matchesOtherStandaloneTCPProtocol(cfg, event, buf, empty))
+func iso8583AuthCall(stan string) []byte {
+	return iso8583TestFrame("01000020000000000000" + stan)
+}
 
-	// A well-formed header with an unsupported opcode must pass without a MongoDB request cache.
-	binary.LittleEndian.PutUint32(payload[12:16], 9999)
-	assert.False(t, matchesOtherStandaloneTCPProtocol(cfg, event, buf, empty))
+func iso8583AuthReply(stan, code string) []byte {
+	return iso8583TestFrame("01100020000002000000" + stan + code)
+}
+
+func iso8583TestDispatch(t *testing.T) func([]byte) []request.Span {
+	t.Helper()
+	ctx, cfg, filter := newTraceDispatcherTestContext()
+	t.Cleanup(ctx.Close)
+	return func(raw []byte) []request.Span {
+		t.Helper()
+		var extras []request.Span
+		ctx.emitSpans = func(spans []request.Span) { extras = append(extras, spans...) }
+		span, ignore, err := ReadBPFTraceAsSpan(ctx, cfg, &ringbuf.Record{RawSample: raw}, filter)
+		require.NoError(t, err)
+		if ignore {
+			return extras
+		}
+		return append([]request.Span{span}, extras...)
+	}
+}
+
+func TestISO8583MultiplexedAuthorizations(t *testing.T) {
+	a, b := iso8583AuthCall("123456"), iso8583AuthCall("123457")
+	approved, declined := iso8583AuthReply("123456", "00"), iso8583AuthReply("123457", "51")
+	for _, direction := range []uint8{directionSend, directionRecv} {
+		for _, reverse := range []bool{false, true} {
+			t.Run(fmt.Sprintf("direction=%d/reverse=%t", direction, reverse), func(t *testing.T) {
+				dispatch := iso8583TestDispatch(t)
+				first, last := approved, declined
+				wantFirst, wantLast := request.ISO8583Approved, request.ISO8583Declined
+				firstStart, lastStart := int64(100), int64(200)
+				if reverse {
+					first, last = last, first
+					wantFirst, wantLast = wantLast, wantFirst
+					firstStart, lastStart = lastStart, firstStart
+				}
+				event := newTCPTestRecord(direction, 100, 350, a, first)
+				event.appendOperation(200, b)
+				check := func(raw []byte, outcome request.ISO8583AuthOutcome, start, end int64) {
+					t.Helper()
+					spans := dispatch(raw)
+					require.Len(t, spans, 1)
+					span := spans[0]
+					assert.Equal(t, "0100", span.Method)
+					assert.Equal(t, outcome, span.ISO8583Outcome)
+					assert.Equal(t, "capture", span.ISO8583DurationSource())
+					assert.Equal(t, start, span.Start)
+					assert.Equal(t, end, span.End)
+					assert.Equal(t, direction == directionRecv, span.Type == request.EventTypeISO8583Server)
+				}
+				check(event.raw(), wantFirst, firstStart, 350)
+				late := event.continuation(500, last)
+				check(late, wantLast, lastStart, 500)
+				assert.Empty(t, dispatch(late))
+			})
+		}
+	}
+}
+
+func TestISO8583MultiplexedRecordBoundaries(t *testing.T) {
+	a, b, c := iso8583AuthCall("000001"), iso8583AuthCall("000002"), iso8583AuthCall("000003")
+	replyA, replyB, replyC := iso8583AuthReply("000001", "00"), iso8583AuthReply("000002", "51"), iso8583AuthReply("000003", "00")
+
+	for _, tc := range []struct {
+		name                    string
+		firstReply, secondReply []byte
+		firstStart, secondStart int64
+	}{
+		{"A completes before C is sent", replyA, replyB, 100, 200},
+		{"B completes before C is sent", replyB, replyA, 200, 100},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dispatch := iso8583TestDispatch(t)
+			check := func(raw []byte, start, end int64) {
+				t.Helper()
+				spans := dispatch(raw)
+				require.Len(t, spans, 1)
+				assert.Equal(t, start, spans[0].Start)
+				assert.Equal(t, end, spans[0].End)
+			}
+			first := newTCPTestRecord(directionSend, 100, 300, a, tc.firstReply)
+			first.appendOperation(200, b)
+			check(first.raw(), tc.firstStart, 300)
+
+			next := newTCPTestRecord(directionSend, 400, 500, c, tc.secondReply)
+			next.header.PreviousRecord = first.StartMonotimeNs
+			check(next.raw(), tc.secondStart, 500)
+			require.Empty(t, dispatch(first.continuation(550, replyC)))
+			wrongPID := next
+			wrongPID.Pid.HostPid++
+			require.Empty(t, dispatch(wrongPID.continuation(550, replyC)))
+			check(next.continuation(600, replyC), 400, 600)
+		})
+	}
+
+	t.Run("reuse of a closed connection tuple", func(t *testing.T) {
+		dispatch := iso8583TestDispatch(t)
+		first := newTCPTestRecord(directionSend, 100, 300, a, replyB)
+		first.appendOperation(200, b)
+		require.Len(t, dispatch(first.raw()), 1)
+		next := newTCPTestRecord(directionSend, 400, 500, c, replyA)
+		require.Empty(t, dispatch(next.raw()))
+		require.Len(t, dispatch(next.continuation(600, replyC)), 1)
+	})
+
+	t.Run("protocol already claimed", func(t *testing.T) {
+		dispatch := iso8583TestDispatch(t)
+		first := newTCPTestRecord(directionSend, 100, 300, a, replyB)
+		first.appendOperation(200, b)
+		require.Len(t, dispatch(first.raw()), 1)
+		mqtt := mqttFuzzPacket(0x30, append([]byte{0, 1, 't'}, a...)...)
+		event := newTCPTestRecord(directionSend, 400, 500, mqtt, nil)
+		event.ProtocolType = ProtocolTypeMQTT
+		spans := dispatch(event.raw())
+		require.Len(t, spans, 1)
+		assert.Equal(t, request.EventTypeMQTTClient, spans[0].Type)
+		now := uint64(timing.MonoTimeNow())
+		stamp := timing.KernelTime(now).UTC().Add(-time.Second).Format("0102150405")
+		require.Empty(t, dispatch(event.continuation(now, iso8583TestFrame("01100200000000000000"+stamp))))
+		next := newTCPTestRecord(directionSend, 600, 700, c, replyA)
+		next.header.PreviousRecord = event.StartMonotimeNs
+		require.Empty(t, dispatch(next.raw()))
+	})
+
+	t.Run("ambiguous STAN", func(t *testing.T) {
+		dispatch := iso8583TestDispatch(t)
+		event := newTCPTestRecord(directionSend, 100, 300, a, replyA)
+		event.appendOperation(200, a)
+		require.Empty(t, dispatch(event.raw()))
+		require.Empty(t, dispatch(event.continuation(400, replyA)))
+	})
+
+	t.Run("batched calls and replies", func(t *testing.T) {
+		dispatch := iso8583TestDispatch(t)
+		event := newTCPTestRecord(directionRecv, 100, 300, append(a, b...), append(replyB, replyA...))
+		spans := dispatch(event.raw())
+		require.Len(t, spans, 2)
+		assert.Equal(t, request.ISO8583Declined, spans[0].ISO8583Outcome)
+		assert.Equal(t, request.ISO8583Approved, spans[1].ISO8583Outcome)
+		for _, span := range spans {
+			assert.EqualValues(t, 100, span.Start)
+			assert.EqualValues(t, 300, span.End)
+		}
+	})
+
+	t.Run("uncaptured trailing calls", func(t *testing.T) {
+		dispatch := iso8583TestDispatch(t)
+		event := newTCPTestRecord(directionSend, 100, 400, a, replyB)
+		event.appendOperation(250, b)
+		event.ReqLen = uint32(len(event.Buf) + len(c))
+		event.Len = event.ReqLen
+		spans := dispatch(event.raw())
+		require.Len(t, spans, 1)
+		assert.EqualValues(t, 250, spans[0].Start)
+		require.Len(t, dispatch(event.continuation(500, replyA)), 1)
+		require.Empty(t, dispatch(event.continuation(600, replyC)))
+	})
+
+	t.Run("missing initial large-buffer capture", func(t *testing.T) {
+		dispatch := iso8583TestDispatch(t)
+		event := newTCPTestRecord(directionSend, 100, 400, a, replyB)
+		event.appendOperation(200, b)
+		// The large buffer starts with a fragment from a later write. Both
+		// requests and their boundaries are still available in the inline record.
+		event.HasLargeBuffers, event.LbReqBytes = 1, 8
+		header := TCPLargeBufferHeader{Type: EventTypeTCPLargeBuffer, PacketType: packetTypeRequest, Direction: directionSend, ConnInfo: event.ConnInfo, Len: event.LbReqBytes}
+		sortConnectionInfo(&header.ConnInfo)
+		require.Empty(t, dispatch(toRingbufRecord(t, header, string(b[len(b)-8:])).RawSample))
+		require.Len(t, dispatch(event.raw()), 1)
+		require.Len(t, dispatch(event.continuation(500, replyA)), 1)
+	})
+}
+
+func TestISO8583MultiplexedLargeReply(t *testing.T) {
+	// DE39 follows a long DE36 and is beyond the inline response prefix.
+	body := iso8583TestBody(t, "0110", false, []int{11, 36, 39}, "000001104"+strings.Repeat("0", 104)+"51")
+	reply := iso8583TestFrame(string(body))
+	for _, tc := range []struct {
+		name     string
+		captured int
+		want     request.ISO8583AuthOutcome
+	}{
+		{"inline", 0, request.ISO8583Unknown},
+		{"complete", len(reply), request.ISO8583Declined},
+		{"missing chunk", len(reply) - 1, request.ISO8583Unknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dispatch := iso8583TestDispatch(t)
+			event := newTCPTestRecord(directionSend, 100, 300, iso8583AuthCall("000001"), iso8583AuthReply("000002", "00"))
+			event.appendOperation(210, iso8583AuthCall("000002"))
+			require.Len(t, dispatch(event.raw()), 1)
+			late := BpfTcpMultiplexContT{
+				Flags: EventTypeTCPMultiplexCont, Direction: reverseDirection(event.Direction), ConnInfo: event.ConnInfo,
+				RecordStart: event.StartMonotimeNs, Observed: 500, Len: uint32(len(reply)),
+			}
+			copy(late.Buf[:], reply)
+			if tc.captured > 0 {
+				late.LargeLen = late.Len
+				header := TCPLargeBufferHeader{Type: EventTypeTCPLargeBuffer, PacketType: packetTypeResponse, Direction: directionRecv, ConnInfo: event.ConnInfo, Len: uint32(tc.captured)}
+				sortConnectionInfo(&header.ConnInfo)
+				require.Empty(t, dispatch(toRingbufRecord(t, header, string(reply[:tc.captured])).RawSample))
+			}
+			spans := dispatch(traceRecordBytes(&late))
+			require.Len(t, spans, 1)
+			assert.EqualValues(t, 100, spans[0].Start)
+			assert.Equal(t, tc.want, spans[0].ISO8583Outcome)
+		})
+	}
+}
+
+func TestISO8583MarkedWrites(t *testing.T) {
+	now := uint64(timing.MonoTimeNow())
+	stamp := timing.KernelTime(now).UTC().Add(-5 * time.Second).Format("0102150405")
+	frame := func(mti string) []byte { return iso8583TestFrame(mti + "0200000000000000" + stamp) }
+	second := frame("0130")
+	batchWithRoom := func(room int) []byte {
+		first := "02100200000000010000" + stamp
+		next := frame("0430")
+		padding := len(TCPRequestInfo{}.Buf) - room - len(iso8583TestFrame(first+"000")) - len(next)
+		fields := fmt.Sprintf("%03d%s", padding, strings.Repeat("X", padding))
+		return append(iso8583TestFrame(first+fields), next...)
+	}
+	for _, tc := range []struct {
+		name       string
+		first      []byte
+		large      bool
+		wantSecond bool
+	}{
+		{"inline append", append(frame("0210"), frame("0430")...), false, true},
+		{"append fills the inline buffer", batchWithRoom(len(second)), false, true},
+		{"only one byte of inline space left", batchWithRoom(1), false, false},
+		{"inline buffer full", batchWithRoom(0), false, false},
+		{"large-buffer append after inline fills", batchWithRoom(0), true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cfg, filter := newTraceDispatcherTestContext()
+			defer ctx.Close()
+			var extras []request.Span
+			ctx.emitSpans = func(spans []request.Span) { extras = append(extras, spans...) }
+			event := newTCPTestRecord(directionRecv, now, now+uint64(time.Minute), tc.first, nil)
+			event.IsServer = false // unsolicited replies received by the client
+			event.ConnInfo = BpfConnectionInfoT{S_port: 8583, D_port: 43000}
+			event.Len = uint32(len(tc.first) + len(second))
+			event.ReqLen = event.Len
+			later := now + uint64(time.Second)
+			op := BpfTcpIoRangeT{Timestamp: later, Len: uint32(len(second))}
+			if len(tc.first) < len(event.Buf) {
+				op.InlineOffset = uint16(len(tc.first))
+				op.InlineLen = uint16(copy(event.Buf[len(tc.first):], second))
+			}
+			if tc.large {
+				event.HasLargeBuffers = 1
+				event.operations[0].LargeLen = uint32(len(tc.first))
+				event.LbResBytes = event.Len
+				op.LargeOffset, op.LargeLen = uint32(len(tc.first)), uint32(len(second))
+				conn := event.ConnInfo
+				sortConnectionInfo(&conn)
+				key := largeBufferKey{connInfo: conn, packetType: packetTypeResponse, direction: directionRecv, kind: KindLayerWire}
+				buffer := largebuf.NewLargeBufferFrom(tc.first)
+				buffer.AppendChunk(second)
+				ctx.largeBuffers.Add(key, buffer)
+			}
+			if op.InlineLen > 0 || op.LargeLen > 0 {
+				event.operations = append(event.operations, op)
+			}
+			raw := event.raw()
+			span, ignore, err := ReadBPFTraceAsSpan(ctx, cfg, &ringbuf.Record{RawSample: raw}, filter)
+			require.NoError(t, err)
+			require.False(t, ignore)
+			assert.Equal(t, request.EventTypeISO8583Client, span.Type)
+			assert.Equal(t, "0200", span.Method)
+			assert.EqualValues(t, now, span.End)
+			require.NotEmpty(t, extras)
+			assert.Equal(t, "0420", extras[0].Method)
+			assert.EqualValues(t, now, extras[0].End)
+			if tc.wantSecond {
+				require.Len(t, extras, 2)
+				assert.Equal(t, "0120", extras[1].Method)
+				assert.EqualValues(t, later, extras[1].End)
+				assert.InDelta(t, 6.5, time.Duration(extras[1].End-extras[1].Start).Seconds(), 0.51)
+			} else {
+				assert.Len(t, extras, 1)
+			}
+		})
+	}
+}
+
+func TestISO8583AppendInsideMQTT(t *testing.T) {
+	now := uint64(timing.MonoTimeNow())
+	stamp := timing.KernelTime(now).UTC().Add(-time.Second).Format("0102150405")
+	reply := iso8583TestFrame("06100200000000000000" + stamp)
+	packet := mqttFuzzPacket(0x30, append([]byte{0, 1, 't'}, reply...)...)
+	offset := len(packet) - len(reply)
+	for _, captureLarge := range []bool{false, true} {
+		t.Run(fmt.Sprintf("large=%t", captureLarge), func(t *testing.T) {
+			ctx, cfg, filter := newTraceDispatcherTestContext()
+			defer ctx.Close()
+			event := TCPRequestInfo{
+				Flags: EventTypeTCPMultiplex, Direction: directionSend, StartMonotimeNs: now, EndMonotimeNs: now,
+				Len: uint32(len(packet)), ReqLen: uint32(len(packet)),
+			}
+			copy(event.Buf[:], packet)
+			write := BpfTcpIoRangeT{Timestamp: now, Len: uint32(len(reply)), InlineOffset: uint16(offset), InlineLen: uint16(len(reply))}
+			if captureLarge {
+				event.HasLargeBuffers, event.LbReqBytes = 1, event.Len
+				write.LargeOffset, write.LargeLen = uint32(offset), write.Len
+				header := TCPLargeBufferHeader{Type: EventTypeTCPLargeBuffer, PacketType: packetTypeRequest, Direction: event.Direction, Len: uint32(offset)}
+				_, _, err := appendTCPLargeBuffer(ctx, toRingbufRecord(t, header, string(packet[:offset])))
+				require.NoError(t, err)
+				header.Action, header.Len = largeBufferActionAppend, write.Len
+				_, _, err = appendTCPLargeBuffer(ctx, toRingbufRecord(t, header, string(reply)))
+				require.NoError(t, err)
+			}
+			r := tcpTestRecord{TCPRequestInfo: event, operations: []BpfTcpIoRangeT{write}}
+			iso := decodeTestTCP(&event, largebuf.NewLargeBufferFrom(packet), largebuf.NewLargeBuffer(), nil, r.trailer())
+			require.Len(t, iso, 1)
+			require.Equal(t, "0600", iso[0].Method)
+			ctx.emitSpans = func(spans []request.Span) { assert.Empty(t, spans) }
+			span, ignore, err := ReadBPFTraceAsSpan(ctx, cfg, &ringbuf.Record{RawSample: r.raw()}, filter)
+			require.NoError(t, err)
+			require.False(t, ignore)
+			assert.Equal(t, request.EventTypeMQTTClient, span.Type)
+		})
+	}
+}
+
+func TestISO8583FirstWriteUsesCompleteLargeCapture(t *testing.T) {
+	now := uint64(timing.MonoTimeNow())
+	stamp := timing.KernelTime(now).UTC().Add(-time.Second).Format("0102150405")
+	first := iso8583TestFrame("04300200000000010000" + stamp + "240" + strings.Repeat("X", 240))
+	last := iso8583TestFrame("01300200000000000000" + stamp)
+	wireLen := uint32(len(first) + len(last))
+	event := TCPRequestInfo{
+		Flags: EventTypeTCPMultiplex, LbReqBytes: wireLen, Direction: directionSend,
+		StartMonotimeNs: now, EndMonotimeNs: now,
+	}
+	event.Len = uint32(copy(event.Buf[:], first))
+	require.Greater(t, len(first), len(event.Buf))
+	inline := largebuf.NewLargeBufferFrom(event.Buf[:])
+	empty := largebuf.NewLargeBuffer()
+	large := largebuf.NewLargeBufferFrom(first)
+	large.AppendChunk(last)
+	r := tcpTestRecord{TCPRequestInfo: event, operations: []BpfTcpIoRangeT{{Timestamp: now, Len: wireLen, InlineLen: uint16(event.Len)}}}
+	// Later captured chunks cannot stand in for a failed first large-buffer read.
+	require.Empty(t, decodeTestTCP(&event, inline, empty, large, r.trailer()))
+	r.operations[0].LargeLen = wireLen
+	spans := decodeTestTCP(&event, inline, empty, large, r.trailer())
+	require.Len(t, spans, 2)
+	assert.Equal(t, "0420", spans[0].Method)
+	assert.Equal(t, "0120", spans[1].Method)
+	assert.EqualValues(t, now, spans[1].End)
+
+	// With only the last chunk in userspace, its offset from the start of the TCP record is unknown.
+	large = largebuf.NewLargeBufferFrom(last)
+	assert.Empty(t, decodeTestTCP(&event, inline, empty, large, r.trailer()))
+}
+
+func TestISO8583InvalidWriteRanges(t *testing.T) {
+	now := uint64(timing.MonoTimeNow())
+	frame := iso8583TestFrame("02100200000000000000" + timing.KernelTime(now).UTC().Format("0102150405"))
+	event := TCPRequestInfo{Flags: EventTypeTCPMultiplex, Len: uint32(len(frame)), LbReqBytes: uint32(len(frame)), StartMonotimeNs: now, EndMonotimeNs: now, Direction: directionSend}
+	copy(event.Buf[:], frame)
+	buf := largebuf.NewLargeBufferFrom(frame)
+	empty := largebuf.NewLargeBuffer()
+	for _, mark := range []BpfTcpIoRangeT{
+		{Len: uint32(len(frame)), Timestamp: now, InlineOffset: 250, InlineLen: uint16(len(frame))},
+		{Len: uint32(len(frame)), Timestamp: now, LargeOffset: 1, LargeLen: uint32(len(frame))},
+		{Len: 1, Timestamp: now, InlineLen: uint16(len(frame)), LargeLen: uint32(len(frame))},
+	} {
+		r := tcpTestRecord{TCPRequestInfo: event, operations: []BpfTcpIoRangeT{mark}}
+		assert.Empty(t, decodeTestTCP(&event, buf, empty, buf, r.trailer()))
+	}
+	mark := BpfTcpIoRangeT{Len: uint32(len(frame)), Timestamp: now, InlineLen: uint16(len(frame))}
+	raw := traceRecordBytes(&mark)
+	header := BpfTcpMultiplexHeaderT{Count: 2}
+	trailer := append(traceRecordBytes(&header), raw...)
+	trailer = append(trailer, raw[:len(raw)-1]...)
+	assert.Len(t, decodeTestTCP(&event, buf, empty, nil, trailer), 1)
 }
 
 func TestISO8583ProtocolDebug(t *testing.T) {
@@ -556,14 +949,12 @@ func TestISO8583ProtocolDebug(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		debug     bool
-		tag       BpfProtocolType
 		req, resp []byte
 	}{
-		{"disabled", false, ProtocolTypeUnknown, req, resp},
-		{"exchange", true, ProtocolTypeUnknown, req, resp},
-		{"request only", true, ProtocolTypeUnknown, req, nil},
-		{"response only", true, ProtocolTypeUnknown, nil, resp},
-		{"kernel classified", true, ProtocolTypeISO8583, []byte("unrecognized copy"), nil},
+		{"disabled", false, req, resp},
+		{"exchange", true, req, resp},
+		{"request only", true, req, nil},
+		{"response only", true, nil, resp},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cfg, filter := newTraceDispatcherTestContext()
@@ -578,7 +969,7 @@ func TestISO8583ProtocolDebug(t *testing.T) {
 				_ = logFile.Close()
 			})
 
-			event := TCPRequestInfo{Flags: EventTypeTCP, Direction: directionSend, ProtocolType: tc.tag, StartMonotimeNs: 10, EndMonotimeNs: 25}
+			event := TCPRequestInfo{Flags: EventTypeTCP, Direction: directionSend, StartMonotimeNs: 10, EndMonotimeNs: 25}
 			event.Len = uint32(copy(event.Buf[:], tc.req))
 			event.ReqLen = event.Len
 			event.RespLen = uint32(copy(event.Rbuf[:], tc.resp))
@@ -608,9 +999,13 @@ func BenchmarkISO8583PrefixReject(b *testing.B) {
 		b.Run(tt.name, func(b *testing.B) {
 			req := largebuf.NewLargeBufferFrom(tt.data)
 			resp := largebuf.NewLargeBufferFrom(tt.data)
+			var event TCPRequestInfo
+			var mux tcpMultiplex
+			cfg := &config.EBPFTracer{}
+			x := newTCPExchange(&event, req, resp, nil, nil)
 			b.ReportAllocs()
 			for b.Loop() {
-				if hasISO8583Prefix(req) && hasISO8583Prefix(resp) {
+				if spans := mux.decode(cfg, x); len(spans) != 0 {
 					b.Fatal("unexpected ISO 8583 prefix")
 				}
 			}
@@ -619,7 +1014,7 @@ func BenchmarkISO8583PrefixReject(b *testing.B) {
 }
 
 func TestISO8583RequiresMatchingFramedHeaders(t *testing.T) {
-	var cfg config.EBPFTracer
+	event := TCPRequestInfo{StartMonotimeNs: 10, EndMonotimeNs: 20}
 	req := iso8583TestFrame("01002000000000000000000000")
 	resp := iso8583TestFrame("0110000000000200000000")
 	for _, tt := range []struct {
@@ -646,8 +1041,8 @@ func TestISO8583RequiresMatchingFramedHeaders(t *testing.T) {
 		{"HTTP", []byte("GET /0100 HTTP/1.1\r\n"), []byte("HTTP/1.1 200 OK\r\n")},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			_, matched := detectISO8583(nil, &cfg, &TCPRequestInfo{StartMonotimeNs: 10, EndMonotimeNs: 20}, largebuf.NewLargeBufferFrom(tt.req), largebuf.NewLargeBufferFrom(tt.resp))
-			assert.False(t, matched)
+			spans := decodeTestTCP(&event, largebuf.NewLargeBufferFrom(tt.req), largebuf.NewLargeBufferFrom(tt.resp), nil, nil)
+			assert.Empty(t, spans)
 		})
 	}
 	// A bitmap and MTI can span large-buffer chunks.
@@ -656,8 +1051,7 @@ func TestISO8583RequiresMatchingFramedHeaders(t *testing.T) {
 			buf := largebuf.NewLargeBufferFrom(req[:split])
 			buf.AppendChunk(req[split:])
 			require.True(t, hasISO8583Prefix(buf))
-			_, matched := detectISO8583(nil, &cfg, &TCPRequestInfo{StartMonotimeNs: 10, EndMonotimeNs: 20}, buf, largebuf.NewLargeBufferFrom(resp))
-			assert.True(t, matched)
+			assert.Len(t, decodeTestTCP(&event, buf, largebuf.NewLargeBufferFrom(resp), nil, nil), 1)
 		})
 	}
 }
