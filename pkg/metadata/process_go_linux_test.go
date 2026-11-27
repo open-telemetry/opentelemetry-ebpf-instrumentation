@@ -19,10 +19,10 @@ import (
 
 func TestResolveGoServiceMetadata(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/acme/checkout\n\ngo 1.21\n"), 0600))
-	require.NoError(t, os.Mkdir(filepath.Join(dir, "lib"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "lib", "lib.go"), []byte("package lib\n"), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nimport _ \"github.com/acme/checkout/lib\"\nfunc main(){}\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/acme/checkout\n\ngo 1.21\n"), 0o600))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "lib"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "lib", "lib.go"), []byte("package lib\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nimport _ \"github.com/acme/checkout/lib\"\nfunc main(){}\n"), 0o600))
 	for _, tc := range []struct{ target, want string }{
 		{".", "acme"}, {"main.go", ""},
 	} {
