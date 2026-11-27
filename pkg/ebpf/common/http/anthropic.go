@@ -125,24 +125,19 @@ func looksLikeAnthropicHTTP1Body(reqB, respB []byte) bool {
 // examined: comment, id and retry lines may precede the event, but an event
 // line that ends outside that window does not match.
 func startsWithAnthropicMessageStart(respB []byte) bool {
-	if len(respB) > responseHeaderSearchWindow {
-		respB = respB[:responseHeaderSearchWindow]
-	}
+	respB = respB[:min(len(respB), responseHeaderSearchWindow)]
 
-	for len(respB) > 0 {
-		var line []byte
-		var found bool
-		line, respB, found = bytes.Cut(respB, []byte("\n"))
-		// Only a newline-terminated line is complete; one cut off by the
-		// search window or the capture limit must not match.
-		if !found {
+	for line := range bytes.Lines(respB) {
+		line, complete := bytes.CutSuffix(line, []byte("\n"))
+		if !complete {
 			return false
 		}
-		if n := len(line); n > 0 && line[n-1] == '\r' {
-			line = line[:n-1]
-		}
-		if len(line) == 0 || bytes.HasPrefix(line, []byte(":")) ||
-			bytes.HasPrefix(line, []byte("id:")) || bytes.HasPrefix(line, []byte("retry:")) {
+
+		line = bytes.TrimSuffix(line, []byte("\r"))
+		if len(line) == 0 ||
+			bytes.HasPrefix(line, []byte(":")) ||
+			bytes.HasPrefix(line, []byte("id:")) ||
+			bytes.HasPrefix(line, []byte("retry:")) {
 			continue
 		}
 
