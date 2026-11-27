@@ -118,3 +118,42 @@ func TestDatabasePreservesCrateSets(t *testing.T) {
 	require.Len(t, db.Profiles, 1)
 	require.ElementsMatch(t, []CrateVersions{first, second}, db.Profiles[0].CrateSets)
 }
+
+func TestDatabasePreservesCompilerCommits(t *testing.T) {
+	for _, tc := range []struct {
+		name, first, second string
+		profiles            int
+	}{
+		{"different commits", "first", "second", 2},
+		{"same commit", "first", "first", 1},
+		{"fill missing commit", "", "second", 1},
+		{"keep known commit", "first", "", 1},
+		{"both commits missing", "", "", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var database Database
+			for _, commit := range []string{tc.first, tc.second} {
+				database.Add(Profile{
+					Arch: "amd64", Rustc: "1.99.0", CompilerCommit: commit,
+					Config: Layouts{VecPtr: 8},
+				})
+			}
+			require.Len(t, database.Profiles, tc.profiles)
+
+			path := filepath.Join(t.TempDir(), "offsets.json")
+			require.NoError(t, database.Write(path))
+			reloaded, err := Load(path)
+			require.NoError(t, err)
+			require.Equal(t, database, reloaded)
+
+			for _, commit := range []string{tc.first, tc.second} {
+				if commit == "" {
+					continue
+				}
+				build := Build{Arch: "amd64", CompilerCommit: commit}
+				require.Equal(t, "1.99.0", reloaded.InferBuild(build).Rustc)
+				require.NoError(t, reloaded.CheckCompiler(build))
+			}
+		})
+	}
+}

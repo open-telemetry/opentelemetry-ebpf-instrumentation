@@ -84,6 +84,10 @@ func (d *Database) Add(profile Profile) {
 			continue
 		}
 
+		if old.CompilerCommit != "" && profile.CompilerCommit != "" && old.CompilerCommit != profile.CompilerCommit {
+			continue
+		}
+
 		for _, measured := range profile.CrateSets {
 			if !slices.ContainsFunc(old.CrateSets, func(existing CrateVersions) bool {
 				return maps.EqualFunc(existing, measured, sameVersions)
