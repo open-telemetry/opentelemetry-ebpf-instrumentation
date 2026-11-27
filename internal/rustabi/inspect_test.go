@@ -16,6 +16,30 @@ import (
 
 const fixtureEnvelope = "hyper::client::dispatch::Envelope<Request>"
 
+func TestInspectRustcHTTP1(t *testing.T) {
+	profile, err := Inspect("testdata/http1/http1.elf")
+	require.NoError(t, err)
+	require.Equal(t, "1.99.0", profile.Rustc)
+	require.Equal(t, "amd64", profile.Arch)
+
+	// Byte offsets from rustc's -Zprint-type-sizes for the pinned fixture.
+	require.Equal(t, Layouts{
+		VecPtr: 8, VecLen: 16, VecCap: 0, RequestHeaders: 0,
+		HeaderEntries: 32, HeaderCount: 40, BucketSize: 104,
+		NamePtr: 72, NameLen: 80, ValuePtr: 32, ValueLen: 40, HTTP1: 1,
+	}, profile.Config)
+
+	const body = "hyper::body::incoming::Incoming"
+	const envelope = "hyper::client::dispatch::Envelope<http::request::Request<" + body + ">, http::response::Response<" + body + ">>"
+	require.Equal(t, map[string]MessageLayout{
+		envelope: {
+			ListHead: 0, ListIndex: 16, SlotMask: 31,
+			TxTag: 248, TxSome: 256, TxPointer: 264,
+			RxTag: 248, RxSome: 256, RxPointer: 264, RxHeaders: 0, Request: true,
+		},
+	}, profile.Channels)
+}
+
 func TestInspectLayouts(t *testing.T) {
 	for _, tc := range []struct {
 		name                         string

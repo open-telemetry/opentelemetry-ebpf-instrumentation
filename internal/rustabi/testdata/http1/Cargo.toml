@@ -1,0 +1,11 @@
+[package]
+name = "rust-layouts"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "http1.rs"
+
+[dependencies]
+hyper = { version = "=1.12.0", features = ["client", "http1"] }
