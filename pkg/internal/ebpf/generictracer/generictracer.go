@@ -476,21 +476,21 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 	return kp
 }
 
-// AttachTCPListenerCleanup selects one system-wide hook, falling back if tcp_set_state cannot be attached.
+// AttachTCPListenerCleanup prefers the listener-only hook. A livepatch can make its symbol ambiguous.
 func (p *Tracer) AttachTCPListenerCleanup() (io.Closer, error) {
 	return p.attachListenerCleanup(kprobe.Attach)
 }
 
 func (p *Tracer) attachListenerCleanup(attach func(string, *ebpf.Program, bool) (io.Closer, error)) (io.Closer, error) {
-	hook, err := attach("tcp_set_state", p.bpfObjects.ObiKprobeTcpSetState, false)
+	hook, err := attach("inet_csk_listen_stop", p.bpfObjects.ObiKprobeInetCskListenStop, false)
 	if err == nil {
 		return hook, nil
 	}
-	tlog().Debug("falling back to inet_csk_listen_stop kprobe", "error", err)
-	hook, fallbackErr := attach("inet_csk_listen_stop", p.bpfObjects.ObiKprobeInetCskListenStop, false)
+	tlog().Debug("falling back to tcp_set_state kprobe", "error", err)
+	hook, fallbackErr := attach("tcp_set_state", p.bpfObjects.ObiKprobeTcpSetState, false)
 	if fallbackErr != nil {
-		return nil, errors.Join(fmt.Errorf("attaching tcp_set_state: %w", err),
-			fmt.Errorf("attaching inet_csk_listen_stop: %w", fallbackErr))
+		return nil, errors.Join(fmt.Errorf("attaching inet_csk_listen_stop: %w", err),
+			fmt.Errorf("attaching tcp_set_state: %w", fallbackErr))
 	}
 	return hook, nil
 }

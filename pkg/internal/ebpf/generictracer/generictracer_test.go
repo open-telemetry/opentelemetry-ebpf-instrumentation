@@ -602,8 +602,8 @@ func (f fakeServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PI
 func (f fakeServiceFilter) ProcPIDs(ebpfcommon.PIDType) []app.PID { return f.procPIDs }
 
 func TestAttachListenerCleanup(t *testing.T) {
-	primaryErr := errors.New("tcp_set_state unavailable")
-	fallbackErr := errors.New("inet_csk_listen_stop ambiguous")
+	primaryErr := errors.New("inet_csk_listen_stop ambiguous")
+	fallbackErr := errors.New("tcp_set_state unavailable")
 	primary, fallback := &testCloser{}, &testCloser{}
 	tracer := Tracer{}
 	tracer.bpfObjects.ObiKprobeTcpSetState = &ebpf.Program{}
@@ -615,20 +615,20 @@ func TestAttachListenerCleanup(t *testing.T) {
 		want         io.Closer
 		wantAttempts []string
 	}{
-		{"primary", nil, nil, primary, []string{"tcp_set_state"}},
-		{"fallback", primaryErr, nil, fallback, []string{"tcp_set_state", "inet_csk_listen_stop"}},
-		{"both failed", primaryErr, fallbackErr, nil, []string{"tcp_set_state", "inet_csk_listen_stop"}},
+		{"primary", nil, nil, primary, []string{"inet_csk_listen_stop"}},
+		{"fallback", primaryErr, nil, fallback, []string{"inet_csk_listen_stop", "tcp_set_state"}},
+		{"both failed", primaryErr, fallbackErr, nil, []string{"inet_csk_listen_stop", "tcp_set_state"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var attempts []string
 			hook, err := tracer.attachListenerCleanup(func(symbol string, prog *ebpf.Program, ret bool) (io.Closer, error) {
 				attempts = append(attempts, symbol)
 				require.False(t, ret)
-				if symbol == "tcp_set_state" {
-					require.Same(t, tracer.bpfObjects.ObiKprobeTcpSetState, prog)
+				if symbol == "inet_csk_listen_stop" {
+					require.Same(t, tracer.bpfObjects.ObiKprobeInetCskListenStop, prog)
 					return primary, tc.primaryErr
 				}
-				require.Same(t, tracer.bpfObjects.ObiKprobeInetCskListenStop, prog)
+				require.Same(t, tracer.bpfObjects.ObiKprobeTcpSetState, prog)
 				return fallback, tc.fallbackErr
 			})
 			require.Equal(t, tc.wantAttempts, attempts)

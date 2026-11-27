@@ -63,13 +63,13 @@ func TestTCPListenerCleanup(t *testing.T) {
 		symbol  string
 		program *ebpf.Program
 	}{
-		{"tcp_set_state", objs.State},
 		{"inet_csk_listen_stop", objs.Stop},
+		{"tcp_set_state", objs.State},
 	} {
 		t.Run(probe.symbol, func(t *testing.T) {
 			hook, err := kprobe.Attach(probe.symbol, probe.program, false)
 			if probe.symbol == "inet_csk_listen_stop" && errors.Is(err, unix.EADDRNOTAVAIL) {
-				t.Skipf("livepatch can make the fallback kprobe symbol ambiguous: %v", err)
+				t.Skipf("livepatch can make %s ambiguous: %v", probe.symbol, err)
 			}
 			require.NoError(t, err)
 			t.Cleanup(func() { hook.Close() })
