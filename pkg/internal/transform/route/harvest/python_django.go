@@ -5,7 +5,7 @@ package harvest // import "go.opentelemetry.io/obi/pkg/internal/transform/route/
 
 import (
 	"context"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"regexp"
 	"regexp/syntax"
@@ -368,10 +368,38 @@ func scanDjangoPaths(stmt string, aliases map[string]string) []djangoRoute {
 }
 
 // indexDjangoModules maps dotted include targets, such as "checkout.urls", to
-// the files Python would import for them from the import roots, which are in
-// import order. Files left out of the scan, such as installed packages, still
-// take part in that precedence.
-func indexDjangoModules(roots []string, files map[string][]djangoRoute) map[string]string {
+// scanned Python files relative to the application root.
+func indexDjangoModules(root string, files map[string][]djangoRoute) map[string]string {
+	modules := make(map[string]string, len(files))
+	for file := range files {
+		if !langtools.PathWithinBoundary(root, file) {
+			continue
+		}
+		rel, err := filepath.Rel(root, file)
+		if err != nil {
+			continue
+		}
+		module := strings.TrimSuffix(filepath.ToSlash(rel), ".py")
+		module = strings.ReplaceAll(module, "/", ".")
+		if module == "__init__" {
+			continue
+		}
+		if packageModule, ok := strings.CutSuffix(module, ".__init__"); ok {
+			modules[packageModule] = file
+			continue
+		}
+		if _, exists := modules[module]; !exists {
+			modules[module] = file
+		}
+	}
+	return modules
+}
+
+// importRootDjangoModules maps dotted include targets to the files Python would
+// import for them from the import roots, which are in import order. Files left
+// out of the scan, such as installed packages, still take part in that
+// precedence.
+func importRootDjangoModules(procRoot string, roots []string, files map[string][]djangoRoute) map[string]string {
 	dirs := map[string]struct{}{}
 	for file := range files {
 		for dir := filepath.Dir(file); ; dir = filepath.Dir(dir) {
@@ -388,15 +416,15 @@ func indexDjangoModules(roots []string, files map[string][]djangoRoute) map[stri
 		if _, ok := files[path]; ok {
 			return path, true
 		}
-		info, err := os.Stat(path)
-		return path, err == nil && info.Mode().IsRegular()
+		info, ok := statUnderProcessRoot(procRoot, path)
+		return path, ok && info.Mode().IsRegular()
 	}
 	scannedDir := func(path string) bool {
 		if _, ok := dirs[path]; ok {
 			return true
 		}
-		info, err := os.Stat(path)
-		return err == nil && info.IsDir()
+		info, ok := statUnderProcessRoot(procRoot, path)
+		return ok && info.IsDir()
 	}
 
 	modules := make(map[string]string, len(files))
@@ -460,18 +488,25 @@ func shadowedDjangoFile(scanDirs, importRoots []string, file string, modules map
 	return false
 }
 
+// statUnderProcessRoot stats a path below the process root the way the process
+// sees it, so an absolute symlink cannot reach the host filesystem.
+func statUnderProcessRoot(procRoot, path string) (fs.FileInfo, bool) {
+	if !langtools.PathWithinBoundary(procRoot, path) {
+		return nil, false
+	}
+	rel, err := filepath.Rel(procRoot, path)
+	if err != nil {
+		return nil, false
+	}
+	_, info, ok := langtools.StatProcessPath(procRoot, string(filepath.Separator), filepath.Join(string(filepath.Separator), rel))
+	return info, ok
+}
+
 // djangoRootFiles selects starting points for route expansion. Included files
 // contribute routes through their parent prefixes.
-func djangoRootFiles(scanDirs, importRoots []string, files map[string][]djangoRoute, modules map[string]string) []string {
-	live := make(map[string][]djangoRoute, len(files))
-	for file, declarations := range files {
-		if len(declarations) > 0 && !shadowedDjangoFile(scanDirs, importRoots, file, modules) {
-			live[file] = declarations
-		}
-	}
-
+func djangoRootFiles(files map[string][]djangoRoute, modules map[string]string) []string {
 	included := map[string]struct{}{}
-	for _, declarations := range live {
+	for _, declarations := range files {
 		for _, declaration := range declarations {
 			if file, ok := modules[declaration.includeModule]; ok {
 				included[file] = struct{}{}
@@ -480,8 +515,8 @@ func djangoRootFiles(scanDirs, importRoots []string, files map[string][]djangoRo
 	}
 
 	var roots []string
-	for file := range live {
-		if _, ok := included[file]; !ok {
+	for file, declarations := range files {
+		if _, ok := included[file]; !ok && len(declarations) > 0 {
 			roots = append(roots, file)
 		}
 	}
@@ -492,13 +527,50 @@ func djangoRootFiles(scanDirs, importRoots []string, files map[string][]djangoRo
 // resolveDjangoRoutes expands module and named-list includes from inferred root
 // files. Each visit carries the mount prefix accumulated from its parents;
 // endpoint paths are published with that prefix and a leading slash.
-func resolveDjangoRoutes(ctx context.Context, scanDirs, importRoots []string, files map[string][]djangoRoute, routes map[string]struct{}) error {
-	const maxIncludeDepth = 32
-
+func resolveDjangoRoutes(ctx context.Context, root string, files map[string][]djangoRoute, routes map[string]struct{}) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	modules := indexDjangoModules(importRoots, files)
+	modules := indexDjangoModules(root, files)
+	return expandDjangoRoutes(ctx, djangoRootFiles(files, modules), files, modules, routes)
+}
+
+// resolveImportRootDjangoRoutes resolves includes the way Python imports them
+// from the import roots, leaving out files it would not import, and returns the
+// root files it expanded.
+func resolveImportRootDjangoRoutes(
+	ctx context.Context,
+	procRoot string,
+	scanDirs, importRoots []string,
+	files map[string][]djangoRoute,
+	routes map[string]struct{},
+) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	modules := importRootDjangoModules(procRoot, importRoots, files)
+	live := make(map[string][]djangoRoute, len(files))
+	for file, declarations := range files {
+		if len(declarations) > 0 && !shadowedDjangoFile(scanDirs, importRoots, file, modules) {
+			live[file] = declarations
+		}
+	}
+	roots := djangoRootFiles(live, modules)
+	if err := expandDjangoRoutes(ctx, roots, live, modules, routes); err != nil {
+		return nil, err
+	}
+	return roots, nil
+}
+
+func expandDjangoRoutes(
+	ctx context.Context,
+	roots []string,
+	files map[string][]djangoRoute,
+	modules map[string]string,
+	routes map[string]struct{},
+) error {
+	const maxIncludeDepth = 32
+
 	// A file can contain several lists that include each other, so recursion
 	// tracking identifies both the file and the list being expanded.
 	type listKey struct {
@@ -553,7 +625,7 @@ func resolveDjangoRoutes(ctx context.Context, scanDirs, importRoots []string, fi
 			routes["/"+prefix+declaration.path] = struct{}{}
 		}
 	}
-	for _, file := range djangoRootFiles(scanDirs, importRoots, files, modules) {
+	for _, file := range roots {
 		// Included files are reached through their mounts rather than as roots.
 		visit(file, "urlpatterns", "")
 	}

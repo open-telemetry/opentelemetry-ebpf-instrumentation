@@ -12,7 +12,69 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/pythontools"
 )
+
+// extractImportRoots scans dirs as import roots, the first one being the
+// application directory.
+func extractImportRoots(t *testing.T, dirs ...string) (*RouteHarvesterResult, error) {
+	t.Helper()
+	return extractImportRootRoutes(t.Context(), "/", pythontools.AppDirs{App: dirs[0], ImportRoots: dirs}, maxPythonFiles)
+}
+
+func TestExtractPythonProcessRoutesIgnoresImportRootsWhenTheAppHasRoutes(t *testing.T) {
+	app := t.TempDir()
+	lib := t.TempDir()
+	writePythonFile(t, filepath.Join(app, "main.py"), `
+@app.get("/items/{item_id}")
+`)
+	writePythonFile(t, filepath.Join(lib, "other.py"), `
+@app.get("/other/{id}")
+`)
+
+	result, err := extractPythonProcessRoutes(t.Context(), "/", pythontools.AppDirs{App: app, ImportRoots: []string{app, lib}})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/items/{item_id}"}, result.Routes)
+}
+
+func TestExtractPythonProcessRoutesScansImportRootsWhenTheAppHasNoRoutes(t *testing.T) {
+	app := t.TempDir()
+	lib := t.TempDir()
+	writePythonFile(t, filepath.Join(app, "run.py"), `
+from webapp import app
+
+app.run()
+`)
+	writePythonFile(t, filepath.Join(lib, "webapp.py"), `
+@app.route("/users/<int:user_id>")
+`)
+
+	result, err := extractPythonProcessRoutes(t.Context(), "/", pythontools.AppDirs{App: app, ImportRoots: []string{app, lib}})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/users/<int:user_id>"}, result.Routes)
+	assert.Equal(t, PartialRoutes, result.Kind)
+}
+
+func TestExtractPythonDjangoShadowedAppURLconfDoesNotCompleteRoutes(t *testing.T) {
+	app := t.TempDir()
+	lib := t.TempDir()
+	writePythonFile(t, filepath.Join(app, "checkout", "__init__.py"), "")
+	writeDjangoURLs(t, filepath.Join(app, "checkout", "urls.py"), `path("app/", view),`)
+	writePythonFile(t, filepath.Join(lib, "checkout", "__init__.py"), "")
+	writePythonFile(t, filepath.Join(lib, "checkout", "urls.py"), "")
+	writePythonFile(t, filepath.Join(lib, "webapp.py"), `
+@app.get("/users/{user_id}")
+`)
+
+	result, err := extractImportRootRoutes(t.Context(), "/", pythontools.AppDirs{App: app, ImportRoots: []string{lib, app}}, maxPythonFiles)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/users/{user_id}"}, result.Routes)
+	assert.Equal(t, PartialRoutes, result.Kind)
+}
 
 func writeRecord(t *testing.T, distInfo, content string) {
 	t.Helper()
@@ -44,7 +106,7 @@ def user(user_id):
     return "ok"
 `)
 
-	result, err := extractPythonRoutes(t.Context(), app, app, lib)
+	result, err := extractImportRoots(t, app, lib)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/users/<int:user_id>"}, result.Routes)
@@ -56,14 +118,14 @@ func TestExtractPythonRoutesIgnoresMissingImportRoot(t *testing.T) {
 @app.get("/items/{item_id}")
 `)
 
-	result, err := extractPythonRoutes(t.Context(), app, app, filepath.Join(t.TempDir(), "missing"))
+	result, err := extractImportRoots(t, app, filepath.Join(t.TempDir(), "missing"))
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/items/{item_id}"}, result.Routes)
 }
 
 func TestExtractPythonRoutesStillFailsForMissingAppDir(t *testing.T) {
-	result, err := extractPythonRoutes(t.Context(), "/", filepath.Join(t.TempDir(), "missing"), t.TempDir())
+	result, err := extractImportRoots(t, filepath.Join(t.TempDir(), "missing"), t.TempDir())
 
 	require.Error(t, err)
 	assert.Nil(t, result)
@@ -116,7 +178,7 @@ func TestExtractPythonRoutesSkipsInstalledPackagesNestedInAnImportRoot(t *testin
 @app.get("/dependency/{id}")
 `)
 
-	result, err := extractPythonRoutes(t.Context(), app, app, lib, vendor)
+	result, err := extractImportRoots(t, app, lib, vendor)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/users/{user_id}"}, result.Routes)
@@ -133,7 +195,7 @@ func TestExtractPythonRoutesScansExplicitRootsSkippedByName(t *testing.T) {
 @app.get("/users/{user_id}")
 `)
 
-	result, err := extractPythonRoutes(t.Context(), app, app, srv, shared)
+	result, err := extractImportRoots(t, app, srv, shared)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/items/{item_id}", "/users/{user_id}"}, result.Routes)
@@ -142,7 +204,7 @@ func TestExtractPythonRoutesScansExplicitRootsSkippedByName(t *testing.T) {
 func TestExtractPythonRoutesFailsWhenTheRootCoveringTheAppDirFails(t *testing.T) {
 	parent := filepath.Join(t.TempDir(), "missing")
 
-	result, err := extractPythonRoutes(t.Context(), parent, filepath.Join(parent, "entry"), parent)
+	result, err := extractImportRoots(t, filepath.Join(parent, "entry"), parent)
 
 	require.Error(t, err)
 	assert.Nil(t, result)
@@ -164,7 +226,7 @@ urlpatterns = [
 	writeRecord(t, filepath.Join(deps, "Django-5.2.dist-info"),
 		"django/__init__.py,sha256=x,0\ndjango/contrib/auth/urls.py,sha256=x,10\n")
 
-	result, err := extractPythonRoutes(t.Context(), app, app, deps)
+	result, err := extractImportRoots(t, app, deps)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/items/{item_id}"}, result.Routes)
@@ -185,7 +247,7 @@ urlpatterns = [
 ]
 `)
 
-	result, err := extractPythonRoutes(t.Context(), app, app, lib)
+	result, err := extractImportRoots(t, app, lib)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/orders/<int:order_id>/"}, result.Routes)
@@ -210,7 +272,7 @@ urlpatterns = [
 ]
 `)
 
-	result, err := extractPythonRoutes(t.Context(), app, app, src)
+	result, err := extractImportRoots(t, app, src)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/shop/orders/<int:order_id>/"}, result.Routes)
@@ -235,7 +297,7 @@ urlpatterns = [
 ]
 `)
 
-	result, err := extractPythonRoutes(t.Context(), app, app, lib)
+	result, err := extractImportRoots(t, app, lib)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/shop/orders/<int:order_id>/"}, result.Routes)
@@ -251,8 +313,8 @@ func TestIndexDjangoModulesEarlierRootShadowsLater(t *testing.T) {
 		libURLs: {{path: "lib/"}},
 	}
 
-	assert.Equal(t, appURLs, indexDjangoModules([]string{app, lib}, files)["checkout.urls"])
-	assert.Equal(t, libURLs, indexDjangoModules([]string{lib, app}, files)["checkout.urls"])
+	assert.Equal(t, appURLs, importRootDjangoModules("/", []string{app, lib}, files)["checkout.urls"])
+	assert.Equal(t, libURLs, importRootDjangoModules("/", []string{lib, app}, files)["checkout.urls"])
 }
 
 func TestIndexDjangoModulesRegularPackageBeatsEarlierNamespacePortion(t *testing.T) {
@@ -266,7 +328,7 @@ func TestIndexDjangoModulesRegularPackageBeatsEarlierNamespacePortion(t *testing
 		libURLs: {{path: "lib/"}},
 	}
 
-	assert.Equal(t, libURLs, indexDjangoModules([]string{app, lib}, files)["checkout.urls"])
+	assert.Equal(t, libURLs, importRootDjangoModules("/", []string{app, lib}, files)["checkout.urls"])
 }
 
 func TestExtractPythonDjangoShadowedModuleIsNotARoot(t *testing.T) {
@@ -296,7 +358,7 @@ urlpatterns = [
 ]
 `)
 
-	result, err := extractPythonRoutes(t.Context(), app, app, lib)
+	result, err := extractImportRoots(t, app, lib)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/shop/app/"}, result.Routes)
@@ -314,7 +376,7 @@ func TestExtractPythonRoutesScansCodeNextToInstalledPackages(t *testing.T) {
 @app.get("/dependency/{id}")
 `)
 
-	result, err := extractPythonRoutes(t.Context(), srv, srv, app)
+	result, err := extractImportRoots(t, srv, app)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/users/{user_id}"}, result.Routes)
@@ -335,7 +397,7 @@ func TestExtractPythonRoutesSharesTheFileLimitAcrossRoots(t *testing.T) {
 `)
 	dirs := []string{app, first, second}
 
-	result, err := extractPythonRoutesFrom(t.Context(), app, dirs, dirs, "", 2)
+	result, err := extractImportRootRoutes(t.Context(), "/", pythontools.AppDirs{App: app, ImportRoots: dirs}, 2)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/app", "/first/a"}, result.Routes)
@@ -362,7 +424,7 @@ urlpatterns = [
 `)
 	}
 
-	result, err := extractPythonRoutesFrom(t.Context(), app, []string{app, lib}, []string{lib}, "", maxPythonFiles)
+	result, err := extractImportRootRoutes(t.Context(), "/", pythontools.AppDirs{App: app, ImportRoots: []string{lib}}, maxPythonFiles)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/shop/lib/"}, result.Routes)
@@ -380,7 +442,7 @@ func TestExtractPythonRoutesKeepsApplicationCodeInASharedNamespace(t *testing.T)
 	writeRecord(t, filepath.Join(app, "acme_util-1.0.dist-info"),
 		"acme/util/__init__.py,sha256=x,0\nacme/util/routes.py,sha256=x,10\n")
 
-	result, err := extractPythonRoutes(t.Context(), app, app)
+	result, err := extractImportRoots(t, app)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/users/{user_id}"}, result.Routes)
@@ -414,7 +476,7 @@ urlpatterns = [
 	writeRecord(t, filepath.Join(lib, "checkout-1.0.dist-info"),
 		"checkout/__init__.py,sha256=x,0\ncheckout/urls.py,sha256=x,10\n")
 
-	result, err := extractPythonRoutes(t.Context(), app, app, lib)
+	result, err := extractImportRoots(t, app, lib)
 
 	require.NoError(t, err)
 	assert.Empty(t, result.Routes)
@@ -440,7 +502,7 @@ func TestExtractPythonDjangoIncludeFollowsLauncherSearchOrder(t *testing.T) {
 		writeDjangoURLs(t, filepath.Join(dir, "checkout", "urls.py"), `path("`+route+`", view),`)
 	}
 
-	result, err := extractPythonRoutesFrom(t.Context(), app, []string{app, lib}, []string{lib, app}, "", maxPythonFiles)
+	result, err := extractImportRootRoutes(t.Context(), "/", pythontools.AppDirs{App: app, ImportRoots: []string{lib, app}}, maxPythonFiles)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/shop/lib/"}, result.Routes)
@@ -461,7 +523,7 @@ func TestExtractPythonRoutesScansNestedRootsBeforeExternalOnes(t *testing.T) {
 	}
 	dirs := []string{app, shared, src}
 
-	result, err := extractPythonRoutesFrom(t.Context(), app, dirs, dirs, "", 2)
+	result, err := extractImportRootRoutes(t.Context(), "/", pythontools.AppDirs{App: app, ImportRoots: dirs}, 2)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/app", "/src"}, result.Routes)
@@ -478,7 +540,7 @@ func TestExtractPythonRoutesScansThePackagedApplication(t *testing.T) {
 	writeRecord(t, filepath.Join(app, "myapp-1.0.dist-info"),
 		"myapp/__init__.py,sha256=x,0\nmyapp/__main__.py,sha256=x,0\nmyapp/routes.py,sha256=x,10\n")
 
-	result, err := extractPythonRoutesFrom(t.Context(), app, []string{app}, []string{app}, target, maxPythonFiles)
+	result, err := extractImportRootRoutes(t.Context(), "/", pythontools.AppDirs{App: app, ImportRoots: []string{app}, Target: target}, maxPythonFiles)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/users/{user_id}"}, result.Routes)
@@ -491,7 +553,7 @@ func TestExtractPythonDjangoBlockedModuleIsNotARoot(t *testing.T) {
 	writePythonFile(t, filepath.Join(lib, "checkout", "__init__.py"), "")
 	writeDjangoURLs(t, filepath.Join(lib, "checkout", "urls.py"), `path("lib/", view),`)
 
-	result, err := extractPythonRoutes(t.Context(), app, app, lib)
+	result, err := extractImportRoots(t, app, lib)
 
 	require.NoError(t, err)
 	assert.Empty(t, result.Routes)
@@ -506,7 +568,7 @@ func TestExtractPythonDjangoShadowedIncludeDoesNotHideARoot(t *testing.T) {
 	writePythonFile(t, filepath.Join(lib, "checkout", "__init__.py"), "")
 	writeDjangoURLs(t, filepath.Join(lib, "checkout", "urls.py"), `path("loop/", include("project.urls")),`)
 
-	result, err := extractPythonRoutes(t.Context(), app, app, lib)
+	result, err := extractImportRoots(t, app, lib)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/shop/app/"}, result.Routes)

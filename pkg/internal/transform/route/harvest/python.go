@@ -53,20 +53,26 @@ func ExtractPythonRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarveste
 	if err != nil {
 		return nil, err
 	}
-	return extractPythonRoutesFrom(ctx, rootDirForPID(fi.Pid()), append([]string{dirs.App}, dirs.ImportRoots...), dirs.ImportRoots, dirs.Target, maxPythonFiles)
+	return extractPythonProcessRoutes(ctx, rootDirForPID(fi.Pid()), dirs)
 }
 
-func extractPythonRoutes(ctx context.Context, root string, dirs ...string) (*RouteHarvesterResult, error) {
-	return extractPythonRoutesFrom(ctx, root, dirs, dirs, "", maxPythonFiles)
+// extractPythonProcessRoutes scans the import roots only when the application
+// directory has no routes: an import root can be far larger than the
+// application, such as a repository root, and hold code the process never serves.
+func extractPythonProcessRoutes(ctx context.Context, root string, dirs pythontools.AppDirs) (*RouteHarvesterResult, error) {
+	result, err := extractPythonRoutes(ctx, root, dirs.App)
+	if err != nil || len(result.Routes) > 0 {
+		return result, err
+	}
+	if !slices.ContainsFunc(dirs.ImportRoots, func(dir string) bool { return dir != dirs.App }) {
+		return result, nil
+	}
+	return extractImportRootRoutes(ctx, root, dirs, maxPythonFiles)
 }
 
-// extractPythonRoutesFrom scans the application directory, dirs[0], and then
-// any further import roots, sharing maxFiles across all of them. Django
-// includes resolve against importRoots, in the order Python searches them.
-// The installed package holding target, the launched module, is scanned.
-func extractPythonRoutesFrom(ctx context.Context, root string, dirs, importRoots []string, target string, maxFiles int) (*RouteHarvesterResult, error) {
+func extractPythonRoutes(ctx context.Context, root, dir string) (*RouteHarvesterResult, error) {
 	log := slog.With("component", "route.harvester.python")
-	aiohttp, err := dependsOnAiohttp(ctx, root, dirs[0])
+	aiohttp, err := dependsOnAiohttp(ctx, root, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -76,19 +82,54 @@ func extractPythonRoutesFrom(ctx context.Context, root string, dirs, importRoots
 		aiohttp:      aiohttp,
 	}
 	kind := PartialRoutes
-	scanRoots, boundaries := pythonScanRoots(dirs, target)
+	_, err = walkPythonFiles(ctx, dir, maxPythonFiles, nil, func(path string) error {
+		if err := e.scanFile(ctx, path); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			log.Debug("error processing file", "file", path, "error", err)
+			return nil
+		}
+		if len(e.djangoRoutes[path]) > 0 {
+			kind = CompleteRoutes
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan Python directory: %w", err)
+	}
+
+	if err := resolveDjangoRoutes(ctx, dir, e.djangoRoutes, e.routes); err != nil {
+		return nil, err
+	}
+	return sortedPythonRoutes(ctx, e.routes, kind)
+}
+
+// extractImportRootRoutes scans the application directory and then the import
+// roots, sharing maxFiles across all of them. Django includes resolve against
+// the import roots, in the order Python searches them. The installed package
+// holding the launch target is scanned.
+func extractImportRootRoutes(ctx context.Context, root string, dirs pythontools.AppDirs, maxFiles int) (*RouteHarvesterResult, error) {
+	log := slog.With("component", "route.harvester.python")
+	e := pythonExtractor{
+		routes:       map[string]struct{}{},
+		djangoRoutes: map[string][]djangoRoute{},
+	}
+	scanDirs := append([]string{dirs.App}, dirs.ImportRoots...)
+	scanRoots, boundaries := pythonScanRoots(scanDirs, dirs.Target)
 	remaining := maxFiles
 	for i, scanRoot := range scanRoots {
+		aiohttp, err := dependsOnAiohttp(ctx, root, scanRoot)
+		if err != nil {
+			return nil, err
+		}
+		e.aiohttp = aiohttp
 		scanned, err := walkPythonFiles(ctx, scanRoot, remaining, boundaries, func(path string) error {
 			if err := e.scanFile(ctx, path); err != nil {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
 				log.Debug("error processing file", "file", path, "error", err)
-				return nil
-			}
-			if len(e.djangoRoutes[path]) > 0 && langtools.PathWithinBoundary(dirs[0], path) {
-				kind = CompleteRoutes
 			}
 			return nil
 		})
@@ -104,12 +145,20 @@ func extractPythonRoutesFrom(ctx context.Context, root string, dirs, importRoots
 		}
 	}
 
-	if err := resolveDjangoRoutes(ctx, dirs, importRoots, e.djangoRoutes, e.routes); err != nil {
+	djangoRoots, err := resolveImportRootDjangoRoutes(ctx, root, scanDirs, dirs.ImportRoots, e.djangoRoutes, e.routes)
+	if err != nil {
 		return nil, err
 	}
+	kind := PartialRoutes
+	if slices.ContainsFunc(djangoRoots, func(file string) bool { return langtools.PathWithinBoundary(dirs.App, file) }) {
+		kind = CompleteRoutes
+	}
+	return sortedPythonRoutes(ctx, e.routes, kind)
+}
 
-	result := make([]string, 0, len(e.routes))
-	for route := range e.routes {
+func sortedPythonRoutes(ctx context.Context, routes map[string]struct{}, kind RouteHarvesterResultKind) (*RouteHarvesterResult, error) {
+	result := make([]string, 0, len(routes))
+	for route := range routes {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
