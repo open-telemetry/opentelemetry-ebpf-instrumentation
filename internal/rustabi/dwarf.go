@@ -48,6 +48,8 @@ func (d *rustDwarfTypes) variant(offset dwarf.Offset, name string) (uint32, dwar
 		return 0, nil, fmt.Errorf("rust variant %s is missing", name)
 	}
 
+	// Rust stores each variant as enum -> variant part -> variant -> member.
+	variantTags := [...]dwarf.Tag{dwarf.TagVariantPart, dwarf.TagVariant, dwarf.TagMember}
 	for depth := 1; depth > 0; {
 		e, err := r.Next()
 		if err != nil {
@@ -62,7 +64,12 @@ func (d *rustDwarfTypes) variant(offset dwarf.Offset, name string) (uint32, dwar
 			continue
 		}
 
-		if e.Tag == dwarf.TagMember && e.Val(dwarf.AttrName) == name {
+		if e.Tag != variantTags[depth-1] {
+			r.SkipChildren()
+			continue
+		}
+
+		if depth == len(variantTags) && e.Val(dwarf.AttrName) == name {
 			off, ok := e.Val(dwarf.AttrType).(dwarf.Offset)
 			if !ok {
 				return 0, nil, errors.New("rust variant type is missing")
@@ -75,6 +82,11 @@ func (d *rustDwarfTypes) variant(offset dwarf.Offset, name string) (uint32, dwar
 
 			t, err := d.data.Type(off)
 			return uint32(base), t, err
+		}
+
+		if depth == len(variantTags) {
+			r.SkipChildren()
+			continue
 		}
 
 		if e.Children {

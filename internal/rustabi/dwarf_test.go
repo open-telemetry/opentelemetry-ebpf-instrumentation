@@ -5,6 +5,7 @@ package rustabi
 
 import (
 	"debug/dwarf"
+	"debug/elf"
 	"encoding/binary"
 	"testing"
 
@@ -86,5 +87,30 @@ func TestRustDiscriminantScope(t *testing.T) {
 				require.Error(t, err)
 			}
 		})
+	}
+}
+
+// Enum payload fields require an explicit variant in the path.
+func TestRustVariantScope(t *testing.T) {
+	f, err := elf.Open("testdata/http1/http1.elf")
+	require.NoError(t, err)
+	defer f.Close()
+	reader, err := newLayoutReader(f)
+	require.NoError(t, err)
+
+	const body = "hyper::body::incoming::Incoming"
+	const envelope = "hyper::client::dispatch::Envelope<http::request::Request<" + body + ">, http::response::Response<" + body + ">>"
+	require.NotEmpty(t, reader.typeEntryOffsets[envelope])
+	message, err := reader.data.Type(reader.typeEntryOffsets[envelope][0])
+	require.NoError(t, err)
+	_, callback, err := reader.path(message, "__0", "Some", "__0", "__1")
+	require.NoError(t, err)
+
+	offset, _, err := reader.path(callback, "__0")
+	require.ErrorContains(t, err, "rust variant __0 is missing", "Callback.__0 returned offset %d", offset)
+	for _, variant := range []string{"Retry", "NoRetry"} {
+		offset, _, err := reader.path(callback, variant, "__0")
+		require.NoError(t, err)
+		require.EqualValues(t, 8, offset)
 	}
 }
