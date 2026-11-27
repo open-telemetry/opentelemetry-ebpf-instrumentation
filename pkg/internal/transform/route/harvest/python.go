@@ -218,7 +218,7 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 		if stmt.Len() == 0 {
 			aiohttp.startStatement(len(raw) - len(strings.TrimLeft(raw, " \t")))
 			depth = parenDelta(line)
-			startsStmt := startsFastAPI(line) || startsFlask(line) || aiohttp.starts(line) ||
+			startsStmt := startsFastAPI(line) || startsFlask(line) || aiohttp.starts(line) || startsPyramid(line) ||
 				djangoImportStart.MatchString(line) ||
 				hasDjangoPath && (djangoPathStart.MatchString(line) || djangoI18nStart.MatchString(line) ||
 					djangoListAssignmentPattern.MatchString(line))
@@ -258,6 +258,7 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 func scanPythonStmt(stmt string, routes map[string]struct{}) {
 	scanFastAPI(stmt, routes)
 	scanFlask(stmt, routes)
+	scanPyramid(stmt, routes)
 }
 
 // parenDelta returns opening minus closing parentheses and square brackets on a
@@ -287,6 +288,70 @@ func parenDelta(line string) int {
 		}
 	}
 	return depth
+}
+
+// pyDelimitedEnd finds the matching delimiter for a call or list starting at open.
+// Delimiters inside quoted strings are part of the argument value.
+func pyDelimitedEnd(stmt string, open int) int {
+	opening, closing := stmt[open], byte(')')
+	if opening == '[' {
+		closing = ']'
+	}
+	depth := 0
+	var quote byte
+	for i := open; i < len(stmt); i++ {
+		if quote != 0 {
+			switch stmt[i] {
+			case '\\':
+				i++
+			case quote:
+				quote = 0
+			}
+			continue
+		}
+		switch stmt[i] {
+		case '\'', '"':
+			quote = stmt[i]
+		case opening:
+			depth++
+		case closing:
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// unescapePython decodes a non-raw string literal. It returns false for escapes
+// that Python interprets other than backslashes and quotes.
+func unescapePython(literal string) (string, bool) {
+	if !strings.Contains(literal, `\`) {
+		return literal, true
+	}
+
+	var decoded strings.Builder
+	for i := 0; i < len(literal); i++ {
+		if literal[i] != '\\' {
+			decoded.WriteByte(literal[i])
+			continue
+		}
+		if i+1 == len(literal) {
+			return "", false
+		}
+		i++
+		switch char := literal[i]; {
+		case char == '\\' || char == '\'' || char == '"':
+			decoded.WriteByte(char)
+		case strings.IndexByte("abfnrtvxuUN01234567", char) >= 0:
+			return "", false
+		default:
+			decoded.WriteByte('\\')
+			decoded.WriteByte(char)
+		}
+	}
+	return decoded.String(), true
 }
 
 func addPyMatch(routes map[string]struct{}, re *regexp.Regexp, line string) {

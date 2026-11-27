@@ -167,6 +167,61 @@ urlpatterns = [
 	}
 }
 
+func TestExtractPythonPyramidRoutes(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+from pyramid.config import Configurator
+
+with Configurator() as config:
+    config.add_route("user", "/users/{user_id}")
+    config.add_route(
+        "order",
+        pattern=r"/orders/{order_id:\d+}",
+    )
+    config.include(".routes")
+    app = config.make_wsgi_app()
+`), 0o644))
+	// Routes declared in a module loaded with config.include().
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "routes.py"), []byte(`
+def includeme(config):
+    config.add_route("static", "/static/*subpath")
+    config.add_route("item", "items/{item_id}")
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, PartialRoutes, result.Kind)
+	assert.Equal(t, []string{"/items/{item_id}", "/orders/{order_id}", "/static/*", "/users/{user_id}"}, result.Routes)
+
+	matcher := RouteMatcherFromResult(*result)
+	for _, tc := range []struct {
+		path  string
+		route string
+	}{
+		{path: "/users/7", route: "/users/{user_id}"},
+		{path: "/orders/42", route: "/orders/{order_id}"},
+		{path: "/items/5", route: "/items/{item_id}"},
+		{path: "/static/css/app.css", route: "/static/*"},
+	} {
+		assert.Equal(t, tc.route, matcher.Find(tc.path), tc.path)
+	}
+}
+
+func TestExtractPythonPyramidCatchAllDoesNotShadowRoutes(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+config.add_route("user", "/users/{id}")
+config.add_route("home", "/*traverse")
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir, dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/users/{id}"}, result.Routes)
+	assert.Equal(t, "/users/{id}", RouteMatcherFromResult(*result).Find("/users/7"))
+}
+
 func TestExtractPythonRoutesSkipsLargeFiles(t *testing.T) {
 	dir := t.TempDir()
 	data := strings.Repeat("# filler\n", int(maxPythonFileBytes/9)+1) + `@app.get("/large")`

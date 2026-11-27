@@ -84,9 +84,9 @@ func djangoListAssignment(stmt string) (djangoAssignment, bool) {
 		operand := expr
 		var end int
 		if strings.HasPrefix(expr, "[") {
-			end = djangoDelimitedEnd(expr, 0)
+			end = pyDelimitedEnd(expr, 0)
 		} else if wrapper := djangoI18nStart.FindStringIndex(expr); wrapper != nil && wrapper[0] == 0 {
-			end = djangoDelimitedEnd(expr, wrapper[1]-1)
+			end = pyDelimitedEnd(expr, wrapper[1]-1)
 		} else {
 			name := djangoListNamePattern.FindString(expr)
 			end = len(name) - 1
@@ -252,40 +252,6 @@ func pythonSegmentPattern(body *syntax.Regexp) bool {
 	return true
 }
 
-// djangoDelimitedEnd finds the matching delimiter for a call or list starting at open.
-// Delimiters inside quoted strings are part of the argument value.
-func djangoDelimitedEnd(stmt string, open int) int {
-	opening, closing := stmt[open], byte(')')
-	if opening == '[' {
-		closing = ']'
-	}
-	depth := 0
-	var quote byte
-	for i := open; i < len(stmt); i++ {
-		if quote != 0 {
-			switch stmt[i] {
-			case '\\':
-				i++
-			case quote:
-				quote = 0
-			}
-			continue
-		}
-		switch stmt[i] {
-		case '\'', '"':
-			quote = stmt[i]
-		case opening:
-			depth++
-		case closing:
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
 func scanDjango(stmt string, aliases map[string]string) []djangoRoute {
 	var routes []djangoRoute
 	for {
@@ -294,7 +260,7 @@ func scanDjango(stmt string, aliases map[string]string) []djangoRoute {
 			return append(routes, scanDjangoPaths(stmt, aliases)...)
 		}
 		routes = append(routes, scanDjangoPaths(stmt[:wrapper[0]], aliases)...)
-		end := djangoDelimitedEnd(stmt, wrapper[1]-1)
+		end := pyDelimitedEnd(stmt, wrapper[1]-1)
 		if end < 0 {
 			return routes
 		}
