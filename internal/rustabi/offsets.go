@@ -100,7 +100,7 @@ var (
 	// Cargo registry and vendor directories follow a separator, Bazel rules_rust
 	// repositories are named <hub>__<crate>-<version>
 	rustCrateVersion = regexp.MustCompile(
-		`(?:^|[/\\ ]|__)(` + strings.Join(rustTrackedCrates, "|") + `)-([0-9]+\.[0-9]+\.[0-9]+)[/\\]`)
+		`(?:^|[/\\ ]|__)(` + strings.Join(rustTrackedCrates, "|") + `)-([0-9]+\.[0-9]+\.[0-9]+[^/\\\x00\s]*)[/\\]`)
 	rustCompilerVersion = regexp.MustCompile(`rustc version ([0-9]+\.[0-9]+\.[0-9]+) \(`)
 	rustCompilerCommit  = regexp.MustCompile(`[/\\]rustc[/\\]([0-9a-f]{40})[/\\]`)
 )
@@ -205,7 +205,11 @@ func addCrateVersion(crates map[string][]string, name, version string) {
 
 func addPathCrateVersions(crates map[string][]string, data []byte) {
 	for _, match := range rustCrateVersion.FindAllSubmatch(data, -1) {
-		addCrateVersion(crates, string(match[1]), string(match[2]))
+		version := string(match[2])
+		if !semver.IsValid("v" + version) {
+			continue
+		}
+		addCrateVersion(crates, string(match[1]), version)
 	}
 }
 

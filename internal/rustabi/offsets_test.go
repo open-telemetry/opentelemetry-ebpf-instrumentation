@@ -37,6 +37,21 @@ func TestAddPathCrateVersions(t *testing.T) {
 			want: map[string][]string{"tokio": {"1.48.0", "1.47.1"}},
 		},
 		{
+			name: "stable and prerelease versions",
+			data: "/vendor/hyper-1.7.0/src/lib.rs /vendor/hyper-1.8.0-rc.1/src/lib.rs /vendor/hyper-1.8.0-rc.1/src/client.rs",
+			want: map[string][]string{"hyper": {"1.7.0", "1.8.0-rc.1"}},
+		},
+		{
+			name: "prerelease and build metadata in Windows and Bazel paths",
+			data: `C:\vendor\hyper-1.8.0-rc.1+build.7\src\lib.rs external/rules_rust__crate_universe__tokio-1.48.0+build.2/src/lib.rs`,
+			want: map[string][]string{"hyper": {"1.8.0-rc.1+build.7"}, "tokio": {"1.48.0+build.2"}},
+		},
+		{
+			name: "invalid versions",
+			data: "/hyper-1.8.0-rc.01/src /hyper-1.8.0-rc..1/src /hyper-1.8.0_bad/src /hyper-1.8.0rc1/src /hyper-1.8.0+/src /hyper-01.8.0/src",
+			want: map[string][]string{},
+		},
+		{
 			name: "untracked and incomplete paths",
 			data: "/serde-1.0.228/src /tokio-1.48/src /tokio-1.48.0",
 			want: map[string][]string{},
@@ -172,6 +187,13 @@ func TestReadCrates(t *testing.T) {
 				{Name: ".rodata", Data: []byte("/cargo/registry/src/tokio-1.48.0/src/runtime.rs")},
 			},
 			want: map[string][]string{"tokio": {"1.48.0"}},
+		},
+		{
+			name: "source paths retain a second prerelease dependency",
+			sections: []testELFSection{
+				{Name: ".rodata", Data: []byte("/vendor/hyper-1.7.0/src/lib.rs /vendor/hyper-1.8.0-rc.1/src/lib.rs")},
+			},
+			want: map[string][]string{"hyper": {"1.7.0", "1.8.0-rc.1"}},
 		},
 		{
 			name: "auditable list overrides stale and unrecorded source paths",
