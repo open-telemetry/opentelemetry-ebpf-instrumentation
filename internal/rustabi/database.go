@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -55,7 +56,7 @@ func Inspect(path string) (Profile, error) {
 	}
 
 	return Profile{
-		Arch: build.Arch, Rustc: build.Rustc, Crates: crates, Config: config, Channels: channels,
+		Arch: build.Arch, Rustc: build.Rustc, CrateSets: []CrateVersions{crates}, Config: config, Channels: channels,
 		CompilerCommit: build.CompilerCommit,
 	}, nil
 }
@@ -79,17 +80,16 @@ func Load(path string) (Database, error) {
 func (d *Database) Add(profile Profile) {
 	for i := range d.Profiles {
 		old := &d.Profiles[i]
-		a, _ := json.Marshal(old.Channels)
-		b, _ := json.Marshal(profile.Channels)
-
-		if old.Arch != profile.Arch || old.Rustc != profile.Rustc || old.Config != profile.Config || !bytes.Equal(a, b) {
+		if old.Arch != profile.Arch || old.Rustc != profile.Rustc || old.Config != profile.Config || !maps.Equal(old.Channels, profile.Channels) {
 			continue
 		}
 
-		for name, versions := range profile.Crates {
-			old.Crates[name] = append(old.Crates[name], versions...)
-			slices.Sort(old.Crates[name])
-			old.Crates[name] = slices.Compact(old.Crates[name])
+		for _, measured := range profile.CrateSets {
+			if !slices.ContainsFunc(old.CrateSets, func(existing CrateVersions) bool {
+				return maps.EqualFunc(existing, measured, sameVersions)
+			}) {
+				old.CrateSets = append(old.CrateSets, measured)
+			}
 		}
 
 		if old.CompilerCommit == "" {
@@ -102,12 +102,22 @@ func (d *Database) Add(profile Profile) {
 	d.Profiles = append(d.Profiles, profile)
 }
 
+func compareJSON[T any](a, b T) int {
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return bytes.Compare(x, y)
+}
+
 func (d *Database) Write(path string) error {
-	slices.SortFunc(d.Profiles, func(a, b Profile) int {
-		x, _ := json.Marshal(a)
-		y, _ := json.Marshal(b)
-		return bytes.Compare(x, y)
-	})
+	for _, profile := range d.Profiles {
+		for _, measured := range profile.CrateSets {
+			for _, versions := range measured {
+				slices.Sort(versions)
+			}
+		}
+		slices.SortFunc(profile.CrateSets, compareJSON[CrateVersions])
+	}
+	slices.SortFunc(d.Profiles, compareJSON[Profile])
 
 	var data bytes.Buffer
 	encoder := json.NewEncoder(&data)

@@ -63,10 +63,13 @@ type MessageLayout struct {
 	Request   bool `json:",omitempty"`
 }
 
+// CrateVersions records the versions of tracked crates seen together in one executable.
+type CrateVersions map[string][]string
+
 type Profile struct {
 	Arch           string
 	Rustc          string
-	Crates         map[string][]string
+	CrateSets      []CrateVersions `json:",omitempty"`
 	Config         Layouts
 	Channels       map[string]MessageLayout
 	CompilerCommit string `json:",omitempty"`
@@ -173,6 +176,19 @@ func ReadCrates(f *elf.File) (map[string][]string, error) {
 
 func hasRustSourcePaths(section *elf.Section) bool {
 	return section.Name == ".comment" || strings.HasPrefix(section.Name, ".rodata")
+}
+
+// ReadCrates records each version once. ELF section order can differ between builds.
+func sameVersions(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, version := range a {
+		if !slices.Contains(b, version) {
+			return false
+		}
+	}
+	return true
 }
 
 func addCrateVersion(crates map[string][]string, name, version string) {
