@@ -35,6 +35,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/exceptions"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/kprobe"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/netns"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ifaces"
@@ -452,10 +453,6 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 			Start:    p.bpfObjects.ObiKprobeUnixStreamSendmsg,
 			End:      p.bpfObjects.ObiKretprobeUnixStreamSendmsg,
 		},
-		"inet_csk_listen_stop": {
-			Required: true,
-			Start:    p.bpfObjects.ObiKprobeInetCskListenStop,
-		},
 		"sys_ioctl": {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeSysIoctl,
@@ -477,6 +474,25 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 	}
 
 	return kp
+}
+
+// AttachTCPListenerCleanup selects one system-wide hook, falling back if tcp_set_state cannot be attached.
+func (p *Tracer) AttachTCPListenerCleanup() (io.Closer, error) {
+	return p.attachListenerCleanup(kprobe.Attach)
+}
+
+func (p *Tracer) attachListenerCleanup(attach func(string, *ebpf.Program, bool) (io.Closer, error)) (io.Closer, error) {
+	hook, err := attach("tcp_set_state", p.bpfObjects.ObiKprobeTcpSetState, false)
+	if err == nil {
+		return hook, nil
+	}
+	tlog().Debug("falling back to inet_csk_listen_stop kprobe", "error", err)
+	hook, fallbackErr := attach("inet_csk_listen_stop", p.bpfObjects.ObiKprobeInetCskListenStop, false)
+	if fallbackErr != nil {
+		return nil, errors.Join(fmt.Errorf("attaching tcp_set_state: %w", err),
+			fmt.Errorf("attaching inet_csk_listen_stop: %w", fallbackErr))
+	}
+	return hook, nil
 }
 
 func (p *Tracer) Tracepoints() map[string]ebpfcommon.ProbeDesc {

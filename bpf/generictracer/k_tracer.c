@@ -1633,6 +1633,29 @@ int BPF_KPROBE_GUARDED(obi_kprobe_setup_new_exec) {
     return 0;
 }
 
+static __always_inline void remove_listener(const struct sock *sk) {
+    const struct inet_sock *inet = (const struct inet_sock *)sk;
+    const struct sock_port_ns np = {
+        .netns = BPF_CORE_READ(sk, __sk_common.skc_net.net, ns.inum),
+        // tcp_set_state can clear skc_num before inet_csk_listen_stop runs.
+        .port = bpf_ntohs(BPF_CORE_READ(inet, inet_sport)),
+    };
+    bpf_map_delete_elem(&listening_ports, &np);
+    bpf_map_delete_elem(&filter_ports, &np.port);
+}
+
+SEC("kprobe/tcp_set_state")
+int BPF_KPROBE_GUARDED(obi_kprobe_tcp_set_state, struct sock *sk, int state) {
+    (void)ctx;
+    // A failed listen() rolls back through inet_sk_set_state, bypassing tcp_set_state.
+    if (state != TCP_CLOSE || BPF_CORE_READ(sk, __sk_common.skc_state) != TCP_LISTEN) {
+        return 0;
+    }
+
+    remove_listener(sk);
+    return 0;
+}
+
 SEC("kprobe/inet_csk_listen_stop")
 int BPF_KPROBE_GUARDED(obi_kprobe_inet_csk_listen_stop, struct sock *sk) {
     (void)ctx;
@@ -1642,8 +1665,6 @@ int BPF_KPROBE_GUARDED(obi_kprobe_inet_csk_listen_stop, struct sock *sk) {
 
     bpf_dbg_printk("=== kprobe/inet_csk_listen_stop id=%d ===", id);
 
-    struct sock_port_ns np = sock_port_ns_from_sk(sk);
-    bpf_map_delete_elem(&listening_ports, &np);
-    bpf_map_delete_elem(&filter_ports, &np.port);
+    remove_listener(sk);
     return 0;
 }

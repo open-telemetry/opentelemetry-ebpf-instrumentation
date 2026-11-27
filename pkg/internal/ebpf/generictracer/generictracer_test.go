@@ -7,6 +7,8 @@ package generictracer
 
 import (
 	"context"
+	"errors"
+	"io"
 	"math"
 	"strings"
 	"testing"
@@ -598,3 +600,46 @@ func (f fakeServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PI
 }
 
 func (f fakeServiceFilter) ProcPIDs(ebpfcommon.PIDType) []app.PID { return f.procPIDs }
+
+func TestAttachListenerCleanup(t *testing.T) {
+	primaryErr := errors.New("tcp_set_state unavailable")
+	fallbackErr := errors.New("inet_csk_listen_stop ambiguous")
+	primary, fallback := &testCloser{}, &testCloser{}
+	tracer := Tracer{}
+	tracer.bpfObjects.ObiKprobeTcpSetState = &ebpf.Program{}
+	tracer.bpfObjects.ObiKprobeInetCskListenStop = &ebpf.Program{}
+	for _, tc := range []struct {
+		name         string
+		primaryErr   error
+		fallbackErr  error
+		want         io.Closer
+		wantAttempts []string
+	}{
+		{"primary", nil, nil, primary, []string{"tcp_set_state"}},
+		{"fallback", primaryErr, nil, fallback, []string{"tcp_set_state", "inet_csk_listen_stop"}},
+		{"both failed", primaryErr, fallbackErr, nil, []string{"tcp_set_state", "inet_csk_listen_stop"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var attempts []string
+			hook, err := tracer.attachListenerCleanup(func(symbol string, prog *ebpf.Program, ret bool) (io.Closer, error) {
+				attempts = append(attempts, symbol)
+				require.False(t, ret)
+				if symbol == "tcp_set_state" {
+					require.Same(t, tracer.bpfObjects.ObiKprobeTcpSetState, prog)
+					return primary, tc.primaryErr
+				}
+				require.Same(t, tracer.bpfObjects.ObiKprobeInetCskListenStop, prog)
+				return fallback, tc.fallbackErr
+			})
+			require.Equal(t, tc.wantAttempts, attempts)
+			if tc.want != nil {
+				require.NoError(t, err)
+				require.Same(t, tc.want, hook)
+				return
+			}
+			require.Nil(t, hook)
+			require.ErrorIs(t, err, primaryErr)
+			require.ErrorIs(t, err, fallbackErr)
+		})
+	}
+}

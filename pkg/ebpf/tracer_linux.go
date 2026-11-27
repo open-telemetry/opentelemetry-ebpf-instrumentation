@@ -325,6 +325,14 @@ func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tra
 		return err
 	}
 
+	if tracer, ok := p.(tcpListenerCleanupAttacher); ok {
+		hook, err := tracer.AttachTCPListenerCleanup()
+		if err != nil {
+			return err
+		}
+		i.closables = append(i.closables, hook)
+	}
+
 	// Tracepoints support
 	if err := i.tracepoints(p); err != nil {
 		printVerifierErrorInfo(err)
@@ -659,6 +667,10 @@ func (pt *ProcessTracer) UnlinkExecutable(info *exec.FileInfo, generation uint64
 	}
 
 	pt.removeInstrumenter(key, i)
+}
+
+type tcpListenerCleanupAttacher interface {
+	AttachTCPListenerCleanup() (io.Closer, error)
 }
 
 // executableScopedTracer keeps state shared by all processes of an executable
