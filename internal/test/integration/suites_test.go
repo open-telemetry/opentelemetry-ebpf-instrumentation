@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -237,6 +238,32 @@ func TestSuite_StaticCompilation(t *testing.T) {
 	require.NoError(t, err)
 
 	compose.Env = append(compose.Env, `TESTSERVER_DOCKERFILE_SUFFIX=_static`)
+	require.NoError(t, compose.Up())
+
+	config := ti.DefaultOBIConfig()
+
+	t.Run("RED metrics", testREDMetricsHTTP)
+	t.Run("HTTP traces", testHTTPTraces)
+	t.Run("GRPC traces", testGRPCTraces)
+	t.Run("GRPC RED metrics", testREDMetricsGRPC)
+	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
+
+	runWeaverValidation(t)
+
+	require.NoError(t, compose.Close())
+}
+
+// Same as Test suite, but the test image is built with GOAMD64=v3, so the Go
+// compiler emits VEX-encoded (AVX2/BMI2) instructions in the instrumented code.
+func TestSuite_GOAMD64v3(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("GOAMD64 only affects amd64 builds")
+	}
+
+	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-goamd64v3.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `TESTSERVER_DOCKERFILE_SUFFIX=_goamd64v3`)
 	require.NoError(t, compose.Up())
 
 	config := ti.DefaultOBIConfig()
