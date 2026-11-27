@@ -35,6 +35,20 @@ import (
 
 var pythonExceptionFrameLine = regexp.MustCompile(`^  (File "(.*)", line (\d+), in (.*)|\[Previous line repeated \d+ more times?\])$`)
 
+// The probe's message buffers, the links it follows and the frames it keeps per link.
+const (
+	pythonExceptionMessageMax     = 256
+	pythonExceptionLinkMessageMax = 128
+	pythonExceptionMaxLinks       = 1
+)
+
+var pythonExceptionChainSeparator = regexp.MustCompile("\n\n(The above exception was the direct cause of the following exception|During handling of the above exception, another exception occurred):\n\n")
+
+var pythonExceptionRelations = map[string]string{
+	"The above exception was the direct cause of the following exception": "cause",
+	"During handling of the above exception, another exception occurred":  "context",
+}
+
 // Exceptions that escape a Flask, FastAPI or http.server handler are compared
 // with what CPython recorded in the fixture, request by request.
 func TestPythonExceptions(t *testing.T) {
@@ -47,8 +61,10 @@ func TestPythonExceptions(t *testing.T) {
 
 	modes := map[string][]string{"flask": {"sync"}, "fastapi": {"await", "task", "thread", "sync"}, "http": {"sync"}}
 	cases := []string{
-		"ascii", "empty", "unicode", "long", "key", "os", "custom", "multiarg",
+		"ascii", "empty", "unicode", "long", "key", "os", "custom", "multiarg", "mixedarg", "int",
 		"native", "native-int", "deep", "reraise", "raise_error", "latest", "chained",
+		"implicit_replacement", "nested_cleanup", "double_nested_cleanup", "with_traceback", "error_page", "error_page_reraise", "cleanup", "finally", "open",
+		"chained_key_subclass", "context", "suppressed", "reraised_suppressed", "chain3", "chain4",
 	}
 	if pythonMinor(t) >= 11 {
 		cases = append(cases, "group")
@@ -81,7 +97,26 @@ func TestPythonExceptions(t *testing.T) {
 				}
 			}
 
+			if framework == "fastapi" {
+				t.Run("handoff", func(t *testing.T) {
+					const token = "fastapi-handoff"
+					traceID := fixture.get("/handoff/"+token, http.StatusInternalServerError)
+					event := harness.wait(t, traceID)
+					assert.Equal(t, "ValueError", event.Type)
+					assert.Equal(t, token, event.Message)
+				})
+			}
+
 			if framework == "http" {
+				for mode, wantType := range map[string]string{"caught": "ValueError", "reraise": "LookupError", "cleanup": "ValueError"} {
+					t.Run("saved-error/"+mode, func(t *testing.T) {
+						token := "http-saved-" + mode
+						traceID := fixture.get("/saved-error/"+mode+"/"+token, http.StatusInternalServerError)
+						event := harness.wait(t, traceID)
+						assert.Equal(t, wantType, event.Type)
+						assert.Equal(t, token, event.Message)
+					})
+				}
 				t.Run("context/ascii", func(t *testing.T) {
 					const token = "http-context"
 					traceID := fixture.get("/raise/context/ascii/"+token, http.StatusInternalServerError)
@@ -96,6 +131,21 @@ func TestPythonExceptions(t *testing.T) {
 					const token = "http-native-helper"
 					traceID := fixture.get("/raise/native-helper/native/"+token, http.StatusInternalServerError)
 					assertPythonException(t, harness.wait(t, traceID), fixture.truth(token), "native")
+				})
+				// A request that handled its exception reports nothing, even when
+				// another request's exception reuses the address.
+				t.Run("reused-address", func(t *testing.T) {
+					var freedTrace, heldTrace string
+					var wg sync.WaitGroup
+					wg.Go(func() { freedTrace = fixture.get("/reuse/freed/http-reuse-freed", http.StatusInternalServerError) })
+					wg.Go(func() { heldTrace = fixture.get("/reuse/held/http-reuse-held", http.StatusInternalServerError) })
+					wg.Wait()
+					held := fixture.truth("http-reuse-held")
+					assertPythonException(t, harness.wait(t, heldTrace), held, "ascii")
+					if !held.Reused {
+						t.Skip("CPython did not reuse the freed exception's address")
+					}
+					harness.requireNone(t, freedTrace)
 				})
 			}
 
@@ -136,14 +186,21 @@ func TestPythonExceptions(t *testing.T) {
 }
 
 type pythonExceptionTruth struct {
+	pythonExceptionLink
+	Chain []pythonExceptionLink `json:"chain"`
+}
+
+type pythonExceptionLink struct {
 	Type     string `json:"type"`
 	LineType string `json:"line_type"`
 	Message  string `json:"message"`
+	Relation string `json:"relation"`
 	Frames   []struct {
 		File     string `json:"file"`
 		Line     int    `json:"line"`
 		Function string `json:"function"`
 	} `json:"frames"`
+	Reused bool `json:"reused"`
 }
 
 type pythonExceptionClient struct {
@@ -183,42 +240,73 @@ func assertPythonException(t *testing.T, event exceptions.Event, truth pythonExc
 	t.Helper()
 	assert.Equal(t, truth.Type, event.Type)
 	assert.NotZero(t, event.SpanID)
-	message := truth.Message
-	if utf8.RuneCountInString(truth.Message)*utf8.UTFMax <= 256 {
-		assert.Equal(t, truth.Message, event.Message)
-	} else {
-		message = event.Message
-		assert.True(t, strings.HasSuffix(event.Message, "..."), "%q does not end in ...", event.Message)
-		assert.True(t, strings.HasPrefix(truth.Message, strings.TrimSuffix(event.Message, "...")), "%q is not a prefix of the message", event.Message)
+	assertPythonMessage(t, truth.Message, event.Message, pythonExceptionMessageMax)
+
+	// The chain prints oldest first, each exception followed by how the next relates to it.
+	stacktrace := strings.TrimSuffix(event.Stacktrace, "\n")
+	sections := pythonExceptionChainSeparator.Split(stacktrace, -1)
+	separators := pythonExceptionChainSeparator.FindAllStringSubmatch(stacktrace, -1)
+	links := truth.Chain[:min(len(truth.Chain), pythonExceptionMaxLinks)]
+	require.Len(t, sections, len(links)+1, event.Stacktrace)
+	for i, link := range links {
+		section := len(links) - 1 - i
+		assert.Equal(t, link.Relation, pythonExceptionRelations[separators[section][1]], event.Stacktrace)
+		assertPythonSection(t, sections[section], link, pythonExceptionLinkMessageMax, "")
+	}
+	assertPythonSection(t, sections[len(sections)-1], truth.pythonExceptionLink, pythonExceptionMessageMax, scenario)
+}
+
+// assertPythonMessage compares a message with the one CPython renders; a
+// message beyond the probe's buffer is a prefix that ends in "...".
+func assertPythonMessage(t *testing.T, want, got string, limit int) {
+	t.Helper()
+	if got == want || utf8.RuneCountInString(want)*utf8.UTFMax <= limit {
+		assert.Equal(t, want, got)
+		return
+	}
+	assert.True(t, strings.HasSuffix(got, "..."), "%q does not end in ...", got)
+	assert.True(t, strings.HasPrefix(want, strings.TrimSuffix(got, "...")), "%q is not a prefix of the message", got)
+}
+
+// assertPythonSection compares one exception of the stacktrace, its traceback
+// and the type and message line, with what CPython recorded.
+func assertPythonSection(t *testing.T, section string, truth pythonExceptionLink, limit int, scenario string) {
+	t.Helper()
+	lines := strings.Split(section, "\n")
+	last := lines[len(lines)-1]
+	message, found := strings.CutPrefix(last, truth.LineType+": ")
+	if !found {
+		assert.Equal(t, truth.LineType, last, section)
+		message = ""
+	}
+	assertPythonMessage(t, truth.Message, message, limit)
+
+	if truth.Relation != "" && len(truth.Frames) == 0 {
+		require.Len(t, lines, 1, section)
+		return
 	}
 
-	lines := strings.Split(strings.TrimSuffix(event.Stacktrace, "\n"), "\n")
-	require.Equal(t, "Traceback (most recent call last):", lines[0])
-	last := truth.LineType
-	if message != "" {
-		last += ": " + message
-	}
-	assert.Equal(t, last, lines[len(lines)-1])
+	require.Equal(t, "Traceback (most recent call last):", lines[0], section)
 	captured := lines[1 : len(lines)-1]
-	// Outer frames beyond the 24 the probe keeps are dropped.
-	if captured[0] == "  ... frames omitted" {
+	// Outer frames beyond the ones the probe keeps are dropped.
+	omitted := len(captured) > 0 && captured[0] == "  ... frames omitted"
+	if omitted {
 		captured = captured[1:]
 	}
 	var expected []string
 	for _, frame := range truth.Frames {
 		expected = append(expected, fmt.Sprintf("  File \"%s\", line %d, in %s", frame.File, frame.Line, frame.Function))
 	}
-	// `raise error` adds a frame for the re-raise; the capture keeps the first raise.
-	if scenario == "raise_error" {
-		expected = expected[len(expected)-4:]
-	}
 	expected = foldPythonFrames(expected)
 	if scenario == "deep" {
 		// The kept frames are all `recursive`, so their fold counts fewer repeats.
 		expected, captured = expected[len(expected)-1:], captured[len(captured)-1:]
 	}
-	require.GreaterOrEqual(t, len(captured), len(expected), event.Stacktrace)
-	assert.Equal(t, expected, captured[len(captured)-len(expected):], event.Stacktrace)
+	if omitted && len(expected) > len(captured) {
+		expected = expected[len(expected)-len(captured):]
+	}
+	require.GreaterOrEqual(t, len(captured), len(expected), section)
+	assert.Equal(t, expected, captured[len(captured)-len(expected):], section)
 	for _, line := range captured {
 		assert.Regexp(t, pythonExceptionFrameLine, line)
 	}

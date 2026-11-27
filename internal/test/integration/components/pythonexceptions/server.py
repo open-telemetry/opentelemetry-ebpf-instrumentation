@@ -11,6 +11,7 @@ import asyncio
 import contextvars
 import ctypes
 import sys
+import threading
 import traceback
 
 truths = {}
@@ -21,6 +22,10 @@ set_object.restype = None
 
 
 class CustomError(Exception):
+    pass
+
+
+class Missing(KeyError):
     pass
 
 
@@ -39,6 +44,10 @@ def leaf(case, token):
         raise CustomError(token)
     if case == "multiarg":
         raise ValueError(token, 42)
+    if case == "mixedarg":
+        raise Exception(token, 2, {"a": 1})
+    if case == "int":
+        raise ValueError(404)
     if case == "group":
         raise ExceptionGroup(token, [ValueError("child")])
     if case == "native":
@@ -56,6 +65,50 @@ def middle(case, token):
 
 def outer(case, token):
     middle(case, token)
+
+
+def lookup(name):
+    # A frame that names the error it raises keeps it alive until collected.
+    error = LookupError(name)
+    raise error
+
+
+def fail_replacement(token):
+    raise RuntimeError(token)
+
+
+def render(name):
+    """A template helper that re-raises the loader's error."""
+    try:
+        return lookup(name)
+    except LookupError as error:
+        raise error
+
+
+def error_page(reraise=False):
+    """Falls back to text when the 500 template is missing, as Django does."""
+    try:
+        return render("500.html") if reraise else lookup("500.html")
+    except LookupError:
+        return "Server Error (500)"
+
+
+def evict(key, nested=False):
+    try:
+        lookup(key)
+    except LookupError:
+        if nested:
+            try:
+                raise OSError(key)
+            except OSError:
+                pass
+
+
+def close():
+    try:
+        raise ConnectionError("already closed")
+    except ConnectionError:
+        pass
 
 
 def recursive(depth, token):
@@ -88,22 +141,103 @@ def invoke(case, token):
             outer("ascii", token)
         except ValueError as error:
             raise RuntimeError(token) from error
+    elif case == "chained_key_subclass":
+        raise RuntimeError(token) from Missing("user_id")
+    elif case == "implicit_replacement":
+        try:
+            outer("ascii", token)
+        except ValueError:
+            lookup(token)
+    elif case in ("nested_cleanup", "double_nested_cleanup"):
+        try:
+            outer("ascii", token)
+        except ValueError:
+            try:
+                fail_replacement(token)
+            finally:
+                evict(token, nested=case == "double_nested_cleanup")
+    elif case == "with_traceback":
+        try:
+            outer("ascii", token)
+        except ValueError as error:
+            raise RuntimeError(token).with_traceback(error.__traceback__) from error
+    elif case == "cleanup":
+        try:
+            outer("ascii", token)
+        finally:
+            evict(token)
+    elif case == "finally":
+        try:
+            raise ValueError(token)
+        finally:
+            close()
+    elif case == "open":
+        try:
+            token + 1
+        finally:
+            with open(__file__) as source:
+                source.readline()
+    elif case == "context":
+        try:
+            outer("ascii", token)
+        except ValueError:
+            raise RuntimeError(token)
+    elif case == "suppressed":
+        try:
+            outer("ascii", token)
+        except ValueError:
+            raise RuntimeError(token) from None
+    elif case == "reraised_suppressed":
+        try:
+            invoke("context", token)
+        except RuntimeError as error:
+            raise error from None
+    elif case == "chain3":
+        try:
+            try:
+                outer("key", token)
+            except KeyError as error:
+                raise LookupError("middle " + token) from error
+        except LookupError:
+            raise RuntimeError(token)
+    elif case == "chain4":
+        try:
+            invoke("chain3", token)
+        except RuntimeError as error:
+            raise ConnectionError(token) from error
     else:
         outer(case, token)
 
 
-def ground_truth(error):
-    """What OBI reports: the SDK's exception.type, args[0] when it is a str
-    (quoted for KeyError, as str() does) and the traceback's frames."""
+def message(error):
+    """The message OBI renders: str(error) for str and int arguments of an
+    exception that keeps BaseException.__str__ or KeyError.__str__, or the start
+    of the tuple of several arguments up to the first other one, else a str
+    first argument when it is the only one or the type has its own __str__."""
+    args = error.args
+    default = type(error).__str__ in (BaseException.__str__, KeyError.__str__)
+    if default and len(args) <= 4 and all(type(arg) in (str, int) for arg in args):
+        return str(error)
+    if default and len(args) > 1:
+        stored = []
+        for arg in args[:4]:
+            if type(arg) not in (str, int):
+                break
+            stored.append(repr(arg))
+        if stored:
+            return "(" + ", ".join(stored) + ", ..."
+    if args and type(args[0]) is str and (len(args) == 1 or not default):
+        return args[0]
+    return ""
+
+
+def describe(error):
     kind = type(error)
     name = kind.__qualname__ if kind.__module__ == "builtins" else f"{kind.__module__}.{kind.__qualname__}"
-    message = error.args[0] if error.args and isinstance(error.args[0], str) else ""
-    if kind is KeyError and message:
-        message = repr(message)
     return {
         "type": name,
         "line_type": kind.__qualname__ if kind.__module__ in ("builtins", "__main__") else name,
-        "message": message,
+        "message": message(error),
         "frames": [
             {"file": frame.f_code.co_filename, "line": line, "function": frame.f_code.co_name}
             for frame, line in traceback.walk_tb(error.__traceback__)
@@ -111,11 +245,35 @@ def ground_truth(error):
     }
 
 
+def chain(error):
+    """The exceptions traceback prints before error, newest first."""
+    links, seen = [], {id(error)}
+    while True:
+        if error.__cause__ is not None:
+            error, relation = error.__cause__, "cause"
+        elif error.__context__ is not None and not error.__suppress_context__:
+            error, relation = error.__context__, "context"
+        else:
+            return links
+        if id(error) in seen:
+            return links
+        seen.add(id(error))
+        links.append(dict(describe(error), relation=relation))
+
+
+def ground_truth(error):
+    """What OBI reports: the SDK's exception.type, the rendered message, the
+    traceback's frames and the cause or context chain."""
+    return dict(describe(error), chain=chain(error))
+
+
 def escape(case, token):
     try:
         invoke(case, token)
     except BaseException as error:
         truths[token] = ground_truth(error)
+        if case in ("error_page", "error_page_reraise"):
+            error_page(reraise=case == "error_page_reraise")
         raise
 
 
@@ -129,6 +287,59 @@ def handled(case, token):
         invoke(case, token)
     except Exception as error:
         truths[token] = ground_truth(error)
+
+
+reuse_waiting, reuse_freed, reuse_held, reuse_sent = (threading.Event() for _ in range(4))
+reuse_ids = {}
+
+
+def local_errors(token, reraise):
+    try:
+        outer("ascii", token)
+    except ValueError:
+        close()
+    try:
+        raise LookupError(token)
+    except LookupError:
+        close()
+        if reraise:
+            raise
+
+
+def cleanup_errors(token):
+    """Re-raises the original error after its cleanup catches two others."""
+    try:
+        outer("ascii", token)
+    except ValueError:
+        evict(token, nested=True)
+        raise
+
+
+def reuse_freed_first(token, respond):
+    """Answers 500 after the caught exception is freed."""
+    reuse_waiting.wait(5)
+    try:
+        outer("ascii", token)
+    except ValueError as error:
+        reuse_ids["freed"] = id(error)
+    reuse_freed.set()
+    reuse_held.wait(5)
+    respond(500, "error")
+    reuse_sent.set()
+
+
+def reuse_held_second(token, respond):
+    """Raises at the same line through another caller, likely at the freed
+    exception's address, and holds it until both requests answer."""
+    reuse_waiting.set()
+    reuse_freed.wait(5)
+    try:
+        leaf("ascii", token)
+    except ValueError as error:
+        truths[token] = dict(ground_truth(error), reused=id(error) == reuse_ids.get("freed"))
+        reuse_held.set()
+        reuse_sent.wait(5)
+        respond(500, "error")
 
 
 async def nested(case, token):
@@ -192,6 +403,24 @@ def fastapi_app(port):
     @app.get("/raise/task/{case}/{token}")
     async def raise_task(case: str, token: str):
         await asyncio.create_task(nested(case, token))
+
+    async def handoff(scope, receive, send):
+        token = scope["path"].rsplit("/", 1)[-1]
+
+        def worker():
+            try:
+                outer("ascii", token)
+            except ValueError as error:
+                return error
+
+        error = await asyncio.to_thread(worker)
+        try:
+            raise error
+        except ValueError:
+            response = PlainTextResponse("error", status_code=500)
+            await response(scope, receive, send)
+
+    app.mount("/handoff", handoff)
 
     @app.get("/raise/thread/{case}/{token}")
     async def raise_thread(case: str, token: str):
@@ -258,6 +487,23 @@ def http_app(port):
                 handled(parts[3], parts[4])
                 self.respond(int(parts[5]), "handled")
                 return
+            if parts[1] == "saved-error":
+                try:
+                    if parts[2] == "cleanup":
+                        cleanup_errors(parts[3])
+                    else:
+                        local_errors(parts[3], reraise=parts[2] == "reraise")
+                except LookupError:
+                    self.respond(500, "error")
+                    return
+                except ValueError:
+                    pass
+                self.respond(500, "error")
+                return
+            if parts[1] == "reuse":
+                reuse = reuse_freed_first if parts[2] == "freed" else reuse_held_second
+                reuse(parts[3], self.respond)
+                return
             try:
                 if parts[1] == "raise":
                     if parts[2] == "context":
@@ -274,7 +520,7 @@ def http_app(port):
             self.respond(200, "ok")
 
         def log_message(self, format, *args):
-            if not self.path.startswith(("/raise/direct/", "/raise/native-helper/")):
+            if not self.path.startswith(("/raise/direct/", "/raise/native-helper/", "/saved-error/")):
                 logger.info(format, *args)
 
     http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

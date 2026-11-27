@@ -97,7 +97,7 @@ static __always_inline int rb_obj_alloc(const u64 item, const u64 id) {
     } else if (!obi_bpf_memcmp(buf, PUMA_SRV, sizeof(PUMA_SRV) - 1)) {
         ssl_pid_connection_info_t *info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
         if (!info) {
-            bpf_dbg_printk("rb_obj_call_init_kw no connection info for id %lld", id);
+            bpf_dbg_printk("rb_obj_call_init_kw no connection info for id=%lld", id);
             return 0;
         }
 
@@ -221,7 +221,7 @@ int GUARDED_PROG(obi_rb_ary_shift, struct pt_regs *, ctx) {
                 obi_ctx__del(id);
             }
         } else {
-            bpf_dbg_printk("untracked item %llx, ignoring...", item);
+            bpf_dbg_printk("untracked item=%llx, ignoring...", item);
             obi_ctx__del(id);
         }
     }

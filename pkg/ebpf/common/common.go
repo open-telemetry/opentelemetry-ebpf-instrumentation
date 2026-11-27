@@ -40,7 +40,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target $BPF_TARGETS -type protocol_type -type event_type -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type tcp_io_range_t -type tcp_multiplex_cont_t -type tcp_multiplex_header_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t -type node_span_event_t -type process_event_t -type pid_namespace_mode -type valid_pids_size -type ringbuf_write_stats_t -type ringbuf_id -type sampler_t -type exception_event_header_t -type exception_runtime -type exception_owner -type pid_info_t -type python_exception_payload_t -type python_exception_flags Bpf ../../../bpf/common/common.c -- -I../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target $BPF_TARGETS -type protocol_type -type event_type -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type tcp_io_range_t -type tcp_multiplex_cont_t -type tcp_multiplex_header_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t -type node_span_event_t -type process_event_t -type pid_namespace_mode -type valid_pids_size -type ringbuf_write_stats_t -type ringbuf_id -type sampler_t -type exception_event_header_t -type exception_runtime -type exception_owner -type pid_info_t -type python_exception_payload_t -type python_exception_flags -type python_exception_link_t -type python_exception_message_t -type python_exception_frame_t -type python_exception_arg_kind -type python_exception_relation Bpf ../../../bpf/common/common.c -- -I../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
@@ -849,7 +849,7 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 		// Swap the bpf_loop-based programs with their legacy counterparts so
 		// bpf2go-generated struct fields still bind on kernels without bpf_loop.
 		for _, name := range []string{
-			"obi_protocol_http", "obi_continue_protocol_http", "obi_handle_buf_with_args",
+			"obi_continue_protocol_http", "obi_handle_buf_with_args",
 			"obi_uprobe_writeSubset_returns",
 			"obi_protocol_http2_grpc_handle_start_frame_server",
 			"obi_protocol_http2_grpc_handle_start_frame_server_finalize",
@@ -891,12 +891,19 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 		if _, ok := spec.Programs["obi_protocol_http_inherit_tp"]; ok {
 			spec.Programs["obi_protocol_http_inherit_tp"] = dummy
 		}
+	} else {
+		// only the legacy HTTP/1 programs tail call these, the bpf_loop ones run the same steps inline
+		for _, name := range []string{"obi_continue_protocol_http_tp", "obi_continue2_protocol_http"} {
+			if _, ok := spec.Programs[name]; ok {
+				spec.Programs[name] = dummy
+			}
+		}
 	}
 
 	// Slot dummies in place of the legacy programs we already moved, so the
 	// bpf2go struct binding still resolves them.
 	for _, name := range []string{
-		"obi_protocol_http_legacy", "obi_continue_protocol_http_legacy", "obi_handle_buf_with_args_legacy",
+		"obi_continue_protocol_http_legacy", "obi_handle_buf_with_args_legacy",
 		"obi_uprobe_writeSubset_returns_legacy",
 		"obi_protocol_http2_grpc_handle_start_frame_server_legacy",
 		"obi_protocol_http2_grpc_handle_start_frame_server_finalize_legacy",

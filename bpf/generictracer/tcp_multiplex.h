@@ -91,7 +91,7 @@ static __always_inline void tcp_multiplex_record_operation(tcp_req_t *req,
     req->flags = k_event_type_tcp_multiplex;
 }
 
-static __always_inline bool tcp_multiplex_emit(tcp_req_t *req, const void *response, u32 len) {
+static __always_inline bool tcp_multiplex_emit(tcp_req_t *req, u32 response_len) {
     if (req->flags != k_event_type_tcp_multiplex) {
         return false;
     }
@@ -100,12 +100,7 @@ static __always_inline bool tcp_multiplex_emit(tcp_req_t *req, const void *respo
     tcp_multiplex_record_t *record = bpf_map_lookup_elem(&tcp_multiplex_records, &key);
     if (record) {
         __builtin_memcpy(&record->tcp, req, sizeof(*req));
-        record->header.response_len = len;
-
-        if (len) {
-            bpf_clamp_umax(len, sizeof(record->tcp.rbuf));
-            bpf_probe_read(record->tcp.rbuf, len, response);
-        }
+        record->header.response_len = response_len;
 
         u32 size = offsetof(tcp_multiplex_record_t, operations) +
                    record->header.count * sizeof(record->operations[0]);

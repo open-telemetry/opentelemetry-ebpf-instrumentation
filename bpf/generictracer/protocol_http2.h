@@ -374,7 +374,7 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
     bpf_dbg_printk("http2/grpc end prev_info=%llx", prev_info);
     if (prev_info) {
         prev_info->end_monotime_ns = bpf_ktime_get_ns();
-        bpf_dbg_printk("stream_id = %d", stream->stream_id);
+        bpf_dbg_printk("stream_id=%d", stream->stream_id);
         //dbg_print_http_connection_info(&stream->pid_conn.conn); // commented out since GitHub CI doesn't like this call
 
         http2_conn_info_data_t *conn =
@@ -1065,7 +1065,7 @@ int GUARDED_PROG(obi_protocol_http2_grpc_frames, void *, ctx) {
         }
 
         g_ctx->pos += frame_size;
-        //bpf_dbg_printk("New buf read g_ctx.pos = %d", g_ctx->pos);
+        //bpf_dbg_printk("New buf read g_ctx->pos=%d", g_ctx->pos);
     }
 
     // this is a weird recursion - we can't loop many times above because the
@@ -1092,19 +1092,11 @@ int GUARDED_PROG(obi_protocol_http2_grpc_frames, void *, ctx) {
     return 0;
 }
 
-// k_tail_protocol_http2
-SEC("kprobe/http2")
-int GUARDED_PROG(obi_protocol_http2, void *, ctx) {
-    call_protocol_args_t *args = protocol_args();
-
-    if (!args) {
-        return 0;
-    }
-
+static __always_inline void start_http2_frames(void *ctx, const call_protocol_args_t *args) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
 
     if (!g_ctx) {
-        return 0;
+        return;
     }
 
     // prev_info is skipped: the whole struct outgrew an inline memset, and every
@@ -1117,6 +1109,4 @@ int GUARDED_PROG(obi_protocol_http2, void *, ctx) {
     h2_resume_cut_frame(g_ctx);
 
     preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_frames);
-
-    return 0;
 }

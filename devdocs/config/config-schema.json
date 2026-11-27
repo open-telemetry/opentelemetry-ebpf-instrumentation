@@ -2368,7 +2368,7 @@
             "socket_filter",
             "tc"
           ],
-          "description": "Specify the source type for network events, e.g tc or socket_filter. The tc implementation cannot be used when there are other tc eBPF probes, e.g. Cilium CNI.",
+          "description": "Specify the source type for network events, e.g tc or socket_filter. The tc implementation attaches through TCX on Linux 6.6 or later, which can share the interface with other tc eBPF programs, e.g. Cilium CNI. Otherwise it attaches through netlink and cannot be used with them.",
           "default": "socket_filter",
           "x-env-var": "OTEL_EBPF_NETWORK_SOURCE"
         }

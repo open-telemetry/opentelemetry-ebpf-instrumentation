@@ -86,6 +86,18 @@ func tlog() *slog.Logger {
 	return slog.With("component", "ebpf.StatFetcher")
 }
 
+// connRoleUsed reports whether sock_role must be filled. A single shared probe writes it for
+// every consumer, so it is needed if any enabled metric that reads it selects the attribute.
+// The tcp successful connection probe derives the role from oldstate and never reads sock_role.
+func connRoleUsed(features *export.Features, attrSel *attributes.AttrSelector) bool {
+	roleSelected := func(metric attributes.Name) bool {
+		return slices.Contains(attrSel.For(metric), attr.NetworkTCPHandshakeRole)
+	}
+	return (features.StatsTCPRtt() && roleSelected(attributes.StatTCPRtt)) ||
+		(features.StatsTCPFailedConnections() && roleSelected(attributes.StatTCPFailedConnections)) ||
+		(features.StatsTCPIo() && roleSelected(attributes.StatTCPIo))
+}
+
 func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selectorCfg *attributes.SelectorConfig) (*StatsFetcher, error) {
 	tlog := tlog()
 	if err := rlimit.RemoveMemlock(); err != nil {
@@ -105,13 +117,7 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	if err != nil {
 		return nil, fmt.Errorf("creating attr selector: %w", err)
 	}
-
-	// OR across both metrics: a single shared probe writes sock_role for both consumers,
-	// so the probe is needed if either metric has the attribute enabled.
-	// Note: tcp successful connection probe derives role from oldstate and never reads sock_role
-	connRoleAttrSelected := slices.Contains(attrSel.For(attributes.StatTCPRtt), attr.NetworkTCPHandshakeRole) ||
-		slices.Contains(attrSel.For(attributes.StatTCPFailedConnections), attr.NetworkTCPHandshakeRole)
-	connRoleUsed := (features.StatsTCPFailedConnections() || features.StatsTCPRtt()) && connRoleAttrSelected
+	roleUsed := connRoleUsed(features, attrSel)
 
 	var toDisable []string
 	if !features.StatsTCPFailedConnections() {
@@ -120,7 +126,7 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	if !features.StatsTCPSuccessfulConnections() {
 		toDisable = append(toDisable, progObiStatsTpInetSockSetStateTCPSuccessfulConnection)
 	}
-	if !connRoleUsed {
+	if !roleUsed {
 		toDisable = append(toDisable, progObiStatsTpInetSockSetStateConnRole, progObiStatsTpTCPDestroySock)
 	}
 	if !features.StatsTCPRtt() {
@@ -232,12 +238,12 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		{
 			name:    TracepointTCPDestroySock,
 			program: objects.ObiStatsTpTcpDestroySock,
-			enabled: connRoleUsed,
+			enabled: roleUsed,
 		},
 		{
 			name:    TracepointInetSockSetState,
 			program: objects.ObiStatsTpInetSockSetStateConnRole,
-			enabled: connRoleUsed,
+			enabled: roleUsed,
 		},
 	} {
 		if !t.enabled {

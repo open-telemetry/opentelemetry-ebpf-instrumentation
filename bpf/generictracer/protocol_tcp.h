@@ -23,6 +23,7 @@
 #include <maps/tp_info_mem.h>
 
 #include <generictracer/failed_connect.h>
+#include <generictracer/job_fetch.h>
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/tcp_capture.h>
@@ -122,7 +123,7 @@ static __always_inline void finish_ongoing_tcp_req(pid_connection_info_t *pid_co
         existing_tcp->resp_len = 0;
 
         bpf_dbg_printk("Sending pending TCP trace on close: len=%d", existing_tcp->len);
-        emit_tcp_request(existing_tcp, 0, 0);
+        emit_tcp_request(existing_tcp, 0);
     }
 
     cleanup_trace_info(existing_tcp, pid_conn);
@@ -309,6 +310,8 @@ int GUARDED_PROG(obi_continue_protocol_tcp, void *, ctx) {
     if (!req) {
         return 0;
     }
+
+    job_fetch_request(&args->pid_conn, req);
 
     tcp_get_or_set_trace_info(req, &args->pid_conn, args->lw_thread, args->ssl, args->orig_dport);
 

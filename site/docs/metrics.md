@@ -1394,6 +1394,7 @@ Count of TCP connections that failed to establish, broken down by `reason`.
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.cidr` | string | `conditionally_required`: if stats.cidrs is configured | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
@@ -1420,6 +1421,7 @@ Count of TCP connections that failed to establish, broken down by `reason`.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
 | `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.cidr` | string | `conditionally_required`: if stats.cidrs is configured | development | CIDR block matched against the source IP. | 10.0.0.0/8 |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
@@ -1435,6 +1437,7 @@ Count of bytes transferred at the socket layer per TCP connection, broken down b
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.cidr` | string | `conditionally_required`: if stats.cidrs is configured | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
@@ -1454,12 +1457,14 @@ Count of bytes transferred at the socket layer per TCP connection, broken down b
 | `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
 | `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
 | `network.io.direction` | enum | `recommended` | development | The network IO operation direction. | transmit |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
 | `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.cidr` | string | `conditionally_required`: if stats.cidrs is configured | development | CIDR block matched against the source IP. | 10.0.0.0/8 |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
@@ -1475,6 +1480,7 @@ Count of TCP RST segments sent or received after the connection handshake. Reset
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.cidr` | string | `conditionally_required`: if stats.cidrs is configured | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
@@ -1501,6 +1507,7 @@ Count of TCP RST segments sent or received after the connection handshake. Reset
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
 | `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.cidr` | string | `conditionally_required`: if stats.cidrs is configured | development | CIDR block matched against the source IP. | 10.0.0.0/8 |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
@@ -1516,6 +1523,7 @@ Count of TCP retransmissions observed per connection.
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.cidr` | string | `conditionally_required`: if stats.cidrs is configured | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
@@ -1540,6 +1548,7 @@ Count of TCP retransmissions observed per connection.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
 | `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.cidr` | string | `conditionally_required`: if stats.cidrs is configured | development | CIDR block matched against the source IP. | 10.0.0.0/8 |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
@@ -1555,6 +1564,7 @@ Smoothed round-trip time observed per TCP connection.
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.cidr` | string | `conditionally_required`: if stats.cidrs is configured | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
@@ -1580,6 +1590,7 @@ Smoothed round-trip time observed per TCP connection.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
 | `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.cidr` | string | `conditionally_required`: if stats.cidrs is configured | development | CIDR block matched against the source IP. | 10.0.0.0/8 |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
@@ -1595,6 +1606,7 @@ Count of TCP connections that completed the three-way handshake, broken down by 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.cidr` | string | `conditionally_required`: if stats.cidrs is configured | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
@@ -1620,6 +1632,7 @@ Count of TCP connections that completed the three-way handshake, broken down by 
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
 | `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.cidr` | string | `conditionally_required`: if stats.cidrs is configured | development | CIDR block matched against the source IP. | 10.0.0.0/8 |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |

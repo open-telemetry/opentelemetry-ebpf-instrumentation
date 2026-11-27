@@ -900,6 +900,7 @@ func selectorFromRule(
 		}
 		selector := regexSelectorFromRule(rule)
 		selector.Exceptions = rule.Refine.Exceptions
+		selector.JobTraces = jobTracesFromRule(rule.Refine)
 		selector.ExportModes, selector.Routes = v2RuleRefinement(
 			rule.Refine,
 			completeExports,
@@ -910,12 +911,18 @@ func selectorFromRule(
 
 	selector := globSelectorFromRule(rule)
 	selector.Exceptions = rule.Refine.Exceptions
+	selector.JobTraces = jobTracesFromRule(rule.Refine)
 	selector.ExportModes, selector.Routes = v2RuleRefinement(
 		rule.Refine,
 		completeExports,
 		completeRoutes,
 	)
 	return &selector, nil, true
+}
+
+func jobTracesFromRule(refine schema.RuleRefinement) *services.JobTracesConfig {
+	enabled := refine.GroupJobSpans == nil || *refine.GroupJobSpans
+	return &services.JobTracesConfig{Enabled: enabled}
 }
 
 func ruleMatchOnlyExportsOTLP(match schema.RuleMatch) bool {

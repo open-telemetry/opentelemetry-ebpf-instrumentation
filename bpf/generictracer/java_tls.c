@@ -300,7 +300,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
         parent.tid = parent_tid;
 
         if (parent.tid == child.tid) {
-            bpf_dbg_printk("self referencing thread %d, not recording", child.tid);
+            bpf_dbg_printk("self referencing thread=%d, not recording", child.tid);
             return 0;
         }
 

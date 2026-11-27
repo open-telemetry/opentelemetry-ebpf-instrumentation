@@ -4,6 +4,7 @@
 #pragma once
 
 #include <common/large_buffers.h>
+#include <generictracer/job_fetch.h>
 #include <generictracer/protocol_aerospike.h>
 #include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mssql.h>
@@ -13,32 +14,12 @@
 #include <generictracer/tcp_trace_cleanup.h>
 
 // Emit a single TCP event for the normal classifier chain, with operation ranges when available.
-static __always_inline void
-emit_tcp_request(tcp_req_t *req, const void *response, u32 response_len) {
-    const bool multiplex_emitted = tcp_multiplex_emit(req, response, response_len);
-    if (multiplex_emitted) {
-        return;
+static __always_inline bool emit_tcp_request(tcp_req_t *req, u32 response_len) {
+    if (tcp_multiplex_emit(req, response_len)) {
+        return true;
     }
 
-    if (!response) {
-        events_ringbuf_output(req, sizeof(*req));
-        return;
-    }
-
-    tcp_req_t *trace = events_ringbuf_reserve(sizeof(*trace), 0);
-    if (!trace) {
-        bpf_dbg_printk("failed to reserve space on the ringbuf");
-        return;
-    }
-
-    bpf_dbg_printk("Sending TCP trace: existing=%lx, resp_length=%d", req, req->resp_len);
-    __builtin_memcpy(trace, req, sizeof(*req));
-    if (response_len) {
-        bpf_clamp_umax(response_len, sizeof(trace->rbuf));
-        bpf_probe_read(trace->rbuf, response_len, response);
-    }
-
-    bpf_ringbuf_submit(trace, get_flags());
+    return events_ringbuf_output(req, sizeof(*req)) == 0;
 }
 
 // Emit raw socket bytes within the remaining per-direction capture budget.
@@ -256,11 +237,16 @@ static __always_inline void tcp_capture_response(tcp_req_t *req, call_protocol_a
     if (response_already_captured) {
         inline_len = min(req->resp_len, (u32)k_tcp_res_len);
         response_len = 0;
+    } else {
+        bpf_probe_read(req->rbuf, inline_len, (const void *)args->u_buf);
     }
 
     req->resp_len = inline_len;
-
-    emit_tcp_request(req, (void *)args->u_buf, response_len);
+    bpf_dbg_printk("Sending TCP trace: existing=%lx, resp_length=%d", req, req->resp_len);
+    const bool emitted = emit_tcp_request(req, response_len);
+    if (emitted) {
+        job_fetch_reply(&args->pid_conn, req, req->rbuf, inline_len);
+    }
 
     cleanup_trace_info(req, &args->pid_conn);
 }

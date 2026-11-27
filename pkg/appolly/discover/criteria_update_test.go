@@ -1377,6 +1377,42 @@ func TestCriteriaUpdaterRejectsExceptionChanges(t *testing.T) {
 	}
 }
 
+func TestCriteriaUpdaterRejectsJobTracesChanges(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			initial := criteriaConfig(t, "    - exe_path: /srv/app\n")
+			initial.Discovery.Instrument[0].JobTraces = &services.JobTracesConfig{Enabled: enabled}
+			next := criteriaConfig(t, "    - exe_path: /srv/app\n")
+			next.Discovery.Instrument[0].JobTraces = &services.JobTracesConfig{Enabled: !enabled}
+			require.ErrorContains(t, NewCriteriaUpdater(initial).Update(t.Context(), next), "restart OBI")
+		})
+	}
+}
+
+func TestCriteriaUpdaterAddedJobTracesNeedStartupSupport(t *testing.T) {
+	for _, atStartup := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled at startup=%t", atStartup), func(t *testing.T) {
+			initial := criteriaConfig(t, "    - exe_path: /srv/app\n")
+			initial.Discovery.Instrument[0].JobTraces = &services.JobTracesConfig{Enabled: atStartup}
+			updater := NewCriteriaUpdater(initial)
+			matcher := &Matcher{Log: slog.Default(), Criteria: FindingCriteria(initial), ProcessHistory: map[app.PID]ProcessMatch{}, Output: msg.NewQueue[[]Event[ProcessMatch]](), CriteriaUpdates: updater.Updates()}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			done := make(chan struct{})
+			go func() { defer close(done); matcher.Run(ctx) }()
+			t.Cleanup(func() { cancel(); testutil.ReadChannel(t, done, time.Second) })
+
+			next := criteriaConfig(t, "    - exe_path: /srv/app\n    - exe_path: /srv/other\n")
+			next.Discovery.Instrument[0].JobTraces = initial.Discovery.Instrument[0].JobTraces
+			err := updater.Update(ctx, next)
+			if atStartup {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "restart OBI")
+			}
+		})
+	}
+}
+
 func TestCriteriaRefreshRejectsRetainedExceptionChanges(t *testing.T) {
 	original := processInfo
 	t.Cleanup(func() { processInfo = original })

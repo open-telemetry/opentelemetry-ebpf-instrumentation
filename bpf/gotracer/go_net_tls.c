@@ -36,7 +36,7 @@
 static __always_inline void *unwrap_conn(void *conn) {
     void *conn_conn = 0;
     bpf_probe_read(&conn_conn, sizeof(conn_conn), conn + k_go_iface_data_offset);
-    bpf_dbg_printk("unwrapped conn %llx", conn_conn);
+    bpf_dbg_printk("unwrapped conn=%llx", conn_conn);
 
     return conn_conn;
 }
@@ -50,7 +50,7 @@ int GUARDED_PROG(obi_uprobe_cryptoTlsRead, struct pt_regs *, ctx) {
     void *conn = GO_PARAM1(ctx);
     const void *buf = GO_PARAM2(ctx);
 
-    bpf_dbg_printk("=== uprobe/cryptoTlsRead goroutine_addr=%lx, c=%llx, buf=%llx === ",
+    bpf_dbg_printk("=== uprobe/cryptoTlsRead goroutine_addr=%lx, c=%llx, buf=%llx ===",
                    goroutine_addr,
                    conn,
                    buf);
@@ -65,7 +65,7 @@ int GUARDED_PROG(obi_uprobe_cryptoTlsRead, struct pt_regs *, ctx) {
     if (conn_conn) {
         void *fd_ptr = fd_ptr_from_conn(conn_conn);
 
-        bpf_dbg_printk("found fd_ptr %llx", fd_ptr);
+        bpf_dbg_printk("found fd_ptr=%llx", fd_ptr);
 
         if (!fd_ptr) {
             return 0;
@@ -118,7 +118,7 @@ int GUARDED_PROG(obi_uprobe_cryptoTlsReadRet, struct pt_regs *, ctx) {
     const u64 len = (u64)GO_PARAM1(ctx);
     void *err = GO_PARAM2(ctx);
 
-    bpf_dbg_printk("=== uprobe/cryptoTlsRead returns goroutine_addr=%lx, size=%d, err=%llx === ",
+    bpf_dbg_printk("=== uprobe/cryptoTlsRead returns goroutine_addr=%lx, size=%d, err=%llx ===",
                    goroutine_addr,
                    len,
                    err);
@@ -129,7 +129,7 @@ int GUARDED_PROG(obi_uprobe_cryptoTlsReadRet, struct pt_regs *, ctx) {
 
     net_args_t *args = bpf_map_lookup_elem(&ongoing_ssl_ops, &g_key);
     if (args) {
-        bpf_dbg_printk("buf = %s", args->byte_ptr);
+        bpf_dbg_printk("buf=[%s]", args->byte_ptr);
 
         claim_read_handled_since_entry(args);
 
@@ -181,7 +181,7 @@ int GUARDED_PROG(obi_uprobe_cryptoTlsWrite, struct pt_regs *, ctx) {
     void *buf = GO_PARAM2(ctx);
     const u64 len = (u64)GO_PARAM3(ctx);
 
-    bpf_dbg_printk("=== uprobe/cryptoTlsWrite goroutine_addr=%lx, c=%llx, buf=%llx === ",
+    bpf_dbg_printk("=== uprobe/cryptoTlsWrite goroutine_addr=%lx, c=%llx, buf=%llx ===",
                    goroutine_addr,
                    c,
                    buf);
@@ -190,7 +190,7 @@ int GUARDED_PROG(obi_uprobe_cryptoTlsWrite, struct pt_regs *, ctx) {
         return 0;
     }
 
-    bpf_dbg_printk("len=%d, buf=%s", len, buf);
+    bpf_dbg_printk("len=%d, buf=[%s]", len, buf);
 
     net_args_t args = {0};
 
@@ -198,7 +198,7 @@ int GUARDED_PROG(obi_uprobe_cryptoTlsWrite, struct pt_regs *, ctx) {
     if (conn_conn) {
         void *fd_ptr = fd_ptr_from_conn(conn_conn);
 
-        bpf_dbg_printk("found fd_ptr %llx", fd_ptr);
+        bpf_dbg_printk("found fd_ptr=%llx", fd_ptr);
 
         if (!fd_ptr) {
             return 0;
@@ -267,7 +267,7 @@ int GUARDED_PROG(obi_uprobe_cryptoTlsWriteRet, struct pt_regs *, ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    bpf_dbg_printk("=== uprobe/cryptoTlsWrite returns goroutine_addr=%lx", goroutine_addr);
+    bpf_dbg_printk("=== uprobe/cryptoTlsWrite returns goroutine_addr=%lx ===", goroutine_addr);
 
     bpf_map_delete_elem(&ongoing_ssl_ops, &g_key);
     return 0;

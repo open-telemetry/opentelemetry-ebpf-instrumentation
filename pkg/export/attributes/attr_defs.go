@@ -38,6 +38,7 @@ const (
 	GroupNetGeoIP
 	GroupStats
 	GroupStatsKube
+	GroupStatsCIDR
 )
 
 func (e *AttrGroups) Has(groups AttrGroups) bool {
@@ -60,6 +61,7 @@ func getDefinitions(
 	ifaceDirEnabled := groups.Has(GroupNetIfaceDirection)
 	cidrEnabled := groups.Has(GroupNetCIDR)
 	geoipEnabled := groups.Has(GroupNetGeoIP)
+	statsCIDREnabled := groups.Has(GroupStatsCIDR)
 
 	// attributes to be reported exclusively for prometheus exporters
 	prometheusAttributes := NewAttrReportGroup(
@@ -184,6 +186,19 @@ func getDefinitions(
 		},
 		extraGroupAttributes[GroupStatsKube],
 	)
+
+	// stat CIDR attributes are only enabled if the stats CIDRs configuration
+	// is defined
+	statsCIDR := NewAttrReportGroup(
+		!statsCIDREnabled,
+		nil,
+		map[attr.Name]Default{
+			attr.DstCIDR: true,
+			attr.SrcCIDR: true,
+		},
+		extraGroupAttributes[GroupStatsCIDR],
+	)
+
 	// network CIDR attributes are only enabled if the CIDRs configuration
 	// is defined
 	networkCIDR := NewAttrReportGroup(
@@ -963,36 +978,37 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{},
 		},
 		StatTCPRtt.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsCIDR},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 			},
 		},
 		StatTCPFailedConnections.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsCIDR},
 			Attributes: map[attr.Name]Default{
 				attr.TCPFailedConnectionReason: false,
 				attr.NetworkTCPHandshakeRole:   false,
 			},
 		},
 		StatTCPRetransmits.Section: {
-			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsCIDR},
 			Attributes: map[attr.Name]Default{},
 		},
 		StatTCPIo.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsCIDR},
 			Attributes: map[attr.Name]Default{
-				attr.NetworkIoDirection: true,
+				attr.NetworkIoDirection:      true,
+				attr.NetworkTCPHandshakeRole: false,
 			},
 		},
 		StatTCPSuccessfulConnections.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsCIDR},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 			},
 		},
 		StatTCPResets.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsCIDR},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkIoDirection:   true,
 				attr.NetworkTCPResetCause: false,

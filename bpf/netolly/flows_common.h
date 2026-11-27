@@ -49,9 +49,9 @@ struct {
 } direct_flows SEC(".maps");
 
 // Key: the flow identifier. Value: the flow metrics for that identifier.
-// The userspace will aggregate them into a single flow.
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_PERCPU_HASH);
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
     __type(key, flow_id);
     __type(value, flow_metrics);
 } aggregated_flows SEC(".maps");
@@ -59,6 +59,7 @@ struct {
 typedef struct packet_count_t {
     u64 total;
     u64 ignored;
+    u64 collisions;
 } packet_count;
 
 // Accounts the proportion of packets not reaching the userspace due to an error
@@ -113,6 +114,48 @@ skb_wire_size(struct __sk_buff *skb, u32 seg_hdr_len, u32 *packets, u64 *bytes) 
         *packets = segs;
         *bytes += (u64)(segs - 1) * seg_hdr_len;
     }
+}
+
+enum { ERRNO_EEXIST = 17 };
+
+_Static_assert(sizeof(FLOW_LOCK) == sizeof(u32), "FLOW_LOCK must be as big as a bpf_spin_lock");
+_Static_assert(__builtin_offsetof(flow_metrics, lock) % sizeof(u32) == 0,
+               "a bpf_spin_lock must be 4-byte aligned");
+
+// Atomic because the socket filter has no lock; there, end_mono_time_ns and flags can lose an update.
+static __always_inline void
+add_to_flow(flow_metrics *flow, u32 packets, u64 bytes, u64 now, u16 flags) {
+    flow_lock(&flow->lock);
+    __sync_fetch_and_add(&flow->packets, packets);
+    __sync_fetch_and_add(&flow->bytes, bytes);
+    if (flow->end_mono_time_ns < now) {
+        flow->end_mono_time_ns = now;
+    }
+    if ((flow->flags & flags) != flags) {
+        flow->flags |= flags;
+    }
+    flow_unlock(&flow->lock);
+}
+
+static __always_inline long
+insert_flow(const flow_id *id, const flow_metrics *new_flow, packet_count *packet_stats) {
+    const long ret = bpf_map_update_elem(&aggregated_flows, id, new_flow, BPF_NOEXIST);
+    if (ret != -ERRNO_EEXIST) {
+        return ret;
+    }
+
+    flow_metrics *flow = (flow_metrics *)bpf_map_lookup_elem(&aggregated_flows, id);
+    if (!flow) {
+        // user space deleted the entry since the insertion failed
+        return ret;
+    }
+
+    add_to_flow(
+        flow, new_flow->packets, new_flow->bytes, new_flow->end_mono_time_ns, new_flow->flags);
+    if (packet_stats) {
+        packet_stats->collisions++;
+    }
+    return 0;
 }
 
 const u8 ip4in6[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
