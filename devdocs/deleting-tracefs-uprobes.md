@@ -6,6 +6,13 @@ access is denied, for example with `kernel.perf_event_paranoid` above 2. Tracefs
 up and we have proper closer path for it. However, in case OBI crashes or is killed (especially while development),
 you may end up with a number of stale/ghost `tracefs` probes that you may want to manually clean up.
 
+Kernel livepatches can also introduce multiple copies of a probed function. When a name is ambiguous
+(`EADDRNOTAVAIL`), OBI uses writable tracefs to attach to each copy it can resolve in `/proc/kallsyms`.
+It uses module-qualified names where possible. Disambiguating the original kernel function or multiple
+copies within one module requires visible kernel addresses. OBI logs partial coverage and retries missing
+targets every 30 seconds. It also checks `/sys/kernel/livepatch` for same-named replacements of probes
+attached before a patch was applied. Both probe copies can fire for one operation.
+
 Here's how you can check if you have any stale leftover probes:
 
 ```sh
