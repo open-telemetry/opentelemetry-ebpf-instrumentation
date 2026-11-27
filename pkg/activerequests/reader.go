@@ -11,8 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/sys/unix"
+
+	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -85,39 +86,39 @@ func (r *Reader) Collect(names []attr.Name) ([]Count, error) {
 }
 
 // Snapshot reads the map without clearing live records and excludes expired records.
-func (c *Reader) Snapshot() ([]Request, error) {
-	if c == nil || c.eventCtx == nil || c.eventCtx.CommonPIDsFilter == nil {
+func (r *Reader) Snapshot() ([]Request, error) {
+	if r == nil || r.eventCtx == nil || r.eventCtx.CommonPIDsFilter == nil {
 		return nil, nil
 	}
-	c.initOnce.Do(c.initMatchers)
-	if c.initErr != nil {
-		return nil, fmt.Errorf("active request filters: %w", c.initErr)
+	r.initOnce.Do(r.initMatchers)
+	if r.initErr != nil {
+		return nil, fmt.Errorf("active request filters: %w", r.initErr)
 	}
 	now := timing.MonoTimeNow()
 	if now == 0 {
 		return nil, errors.New("read monotonic time for active requests")
 	}
-	c.eventCtx.MapsLock.Lock()
-	requestsMap := c.eventCtx.EBPFMaps[activeRequestsMapName]
+	r.eventCtx.MapsLock.Lock()
+	requestsMap := r.eventCtx.EBPFMaps[activeRequestsMapName]
 	if requestsMap == nil {
-		c.eventCtx.MapsLock.Unlock()
+		r.eventCtx.MapsLock.Unlock()
 		return nil, nil
 	}
 	mapHandle, err := requestsMap.Clone()
-	c.eventCtx.MapsLock.Unlock()
+	r.eventCtx.MapsLock.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("clone active requests map: %w", err)
 	}
 	defer mapHandle.Close()
 
-	currentPIDs := c.eventCtx.CommonPIDsFilter.CurrentPIDs(ebpfcommon.PIDTypeGo | ebpfcommon.PIDTypeKProbes)
+	currentPIDs := r.eventCtx.CommonPIDsFilter.CurrentPIDs(ebpfcommon.PIDTypeGo | ebpfcommon.PIDTypeKProbes)
 	result := []Request{}
 	seen := map[ebpfcommon.BpfActiveRequestKeyT]struct{}{}
 	iterator := mapHandle.Iterate()
 	var key ebpfcommon.BpfActiveRequestKeyT
 	var active ebpfcommon.BpfActiveRequestT
 	for iterator.Next(&key, &active) {
-		if expired(active.StartMonotimeNs, now, c.config.MaxAge) {
+		if expired(active.StartMonotimeNs, now, r.config.MaxAge) {
 			continue
 		}
 		if _, duplicate := seen[key]; duplicate {
@@ -128,17 +129,17 @@ func (c *Reader) Snapshot() ([]Request, error) {
 		if !ok || !service.Features.HTTPServerActiveRequests() || !service.ExportModes.CanExportMetrics() {
 			continue
 		}
-		if c.config.DynamicSelector != nil {
+		if r.config.DynamicSelector != nil {
 			pid := service.DynamicSelectorPID
 			if pid == 0 {
 				pid = service.ProcPID
 			}
-			if !c.config.DynamicSelector.AppMetrics().IncludesPID(pid) {
+			if !r.config.DynamicSelector.AppMetrics().IncludesPID(pid) {
 				continue
 			}
 		}
 		entry := activeRequest(active, service)
-		if !c.include(&entry) {
+		if !r.include(&entry) {
 			continue
 		}
 		result = append(result, entry)
@@ -150,15 +151,15 @@ func (c *Reader) Snapshot() ([]Request, error) {
 	return result, nil
 }
 
-func (c *Reader) initMatchers() {
-	c.appMatchers, c.initErr = filter.NewMatcherSet(
-		c.config.ApplicationFilter, nil, c.config.ExtraGroupAttributes, PromGetters())
-	if c.initErr != nil {
+func (r *Reader) initMatchers() {
+	r.appMatchers, r.initErr = filter.NewMatcherSet(
+		r.config.ApplicationFilter, nil, r.config.ExtraGroupAttributes, PromGetters())
+	if r.initErr != nil {
 		return
 	}
-	c.httpMatchers, c.initErr = filter.NewMatcherSet(
-		c.config.InstrumentationFilter[instrumentations.InstrumentationHTTP].Metrics,
-		nil, c.config.ExtraGroupAttributes, PromGetters())
+	r.httpMatchers, r.initErr = filter.NewMatcherSet(
+		r.config.InstrumentationFilter[instrumentations.InstrumentationHTTP].Metrics,
+		nil, r.config.ExtraGroupAttributes, PromGetters())
 }
 
 func expired(start uint64, now, ttl time.Duration) bool {
@@ -186,10 +187,10 @@ func activeRequest(active ebpfcommon.BpfActiveRequestT, service svc.Attrs) Reque
 	}
 }
 
-func (c *Reader) include(entry *Request) bool {
+func (r *Reader) include(entry *Request) bool {
 	policy := entry.Service.IncomingRoutePolicy
 	if policy == nil {
-		policy = c.config.GlobalRoutePolicy
+		policy = r.config.GlobalRoutePolicy
 	}
 	if policy != nil && policy.IgnoreMatcher != nil && policy.IgnoreMatcher.Find(entry.Path) != "" {
 		mode := policy.Config.IgnoredEvents
@@ -209,7 +210,7 @@ func (c *Reader) include(entry *Request) bool {
 	if entry.Route == "" && entry.Service.HarvestedRouteMatcher != nil {
 		entry.Route = entry.Service.HarvestedRouteMatcher.Find(entry.Path)
 	}
-	return c.appMatchers.Matches(entry) && c.httpMatchers.Matches(entry)
+	return r.appMatchers.Matches(entry) && r.httpMatchers.Matches(entry)
 }
 
 func countRequests(requests []Request, names []attr.Name) []Count {

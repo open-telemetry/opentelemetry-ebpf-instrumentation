@@ -267,8 +267,8 @@ discovery:
 			InstrumentCuda: config.CudaModeAuto,
 		},
 		ActiveRequestMaxAge: 5 * time.Minute,
-		NetworkFlows: nc,
-		Stats:        sc,
+		NetworkFlows:        nc,
+		Stats:               sc,
 		Metrics: perapp.GlobalMetricsConfig{
 			// after normalization, network feature is added from network > enable: true
 			Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureNetwork,

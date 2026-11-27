@@ -56,15 +56,15 @@ func newActiveRequestsCollector(
 	}
 }
 
-func (mr *metricsReporter) activeRequestsEnabled(jointMetricsConfig *perapp.GlobalMetricsConfig) bool {
-	return jointMetricsConfig.Features.HTTPServerActiveRequests() && mr.is.HTTPEnabled() &&
-		mr.ctxInfo.AppO11y.ActiveRequestsConfig != nil && mr.ctxInfo.AppO11y.EBPFEventContext != nil
+func (r *metricsReporter) activeRequestsEnabled(jointMetricsConfig *perapp.GlobalMetricsConfig) bool {
+	return jointMetricsConfig.Features.HTTPServerActiveRequests() && r.is.HTTPEnabled() &&
+		r.ctxInfo.AppO11y.ActiveRequestsConfig != nil && r.ctxInfo.AppO11y.EBPFEventContext != nil
 }
 
-func (mr *metricsReporter) setupActiveRequestsCollector(attrsProvider *attributes.AttrSelector) {
-	reader := activerequests.NewReader(mr.ctxInfo.AppO11y.EBPFEventContext, *mr.ctxInfo.AppO11y.ActiveRequestsConfig)
+func (r *metricsReporter) setupActiveRequestsCollector(attrsProvider *attributes.AttrSelector) {
+	reader := activerequests.NewReader(r.ctxInfo.AppO11y.EBPFEventContext, *r.ctxInfo.AppO11y.ActiveRequestsConfig)
 	attrs := attrsProvider.For(attributes.HTTPServerActiveRequests)
-	mr.activeRequests = newActiveRequestsCollector(reader, attrs, mr.cfg.TTL)
+	r.activeRequests = newActiveRequestsCollector(reader, attrs, r.cfg.TTL)
 }
 
 func (c *activeRequestsCollector) Describe(ch chan<- *prometheus.Desc) {
