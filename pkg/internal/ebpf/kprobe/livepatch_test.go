@@ -38,149 +38,170 @@ func useTestMonitor(t *testing.T) *probeMonitor {
 	return kernelProbes
 }
 
-func TestDuplicateAddresses(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "kallsyms")
-	require.NoError(t, os.WriteFile(path, []byte(
-		"0001 T listener\n0001 T listener\n0002 t listener\n"+
-			"0003 t listener\t[module]\n0004\t t  listener  [module]\n"+
-			"0000 t listener\t[hidden]\n0006 D listener\n0007 T listener_extra\n"+
-			"0008 t listener\t[mixed]\n0009 d listener\t[mixed]\n"), 0o600))
-	syms, err := readSymbols(path, map[string]bool{"listener": true})
-	require.NoError(t, err)
-	got, err := syms.targets("listener", nil)
-	require.NoError(t, err)
-	assert.Equal(t, map[probeTarget]bool{
-		{"", "0x1"}: true, {"", "0x2"}: true, {"module", "0x3"}: true,
-		{"module", "0x4"}: true, {"hidden", "hidden:listener"}: true, {"mixed", "0x8"}: true,
-	}, got)
-
-	require.NoError(t, os.WriteFile(path, []byte(
-		"0 T listener\n0 t listener\t[hidden]\n0 t listener\t[ambiguous]\n0 t listener\t[ambiguous]\n"), 0o600))
-	syms, err = readSymbols(path, map[string]bool{"listener": true})
-	require.NoError(t, err)
-	got, err = syms.targets("listener", nil)
-	require.ErrorContains(t, err, "hidden")
-	assert.Equal(t, map[probeTarget]bool{{"hidden", "hidden:listener"}: true}, got)
-	got, err = syms.targets("listener", map[string]bool{"hidden": true, "renamed": true})
-	require.ErrorContains(t, err, "renamed")
-	assert.Equal(t, map[probeTarget]bool{{"hidden", "hidden:listener"}: true}, got)
+func writePatchAttribute(t *testing.T, dir, name, value string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(value+"\n"), 0o600))
 }
 
-func TestDuplicateAttachRetriesPartialFailure(t *testing.T) {
+func addTestLivepatch(t *testing.T, root, module, symbol string) string {
+	t.Helper()
+	dir := filepath.Join(root, module)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "vmlinux", symbol+",1"), 0o755))
+	writePatchAttribute(t, dir, "enabled", "1")
+	writePatchAttribute(t, dir, "transition", "0")
+	return dir
+}
+
+func TestActiveLivepatch(t *testing.T) {
+	root := t.TempDir()
+	// A patch to a different kernel object can name the same function.
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "unrelated", "other_object", "listener,1"), 0o755))
+	first := addTestLivepatch(t, root, "z_first", "listener")
+	module, err := activeLivepatch(root, "listener")
+	require.NoError(t, err)
+	require.Equal(t, "z_first", module)
+
+	second := addTestLivepatch(t, root, "a_second", "listener")
+	_, err = activeLivepatch(root, "listener")
+	require.ErrorContains(t, err, "cannot order livepatches")
+	writePatchAttribute(t, first, "stack_order", "9")
+	writePatchAttribute(t, second, "stack_order", "10")
+	module, err = activeLivepatch(root, "listener")
+	require.NoError(t, err)
+	require.Equal(t, "a_second", module)
+
+	writePatchAttribute(t, second, "enabled", "0")
+	writePatchAttribute(t, second, "transition", "1")
+	_, err = activeLivepatch(root, "listener")
+	require.ErrorContains(t, err, "in transition")
+	writePatchAttribute(t, second, "transition", "0")
+	module, err = activeLivepatch(root, "listener")
+	require.NoError(t, err)
+	require.Equal(t, "z_first", module)
+}
+
+func TestReplacementHandoff(t *testing.T) {
 	restoreAttachments(t)
 	m := useTestMonitor(t)
-	// Ambiguous symbols can also belong to ordinary modules on a kernel without livepatch.
-	require.NoError(t, os.Remove(m.patchDir))
-	sym := syscallPrefix() + "sys_listen"
-	require.NoError(t, os.WriteFile(m.kallsyms, []byte("0010 T "+sym+"\n0020 t "+sym+"\t[patch]\n"), 0o600))
+	patch := addTestLivepatch(t, m.patchDir, "patch", "listener")
+	const hidden = "0 T listener\n0 t listener [patch]\n0 t listener [unrelated]\n"
+	require.NoError(t, os.WriteFile(m.kallsyms, []byte(hidden), 0o600))
 	attachPMU = func(string, *ebpf.Program, bool) (io.Closer, error) { return nil, unix.EADDRNOTAVAIL }
 	links := map[string]*countedLink{}
-	fail := true
+	fail := false
 	attachTraceFSEvent = func(_ *ebpf.Program, opts tracefs.Options) (io.Closer, error) {
 		require.True(t, opts.Return)
 		require.Len(t, opts.Targets, 1)
-		token := opts.Targets[0]
-		if token == "0x10" && fail {
+		if fail {
 			return nil, unix.EBUSY
 		}
+		token := opts.Targets[0]
 		require.NotContains(t, links, token)
 		links[token] = &countedLink{}
 		return links[token], nil
 	}
-	l, err := Attach("sys_listen", nil, true)
+
+	l, err := Attach("listener", nil, true)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, l.Close()) })
-	require.Contains(t, links, "patch:"+sym)
+	require.Len(t, links, 1)
+	previous := links["patch:listener"]
+	require.NotNil(t, previous)
+
+	// Keep the working replacement if the next attachment fails.
+	next := addTestLivepatch(t, m.patchDir, "next", "listener")
+	writePatchAttribute(t, patch, "stack_order", "1")
+	writePatchAttribute(t, next, "stack_order", "2")
+	require.NoError(t, os.WriteFile(m.kallsyms, []byte(hidden+"0 t listener [next]\n"), 0o600))
+	fail = true
+	require.NoError(t, m.scan())
+	require.Zero(t, previous.closes)
 	fail = false
 	require.NoError(t, m.scan())
+	require.Equal(t, 1, previous.closes)
+	current := links["next:listener"]
+	require.NotNil(t, current)
 	require.NoError(t, m.scan())
-	require.Contains(t, links, "0x10")
-	require.NoError(t, os.WriteFile(m.kallsyms, []byte("0010 T "+sym+"\n"), 0o600))
+	require.Zero(t, current.closes)
+
+	// Rollback can leave the disabled modules in kallsyms until they are unloaded.
+	writePatchAttribute(t, patch, "enabled", "0")
+	writePatchAttribute(t, next, "enabled", "0")
 	require.NoError(t, m.scan())
-	assert.Equal(t, 1, links["patch:"+sym].closes)
-	assert.Zero(t, links["0x10"].closes)
+	require.Equal(t, 1, current.closes)
+	require.NoError(t, os.WriteFile(m.kallsyms, []byte("0 T listener\n"), 0o600))
+	require.NoError(t, m.scan())
+	require.Empty(t, m.probes)
+	require.Contains(t, links, "listener")
 	require.NoError(t, l.Close())
 	require.NoError(t, l.Close())
 	for _, link := range links {
 		assert.Equal(t, 1, link.closes)
 	}
-	require.Empty(t, m.probes)
-
-	attachTraceFSEvent = func(*ebpf.Program, tracefs.Options) (io.Closer, error) { return nil, unix.EROFS }
-	failed, err := Attach("sys_listen", nil, true)
-	require.Nil(t, failed)
-	require.ErrorIs(t, err, unix.EADDRNOTAVAIL)
-	require.ErrorIs(t, err, unix.EROFS)
-	require.Empty(t, m.probes)
 }
 
-func TestScanSkipsMissingLivepatchDir(t *testing.T) {
-	m := useTestMonitor(t)
-	primary := &watchedProbe{symbol: "listener", primary: nopCloser{}}
-	duplicate := &watchedProbe{symbol: "other"}
-	m.probes = map[*watchedProbe]bool{primary: true, duplicate: true}
+func TestScanContinuesRetriesAfterSysfsError(t *testing.T) {
+	for _, missing := range []string{"", "patch/enabled"} {
+		t.Run(filepath.Join("livepatch", missing), func(t *testing.T) {
+			restoreAttachments(t)
+			m := useTestMonitor(t)
+			patch := addTestLivepatch(t, m.patchDir, "patch", "listener")
+			otherPatch := addTestLivepatch(t, m.patchDir, "other_patch", "other")
+			const remaining = "0 T listener\n0 t listener [patch]\n0 T other\n"
+			require.NoError(t, os.WriteFile(m.kallsyms, []byte(remaining+"0 t other [other_patch]\n"), 0o600))
 
-	// The duplicate needs kallsyms, which is also missing.
-	require.NoError(t, os.Remove(m.patchDir))
-	require.NoError(t, m.scan())
-	require.NoError(t, os.Mkdir(m.patchDir, 0o755))
-	require.ErrorIs(t, m.scan(), os.ErrNotExist)
+			attachPMU = func(string, *ebpf.Program, bool) (io.Closer, error) { return nil, unix.EADDRNOTAVAIL }
+			links := map[string]*countedLink{}
+			attachTraceFSEvent = func(_ *ebpf.Program, opts tracefs.Options) (io.Closer, error) {
+				target := opts.Targets[0]
+				require.NotContains(t, links, target)
+				links[target] = &countedLink{}
+				return links[target], nil
+			}
+			for _, symbol := range []string{"listener", "other"} {
+				probe, err := Attach(symbol, nil, false)
+				require.NoError(t, err)
+				t.Cleanup(func() { assert.NoError(t, probe.Close()) })
+			}
+
+			require.Contains(t, links, "patch:listener")
+			require.Contains(t, links, "other_patch:other")
+
+			// Rollback leaves the other probe waiting until its module unloads.
+			require.NoError(t, os.RemoveAll(otherPatch))
+			require.NoError(t, m.scan())
+			require.NotContains(t, links, "other")
+			require.Equal(t, 1, links["other_patch:other"].closes)
+
+			require.NoError(t, os.WriteFile(m.kallsyms, []byte(remaining), 0o600))
+			path := filepath.Join(m.patchDir, missing)
+			require.NoError(t, os.Rename(path, path+".away"))
+			err := m.scan()
+			require.Contains(t, links, "other")
+			require.Zero(t, links["patch:listener"].closes)
+			require.ErrorIs(t, err, os.ErrNotExist)
+			require.ErrorContains(t, err, path)
+
+			require.NoError(t, os.Rename(path+".away", path))
+			writePatchAttribute(t, patch, "enabled", "0")
+			require.NoError(t, m.scan())
+			require.Equal(t, 1, links["patch:listener"].closes)
+		})
+	}
 }
 
-func TestScanLivepatchTransitions(t *testing.T) {
+func TestHiddenAddressesRequireIdentifiableReplacement(t *testing.T) {
 	restoreAttachments(t)
 	m := useTestMonitor(t)
-	base := &countedLink{}
-	attachPMU = func(string, *ebpf.Program, bool) (io.Closer, error) { return base, nil }
-	var added []*countedLink
-	attachTraceFSEvent = func(_ *ebpf.Program, opts tracefs.Options) (io.Closer, error) {
-		require.Equal(t, []string{"patch:listener"}, opts.Targets)
-		link := &countedLink{}
-		added = append(added, link)
-		return link, nil
+	attachPMU = func(string, *ebpf.Program, bool) (io.Closer, error) { return nil, unix.EADDRNOTAVAIL }
+	attachTraceFSEvent = func(*ebpf.Program, tracefs.Options) (io.Closer, error) {
+		t.Fatal("unexpected attachment")
+		return nil, nil
 	}
-	l, err := Attach("listener", nil, false)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, l.Close()) })
-	// With no livepatch a scan must work without opening kallsyms.
-	require.NoError(t, m.scan())
-	root := filepath.Join(m.patchDir, "patch")
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "vmlinux", "listener,1"), 0o755))
-	writeState := func(attr, value string) {
-		require.NoError(t, os.WriteFile(filepath.Join(root, attr), []byte(value+"\n"), 0o600))
-	}
-	writeState("enabled", "1")
-	writeState("transition", "0")
-	require.NoError(t, os.WriteFile(m.kallsyms, []byte("0001 T listener\n0002 t listener\t[patch]\n0003 t listener\t[unrelated]\n"), 0o600))
-	writeState("vmlinux/patched", "0")
-	require.NoError(t, m.scan())
-	require.Empty(t, added)
-	writeState("vmlinux/patched", "1")
-	require.NoError(t, m.scan())
-	require.NoError(t, m.scan())
-	require.Len(t, added, 1)
-	require.NoError(t, os.Rename(m.kallsyms, m.kallsyms+".away"))
-	require.ErrorIs(t, m.scan(), os.ErrNotExist)
-	assert.Zero(t, added[0].closes)
-	require.NoError(t, os.Rename(m.kallsyms+".away", m.kallsyms))
-	enabled := filepath.Join(root, "enabled")
-	require.NoError(t, os.Remove(enabled))
-	require.NoError(t, os.Mkdir(enabled, 0o755))
-	require.NoError(t, m.scan())
-	assert.Zero(t, added[0].closes)
-	require.NoError(t, os.Remove(enabled))
-	writeState("enabled", "0")
-	writeState("transition", "1")
-	require.NoError(t, m.scan())
-	assert.Zero(t, added[0].closes)
-	writeState("transition", "0")
-	require.NoError(t, m.scan())
-	assert.Equal(t, 1, added[0].closes)
-	writeState("enabled", "1")
-	require.NoError(t, m.scan())
-	require.Len(t, added, 2)
-	require.NoError(t, l.Close())
-	require.NoError(t, m.scan())
-	assert.Equal(t, 1, added[1].closes)
-	assert.Equal(t, 1, base.closes)
+	require.NoError(t, os.WriteFile(m.kallsyms, []byte("0 T listener\n0 t listener [other]\n"), 0o600))
+	_, err := Attach("listener", nil, false)
+	require.ErrorContains(t, err, "no active livepatch")
+	addTestLivepatch(t, m.patchDir, "patch", "listener")
+	_, err = Attach("listener", nil, false)
+	require.ErrorContains(t, err, "cannot identify function")
 }

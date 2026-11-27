@@ -7,10 +7,12 @@ package kprobe // import "go.opentelemetry.io/obi/pkg/internal/ebpf/kprobe"
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,63 +39,75 @@ type watchedProbe struct {
 	symbol  string
 	ret     bool
 	program *ebpf.Program
-	primary io.Closer
-	links   map[probeTarget]io.Closer
+	target  probeTarget
+	link    io.Closer
 
 	lastError string
 	once      sync.Once
 	closeErr  error
 }
 
-func (m *probeMonitor) register(p *watchedProbe, prog *ebpf.Program) (io.Closer, error) {
-	if p.primary != nil {
-		if _, statErr := os.Stat(m.patchDir); errors.Is(statErr, os.ErrNotExist) {
-			return p.primary, nil
-		}
+func (m *probeMonitor) attachResolved(symbol string, prog *ebpf.Program, ret bool, symbols kallsyms) (io.Closer, error) {
+	target, err := symbols.target(symbol, m.patchDir)
+	if err != nil {
+		return nil, err
 	}
 
-	// Callers can close the original program concurrently with its links at shutdown.
-	var err error
-	p.program, err = prog.Clone()
-	if err != nil {
-		return nil, errors.Join(err, p.Close())
+	if target.token == "" {
+		return nil, fmt.Errorf("kernel address for %q is hidden and no active livepatch targets it", symbol)
 	}
+
+	link, err := attachTraceFS(target.token, prog, ret)
+	if err != nil || target.module == "" {
+		return link, err
+	}
+
+	// The caller can close its program while the monitor still needs to move the probe.
+	clone, err := prog.Clone()
+	if err != nil {
+		return nil, errors.Join(err, link.Close())
+	}
+	p := &watchedProbe{monitor: m, symbol: symbol, ret: ret, program: clone, target: target, link: link}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	if len(m.probes) == 0 {
 		m.probes = map[*watchedProbe]bool{}
 		m.stop = make(chan struct{})
 		go m.watch(m.stop)
 	}
 
-	p.monitor = m
 	m.probes[p] = true
 
 	return p, nil
 }
 
+func (m *probeMonitor) unwatch(p *watchedProbe) error {
+	if !m.probes[p] {
+		return nil
+	}
+
+	delete(m.probes, p)
+
+	if len(m.probes) == 0 {
+		close(m.stop)
+	}
+
+	return p.program.Close()
+}
+
 func (p *watchedProbe) Close() error {
 	p.once.Do(func() {
-		if m := p.monitor; m != nil {
-			m.mu.Lock()
-			delete(m.probes, p)
-			if len(m.probes) == 0 {
-				close(m.stop)
-			}
-			m.mu.Unlock()
-		}
+		m := p.monitor
 
-		if p.primary != nil {
-			p.closeErr = p.primary.Close()
-		}
+		m.mu.Lock()
+		defer m.mu.Unlock()
 
-		for _, link := range p.links {
-			p.closeErr = errors.Join(p.closeErr, link.Close())
-		}
+		p.closeErr = m.unwatch(p)
 
-		if p.program != nil {
-			p.closeErr = errors.Join(p.closeErr, p.program.Close())
+		if p.link != nil {
+			p.closeErr = errors.Join(p.closeErr, p.link.Close())
 		}
 	})
 
@@ -119,55 +133,59 @@ func (m *probeMonitor) watch(stop <-chan struct{}) {
 func (m *probeMonitor) scan() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var patches map[string]map[string]bool
-	for p := range m.probes {
-		if p.primary == nil {
-			continue
-		}
-
-		var err error
-		patches, err = livepatchTargets(m.patchDir)
-		if err != nil {
-			// Keep existing probe links until sysfs can be read again.
-			return nil
-		}
-		break
+	if len(m.probes) == 0 {
+		return nil
 	}
-
 	wanted := map[string]bool{}
 	for p := range m.probes {
-		prefixed := syscallPrefix() + p.symbol
-		if p.primary == nil || patches[p.symbol] != nil || patches[prefixed] != nil {
-			wanted[p.symbol], wanted[prefixed] = true, true
-		}
+		wanted[p.symbol] = true
+	}
+	symbols, err := readSymbols(m.kallsyms, wanted)
+	if err != nil {
+		return err
 	}
 
-	var symbols kallsyms
-	if len(wanted) > 0 {
-		var err error
-		symbols, err = readSymbols(m.kallsyms, wanted)
+	var discoveryErr error
+	for p := range m.probes {
+		target, err := symbols.target(p.symbol, m.patchDir)
+		if err != nil {
+			p.report(err)
+			discoveryErr = errors.Join(discoveryErr, err)
+			continue
+		}
+		p.report(p.update(target))
+	}
+	return discoveryErr
+}
+
+func (p *watchedProbe) update(target probeTarget) error {
+	if target == p.target {
+		return nil
+	}
+
+	var (
+		next io.Closer
+		err  error
+	)
+	if target.token != "" {
+		next, err = attachTraceFS(target.token, p.program, p.ret)
 		if err != nil {
 			return err
 		}
+	} else {
+		slog.Warn("waiting for original kprobe after livepatch rollback", "symbol", p.symbol, "return", p.ret)
 	}
 
-	for p := range m.probes {
-		symbol := symbols.resolveName(p.symbol)
-		var modules map[string]bool
-
-		if p.primary != nil {
-			modules = patches[symbol]
-			if len(modules) == 0 {
-				p.report(p.update(p.program, nil, nil))
-				continue
-			}
-		}
-
-		targets, lookupErr := symbols.targets(symbol, modules)
-		p.report(p.update(p.program, targets, lookupErr))
+	if p.link != nil {
+		err = p.link.Close()
 	}
 
-	return nil
+	p.target, p.link = target, next
+	if next != nil && target.module == "" {
+		err = errors.Join(err, p.monitor.unwatch(p))
+	}
+
+	return err
 }
 
 func (p *watchedProbe) report(err error) {
@@ -177,79 +195,83 @@ func (p *watchedProbe) report(err error) {
 	}
 
 	if msg := err.Error(); msg != p.lastError {
-		slog.Warn("incomplete kprobe coverage", "symbol", p.symbol, "return", p.ret, "error", err)
+		slog.Warn("updating livepatch kprobe", "symbol", p.symbol, "return", p.ret, "error", err)
 		p.lastError = msg
 	}
 }
 
-// The ABI lists original functions as <patch>/<object>/<symbol>,<position>.
-// During a transition both implementations can execute.
-func livepatchTargets(root string) (map[string]map[string]bool, error) {
+func activeLivepatch(root, symbol string) (string, error) {
 	patches, err := os.ReadDir(root)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	result := map[string]map[string]bool{}
+	var active []string
 	for _, patch := range patches {
 		if !patch.IsDir() {
 			continue
 		}
 
 		dir := filepath.Join(root, patch.Name())
-		enabled, err := os.ReadFile(filepath.Join(dir, "enabled"))
+
+		// A unique vmlinux symbol is the first occurrence in the livepatch ABI.
+		_, err := os.Stat(filepath.Join(dir, "vmlinux", symbol+",1"))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 
-		if strings.TrimSpace(string(enabled)) == "0" {
-			transition, err := os.ReadFile(filepath.Join(dir, "transition"))
-			if err != nil {
-				return nil, err
-			}
-			if strings.TrimSpace(string(transition)) == "0" {
-				continue
-			}
-		}
-
-		objects, err := os.ReadDir(dir)
+		transition, err := patchAttribute(dir, "transition")
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 
-		for _, object := range objects {
-			if !object.IsDir() {
-				continue
-			}
+		if transition != 0 {
+			return "", fmt.Errorf("livepatch %s is in transition", patch.Name())
+		}
 
-			objDir := filepath.Join(dir, object.Name())
-			// Since Linux 6.1, unloaded kernel objects are explicitly marked unpatched.
-			patched, err := os.ReadFile(filepath.Join(objDir, "patched"))
-			if err != nil && !errors.Is(err, os.ErrNotExist) {
-				return nil, err
-			}
+		enabled, err := patchAttribute(dir, "enabled")
+		if err != nil {
+			return "", err
+		}
 
-			if strings.TrimSpace(string(patched)) == "0" {
-				continue
-			}
-
-			functions, err := os.ReadDir(objDir)
-			if err != nil {
-				return nil, err
-			}
-
-			for _, function := range functions {
-				symbol, _, ok := strings.Cut(function.Name(), ",")
-				if !function.IsDir() || !ok {
-					continue
-				}
-				if result[symbol] == nil {
-					result[symbol] = map[string]bool{}
-				}
-				result[symbol][patch.Name()] = true
-			}
+		if enabled == 1 {
+			active = append(active, patch.Name())
 		}
 	}
 
-	return result, nil
+	switch len(active) {
+	case 0:
+		return "", nil
+	case 1:
+		return active[0], nil
+	}
+
+	// Linux 6.14 added stack_order. Older kernels cannot identify the top of a stack.
+	var latest string
+	var highest int
+	for _, module := range active {
+		order, err := patchAttribute(filepath.Join(root, module), "stack_order")
+		if err != nil {
+			return "", fmt.Errorf("cannot order livepatches for %q: %w", symbol, err)
+		}
+
+		if order > highest {
+			latest, highest = module, order
+		}
+	}
+
+	return latest, nil
+}
+
+func patchAttribute(dir, name string) (int, error) {
+	b, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		return 0, err
+	}
+
+	return strconv.Atoi(strings.TrimSpace(string(b)))
 }

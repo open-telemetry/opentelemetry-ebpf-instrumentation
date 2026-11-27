@@ -37,21 +37,30 @@ func TestAL2023Livepatch(t *testing.T) {
 	originalMonitor := kernelProbes
 	kernelProbes = &probeMonitor{patchDir: originalMonitor.patchDir, kallsyms: originalMonitor.kallsyms, interval: 100 * time.Millisecond}
 	t.Cleanup(func() { kernelProbes = originalMonitor })
-	attach := func(prog *ebpf.Program, ret bool) io.Closer {
+	attach := func(t *testing.T, prog *ebpf.Program, ret bool) io.Closer {
+		t.Helper()
 		l, err := Attach(symbol, prog, ret)
 		require.NoError(t, err)
 		t.Cleanup(func() { assert.NoError(t, l.Close()) })
 		return l
 	}
-
-	earlyHits, earlyProg := newFunctionIPCounter(t)
-	attach(earlyProg, false)
-	closeListeners(t)
-	original := functionHits(t, earlyHits)
-	require.Len(t, original, 1)
-	for _, hits := range original {
-		require.EqualValues(t, 2, hits)
+	attachWithPMUDenied := func(t *testing.T, prog *ebpf.Program, ret bool) {
+		t.Helper()
+		pmu := attachPMU
+		defer func() { attachPMU = pmu }()
+		attachPMU = func(string, *ebpf.Program, bool) (io.Closer, error) { return nil, unix.EACCES }
+		attach(t, prog, ret)
 	}
+
+	symbols, err := readSymbols(kernelProbes.kallsyms, map[string]bool{symbol: true})
+	require.NoError(t, err)
+	base := symbols[symbol][""].functions
+	require.Len(t, base, 1)
+	earlyHits, earlyProg := newFunctionIPCounter(t)
+	attach(t, earlyProg, false)
+	namedHits, namedProg := newFunctionIPCounter(t)
+	attachWithPMUDenied(t, namedProg, true)
+	requireListenerHits(t, base[0], earlyHits, namedHits)
 
 	module, err := os.Open("/livepatch-inet-reject.ko")
 	require.NoError(t, err)
@@ -64,11 +73,9 @@ func TestAL2023Livepatch(t *testing.T) {
 	enabled, err := os.ReadFile(patch + "/enabled")
 	require.NoError(t, err)
 	require.Equal(t, "1\n", string(enabled))
-	symbols, err := readSymbols(kernelProbes.kallsyms, map[string]bool{symbol: true})
+	symbols, err = readSymbols(kernelProbes.kallsyms, map[string]bool{symbol: true})
 	require.NoError(t, err)
-	base := symbols[symbol][""].functions
 	replacement := symbols[symbol]["livepatch_inet_reject"].functions
-	require.Len(t, base, 1)
 	require.Len(t, replacement, 1)
 	require.NotEqual(t, base[0], replacement[0])
 
@@ -78,16 +85,11 @@ func TestAL2023Livepatch(t *testing.T) {
 		require.NoError(t, bare.Close())
 	}
 	require.ErrorIs(t, err, unix.EADDRNOTAVAIL)
-	late := attach(lateProg, false)
+	late := attach(t, lateProg, false)
 	retHits, retProg := newFunctionIPCounter(t)
-	attach(retProg, true)
-	closeListeners(t)
-	lateCounts := functionHits(t, lateHits)
-	want := map[uint64]uint64{base[0]: 2, replacement[0]: 2}
-	require.Equal(t, want, lateCounts, "entry probes on vmlinux and the signed replacement")
-	require.Equal(t, want, functionHits(t, retHits), "return probes on both functions")
-	waitForBothFunctions(t, earlyHits, base[0], replacement[0])
-	t.Logf("IPv4 and IPv6 closes each hit entry and return probes at vmlinux %#x and livepatch_inet_reject %#x", base[0], replacement[0])
+	attach(t, retProg, true)
+	require.NoError(t, kernelProbes.scan())
+	requireListenerHits(t, base[0], earlyHits, namedHits, lateHits, retHits)
 
 	for _, ret := range []bool{false, true} {
 		t.Run(fmt.Sprintf("PMU denied/return=%t", ret), func(t *testing.T) {
@@ -100,15 +102,8 @@ func TestAL2023Livepatch(t *testing.T) {
 			}
 			require.ErrorIs(t, err, unix.EINVAL, "tracefs rejects the ambiguous name")
 
-			pmu := attachPMU
-			t.Cleanup(func() { attachPMU = pmu })
-			attachPMU = func(string, *ebpf.Program, bool) (io.Closer, error) { return nil, unix.EACCES }
-
-			probe, err := Attach(symbol, prog, ret)
-			require.NoError(t, err)
-			t.Cleanup(func() { assert.NoError(t, probe.Close()) })
-			closeListeners(t)
-			require.Equal(t, want, functionHits(t, hits))
+			attachWithPMUDenied(t, prog, ret)
+			requireListenerHits(t, base[0], hits)
 		})
 	}
 
@@ -117,32 +112,33 @@ func TestAL2023Livepatch(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, os.WriteFile(restrict, initial, 0)) })
 	require.NoError(t, os.WriteFile(restrict, []byte("2"), 0))
-	partialHits, partialProg := newFunctionIPCounter(t)
-	partial := attach(partialProg, false)
-	closeListeners(t)
-	require.Equal(t, map[uint64]uint64{replacement[0]: 2}, functionHits(t, partialHits))
+	fallbackHits, fallbackProg := newFunctionIPCounter(t)
+	attach(t, fallbackProg, false)
+	requireListenerHits(t, replacement[0], fallbackHits)
 	require.NoError(t, os.WriteFile(restrict, initial, 0))
-	waitForBothFunctions(t, partialHits, base[0], replacement[0])
-	require.NoError(t, partial.Close())
+	require.NoError(t, kernelProbes.scan())
+	requireListenerHits(t, base[0], fallbackHits)
 
+	require.NoError(t, os.WriteFile(restrict, []byte("2"), 0))
+	rollbackHits, rollbackProg := newFunctionIPCounter(t)
+	attach(t, rollbackProg, false)
+	requireListenerHits(t, replacement[0], rollbackHits)
 	require.NoError(t, os.WriteFile(patch+"/enabled", []byte("0"), 0))
 	require.Eventually(t, func() bool {
 		_, e := os.Stat(patch)
 		return os.IsNotExist(e)
 	}, 15*time.Second, 50*time.Millisecond)
-	before := functionHits(t, lateHits)
-	closeListeners(t)
-	after := functionHits(t, lateHits)
-	for ip, count := range before {
-		if _, base := original[ip]; base {
-			require.Equal(t, count+2, after[ip], "original still covers both listener closes")
-		} else {
-			require.Equal(t, count, after[ip], "disabled replacement is no longer called")
-		}
-	}
+	require.NoError(t, kernelProbes.scan())
+	beforeUnload := functionHits(t, rollbackHits)
+	requireListenerHits(t, base[0], earlyHits, namedHits, lateHits, retHits, fallbackHits)
+	require.Equal(t, beforeUnload, functionHits(t, rollbackHits))
+	require.NoError(t, unix.DeleteModule("livepatch_inet_reject", unix.O_NONBLOCK))
+	require.NoError(t, kernelProbes.scan())
+	requireListenerHits(t, base[0], rollbackHits)
 	require.NoError(t, late.Close())
-	closeListeners(t)
-	assert.Equal(t, after, functionHits(t, lateHits), "closing the registration detaches every target")
+	before := functionHits(t, lateHits)
+	closeListener(t, unix.AF_INET)
+	assert.Equal(t, before, functionHits(t, lateHits), "a closed probe must no longer run")
 }
 
 // Count hits per function entry, so attaching twice at a single address cannot pass.
@@ -196,27 +192,22 @@ func functionHits(t *testing.T, m *ebpf.Map) map[uint64]uint64 {
 	return out
 }
 
-func waitForBothFunctions(t *testing.T, hits *ebpf.Map, original, replacement uint64) {
+func requireListenerHits(t *testing.T, ip uint64, counters ...*ebpf.Map) {
 	t.Helper()
-	// Generate listener closes on the OS thread the BPF program is filtering.
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
-		closeListeners(t)
-		counts := functionHits(t, hits)
-		if counts[original] > 0 && counts[replacement] > 0 {
-			require.Len(t, counts, 2)
-			return
+	for _, hits := range counters {
+		want := functionHits(t, hits)
+		for _, family := range []int{unix.AF_INET, unix.AF_INET6} {
+			closeListener(t, family)
+			want[ip]++
+			require.Equal(t, want, functionHits(t, hits), "one callback per listener close, family %d", family)
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("expected hits at %#x and %#x, got %v", original, replacement, functionHits(t, hits))
 }
 
-func closeListeners(t *testing.T) {
+func closeListener(t *testing.T, family int) {
 	t.Helper()
-	for _, family := range []int{unix.AF_INET, unix.AF_INET6} {
-		fd, err := unix.Socket(family, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, unix.IPPROTO_TCP)
-		require.NoError(t, err)
-		require.NoError(t, unix.Listen(fd, 1))
-		require.NoError(t, unix.Close(fd))
-	}
+	fd, err := unix.Socket(family, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, unix.IPPROTO_TCP)
+	require.NoError(t, err)
+	require.NoError(t, unix.Listen(fd, 1))
+	require.NoError(t, unix.Close(fd))
 }

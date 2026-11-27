@@ -34,7 +34,6 @@ func restoreAttachments(t *testing.T) {
 
 func TestAttach(t *testing.T) {
 	m := useTestMonitor(t)
-	require.NoError(t, os.Remove(m.patchDir))
 	for _, ret := range []bool{false, true} {
 		for _, tc := range []struct {
 			name             string
@@ -74,6 +73,7 @@ func TestAttach(t *testing.T) {
 				}
 
 				got, err := Attach("tcp_sendmsg", prog, ret)
+				assert.Empty(t, m.probes)
 				assert.Equal(t, 1, pmuCalls)
 				if tc.fallback {
 					assert.Equal(t, 1, traceCalls)
@@ -128,7 +128,8 @@ func TestAttachResolvesAmbiguousTraceFSName(t *testing.T) {
 			probe, err := Attach("listener", nil, false)
 			require.NoError(t, err)
 			t.Cleanup(func() { assert.NoError(t, probe.Close()) })
-			assert.ElementsMatch(t, []string{"0x10", "patch:" + tc.name}, attached)
+			assert.Equal(t, []string{"0x10"}, attached)
+			assert.Empty(t, m.probes)
 		})
 	}
 }

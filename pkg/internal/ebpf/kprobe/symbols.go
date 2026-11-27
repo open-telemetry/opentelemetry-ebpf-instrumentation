@@ -8,10 +8,8 @@ package kprobe // import "go.opentelemetry.io/obi/pkg/internal/ebpf/kprobe"
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"strconv"
 )
 
@@ -106,46 +104,31 @@ func (symbols kallsyms) ambiguousFunction(name string) bool {
 	return false
 }
 
-func (symbols kallsyms) targets(symbol string, modules map[string]bool) (map[probeTarget]bool, error) {
+func (symbols kallsyms) target(symbol, patchDir string) (probeTarget, error) {
 	owners := symbols[symbol]
-	targets := map[probeTarget]bool{}
-	var err error
-
-	for module, locations := range owners {
-		if len(locations.functions) == 0 || (modules != nil && !modules[module]) {
-			continue
-		}
-
-		if module != "" && locations.count == 1 {
-			// Qualified names follow the module across unload/reload and also work with kptr_restrict.
-			targets[probeTarget{module, module + ":" + symbol}] = true
-			continue
-		}
-
-		for _, addr := range locations.functions {
-			switch {
-			case addr != 0:
-				targets[probeTarget{module, fmt.Sprintf("0x%x", addr)}] = true
-			case len(owners) == 1 && locations.count == 1:
-				targets[probeTarget{module, symbol}] = true
-			default:
-				err = fmt.Errorf("cannot disambiguate %s: kernel symbol addresses are hidden", symbol)
-			}
-		}
+	base := owners[""]
+	if len(base.functions) != 1 {
+		return probeTarget{}, fmt.Errorf("cannot identify a single vmlinux function for %q", symbol)
+	}
+	// The original entry can fire before livepatch redirects the call to its replacement.
+	if addr := base.functions[0]; addr != 0 {
+		return probeTarget{token: fmt.Sprintf("0x%x", addr)}, nil
+	}
+	if base.count != 1 {
+		return probeTarget{}, fmt.Errorf("cannot disambiguate %q in vmlinux with hidden addresses", symbol)
+	}
+	if len(owners) == 1 {
+		return probeTarget{token: symbol}, nil
 	}
 
-	// The livepatch ABI names the original function. A replacement may have a different name.
-	var missing []string
-	for module := range modules {
-		if len(owners[module].functions) == 0 {
-			missing = append(missing, module)
-		}
+	module, err := activeLivepatch(patchDir, symbol)
+	if err != nil || module == "" {
+		return probeTarget{}, err
 	}
-
-	if len(missing) > 0 {
-		slices.Sort(missing)
-		err = errors.Join(err, fmt.Errorf("no symbol %q in livepatch modules %v", symbol, missing))
+	// Sysfs names the original function. Use a qualified name only if the patch defines that symbol.
+	replacement := owners[module]
+	if replacement.count != 1 || len(replacement.functions) != 1 {
+		return probeTarget{}, fmt.Errorf("cannot identify function %q in livepatch %s", symbol, module)
 	}
-
-	return targets, err
+	return probeTarget{module: module, token: module + ":" + symbol}, nil
 }
