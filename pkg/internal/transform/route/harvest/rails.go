@@ -217,7 +217,7 @@ func readRailsAPIOnly(ctx context.Context, path string) (bool, error) {
 			}
 			continue
 		}
-		if match := railsAPIOnly.FindStringSubmatch(stripRailsComment(line)); match != nil {
+		if match := railsAPIOnly.FindStringSubmatch(stripHashComment(line)); match != nil {
 			apiOnly = match[1] == "true"
 		}
 	}
@@ -261,7 +261,7 @@ func (s railsRouteScanner) scanRoutes(ctx context.Context, reader io.Reader) ([]
 			continue
 		}
 		// Strip comments outside string literals, leaving controller#action intact.
-		line = stripRailsComment(line)
+		line = stripHashComment(line)
 		if line == "" {
 			continue
 		}
@@ -452,7 +452,7 @@ func validRailsParam(param string) bool {
 	return true
 }
 
-func stripRailsComment(line string) string {
+func stripHashComment(line string) string {
 	var quote rune
 	escaped := false
 	for pos, char := range line {

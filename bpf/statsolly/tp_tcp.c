@@ -12,9 +12,11 @@
 
 #include <logger/bpf_dbg.h>
 
+#include <statsolly/abort_on_data.h>
 #include <statsolly/failed_conn_port.h>
 #include <statsolly/handshake_role.h>
 #include <statsolly/types.h>
+#include <statsolly/maps/closing_seg_rst.h>
 #include <statsolly/maps/stats_events.h>
 #include <statsolly/maps/sock_role.h>
 
@@ -312,7 +314,21 @@ int obi_stats_raw_tp_tcp_receive_reset(struct bpf_raw_tracepoint_args *ctx) {
         return 0;
     }
 
+    // data after a read shutdown: the kernel aborts the socket itself and only sends a reset
+    const u8 *seg_rst = bpf_map_lookup_elem(&closing_seg_rst, &sk);
+    if (received_reset_is_local_abort(state, seg_rst)) {
+        return 0;
+    }
+
     submit_tcp_reset(sk, state, direction_receive, reset_cause_unknown);
 
+    return 0;
+}
+
+// sockets closed without a reset leave their entry, and a new socket can reuse the address
+SEC("raw_tracepoint/tcp_destroy_sock")
+int obi_stats_raw_tp_tcp_destroy_sock_seg_rst(struct bpf_raw_tracepoint_args *ctx) {
+    struct sock *sk = (struct sock *)ctx->args[0];
+    bpf_map_delete_elem(&closing_seg_rst, &sk);
     return 0;
 }

@@ -168,6 +168,8 @@ Comments must be minimal:
 - Do not add comments that restate the code.
 - Prefer clearer code over explanatory comments.
 - Add comments only when they provide necessary context, explain non-obvious behavior, or document verifier, kernel, or ABI constraints.
+- Do not write a doc comment for every function, type, or constant. Unexported identifiers need none unless the comment carries information the name and signature do not, such as a non-obvious contract, a reason, or a constraint. The Go convention of documenting every identifier applies to exported API only.
+- A comment must add information beyond the identifier name and signature. The conventional Go doc prefix (`// Name returns …`) is fine when the rest says something non-obvious. Bad: `// skipDigits reports whether it skipped at least one digit.` Good: no comment, or one that states why.
 
 ## Go Guidelines
 
@@ -187,6 +189,7 @@ Comments must be minimal:
 - Buffers and raw memory chunks must use `unsigned char *`, not `u8 *`.
 - Initialize variables as locally as possible and keep their lifetime narrow.
 - Maps that are not explicitly pinned for external use must default to `OBI_PIN_INTERNAL` (defined in `bpf/common/pin_internal.h`).
+- Dependencies between eBPF C sources flow from tracers to common code, never the other way. Tracer-specific directories (`generictracer`, `gotracer`, `tpinjector`, …) may include from `bpf/common/`, `bpf/logger/`, `bpf/maps/`, `bpf/pid/`, and `bpf/shared/`; those shared directories must not include from a tracer-specific directory. Every map a header defines is emitted into each ELF that includes it, so a common header that pulls in a tracer's header adds that tracer's maps to unrelated tracers. If common code needs something that lives in a tracer, move the shared piece into common instead. Enforced by `make lint-bpf-includes` (`scripts/lint-bpf-includes.sh`).
 - Use `SCRATCH_MEM`, `SCRATCH_MEM_TYPED`, and `SCRATCH_MEM_SIZED` for scratch memory patterns instead of introducing ad hoc temporary buffers (defined in `bpf/common/scratch_mem.h`).
 - For tail calls, prefer `bpf_tail_call_static(...)`. Define tail call program arrays in the eBPF C code unless there is a clear reason not to.
 - Use `bpf_probe_read_kernel` for kernel memory, `bpf_probe_read_user` for user memory, and default to `bpf_probe_read` only when writing genuinely generic code that must handle both cases.
@@ -194,3 +197,19 @@ Comments must be minimal:
 - Respect verifier limitations and kernel compatibility.
 - Avoid patterns that increase verifier complexity or risk rejection.
 - Keep programs simple and predictable.
+
+## BPF debug logging
+
+Unless the task specifies otherwise, add or refine debug logs in the BPF path
+being changed only when they help diagnose a failure or explain an unusual
+outcome. Preserve existing prints unless the task calls for changing them.
+
+- Check callers, filtering, and how often the condition can occur. Log after
+  the relevant PID, connection, or request checks. Keep routine successes,
+  expected misses, and repeated failures on hot paths quiet.
+- Include the operation and available context, such as the helper error,
+  correlation ID, size, or offset. Reuse values already available and keep
+  application payloads out of new logs.
+- Follow [BPF print format](devdocs/bpf-print-format.md) and use the existing
+  debug macros. Keep messages within the 80-byte record, including the function
+  suffix and NUL, and use at most three format arguments.

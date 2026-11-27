@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <generictracer/exception_response.h>
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_core_read.h>
@@ -13,6 +14,7 @@
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/event_defs.h>
+#include <common/go_goroutine.h>
 #include <common/http_types.h>
 #include <common/http_trace_parent.h>
 #include <common/large_buffers.h>
@@ -42,6 +44,7 @@
 
 #include <maps/active_ssl_connections.h>
 #include <maps/connection_tracker.h>
+#include <maps/go_trace_map.h>
 #include <maps/ongoing_http.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tp_char_buf_mem.h>
@@ -385,6 +388,7 @@ static __always_inline void process_http_response(http_info_t *info, const unsig
     }
 
     info->status = status;
+    exception_on_server_response(info);
 }
 
 static __always_inline void handle_http_response(unsigned char *small_buf,
@@ -588,8 +592,12 @@ int GUARDED_PROG(obi_continue_protocol_http_tp_commit, struct pt_regs *, ctx) {
 
     commit_http_tp(args, meta, tp_p);
 
-    preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue2_protocol_http);
-    return 0;
+    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
+    if (!info) {
+        return 0;
+    }
+
+    return __obi_continue2_protocol_http(ctx, args, info, meta);
 }
 
 // Returns true for a client's own traceparent: the library chose the client
@@ -627,6 +635,17 @@ static __always_inline tp_info_pid_t *http1_server_aux_trace(const call_protocol
     tp_info_pid_t *aux = bpf_map_lookup_elem(&server_traces_aux, &part);
     if (aux && same_http1_span(aux->tp.trace_id, aux->tp.span_id, &info->tp)) {
         return aux;
+    }
+
+    return NULL;
+}
+
+// The Tokio task reading the request stored its provisional trace. Hyper dispatches
+// the handler only after the headers, so no spawned task has copied it yet.
+static __always_inline tp_info_pid_t *http1_server_rust_trace(const http_info_t *info) {
+    tp_info_pid_t *context = rust_current_context(bpf_get_current_pid_tgid());
+    if (context && same_http1_span(context->tp.trace_id, context->tp.span_id, &info->tp)) {
+        return context;
     }
 
     return NULL;
@@ -697,8 +716,8 @@ static __always_inline void set_http1_connection_trace(const call_protocol_args_
     set_trace_info_for_connection(&args->pid_conn.conn, trace_type, &trace);
 }
 
-// The server's thread, aux and goroutine traces, and its index entry, still
-// carry the trace the request started with.
+// The server's thread, aux, goroutine and Rust task traces, and its index entry,
+// still carry the trace the request started with.
 static __always_inline void inherit_http1_server_traceparent(const call_protocol_args_t *args,
                                                              http_info_t *info,
                                                              unsigned char *header) {
@@ -706,6 +725,7 @@ static __always_inline void inherit_http1_server_traceparent(const call_protocol
     tp_info_pid_t *owner = http_server_thread_trace(info, &owner_key);
     tp_info_pid_t *aux = http1_server_aux_trace(args, info);
     tp_info_t *goroutine_tp = http1_server_goroutine_trace(args, info);
+    tp_info_pid_t *rust_task = http1_server_rust_trace(info);
     unsigned char previous_trace_id[TRACE_ID_SIZE_BYTES];
     __builtin_memcpy(previous_trace_id, info->tp.trace_id, sizeof(previous_trace_id));
 
@@ -725,6 +745,10 @@ static __always_inline void inherit_http1_server_traceparent(const call_protocol
 
     if (goroutine_tp) {
         *goroutine_tp = info->tp;
+    }
+
+    if (rust_task) {
+        rust_task->tp = info->tp;
     }
 
     if (http_server_index_enabled()) {
@@ -1144,14 +1168,10 @@ int GUARDED_PROG(obi_continue_protocol_http, struct pt_regs *, ctx) {
         return 0;
     }
 
-    if (args->use_bpf_loop) {
-        return __obi_continue_protocol_http(ctx, args, info, true);
-    }
-
-    return __obi_continue_protocol_http(ctx, args, info, false);
+    return __obi_continue_protocol_http(ctx, args, info, true);
 }
 
-static __always_inline int __obi_protocol_http(struct pt_regs *ctx, bool use_bpf_loop) {
+static __always_inline int __obi_protocol_http(struct pt_regs *ctx) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
@@ -1197,7 +1217,6 @@ static __always_inline int __obi_protocol_http(struct pt_regs *ctx, bool use_bpf
     if (args->packet_type == PACKET_TYPE_REQUEST && (info->status == 0) &&
         (info->start_monotime_ns == 0)) {
 
-        args->use_bpf_loop = use_bpf_loop;
         preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue_protocol_http);
 
         return 0;
@@ -1242,13 +1261,7 @@ static __always_inline int __obi_protocol_http(struct pt_regs *ctx, bool use_bpf
 // k_tail_protocol_http
 SEC("kprobe/http")
 int GUARDED_PROG(obi_protocol_http, struct pt_regs *, ctx) {
-    return __obi_protocol_http(ctx, true);
-}
-
-// k_tail_protocol_http
-SEC("kprobe/http")
-int GUARDED_PROG(obi_protocol_http_legacy, struct pt_regs *, ctx) {
-    return __obi_protocol_http(ctx, false);
+    return __obi_protocol_http(ctx);
 }
 
 // k_tail_large_buf_emit_continue

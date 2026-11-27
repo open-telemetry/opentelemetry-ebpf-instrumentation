@@ -14,6 +14,7 @@ OBI can enrich JSON and plain-text log lines with trace and span fields, linking
   - [Java — `k_ioctl_java_threads` in the ioctl kprobe](#java--k_ioctl_java_threads-in-the-ioctl-kprobe)
   - [Ruby (Puma) — `rb_ary_shift` uprobe](#ruby-puma--rb_ary_shift-uprobe)
   - [Python (asyncio) — `task_step` / `context_run` uprobes](#python-asyncio--task_step--context_run-uprobes)
+  - [Rust (Tokio) task polls](#rust-tokio-task-polls)
 - [Per-runtime stdout buffering](#per-runtime-stdout-buffering)
   - [.NET specifics](#net-specifics)
 - [Filtering the suppressed placeholder lines](#filtering-the-suppressed-placeholder-lines)
@@ -172,6 +173,14 @@ Together these probes keep `traces_ctx_v1[pid_tgid]` aligned with whichever asyn
 
 This works for plain `asyncio` and uvloop (the probe targets are CPython's `_asyncio` module and `libpython3.so` — both loops drive the same task machinery). Greenlet/gevent are out of scope: their context switches happen entirely inside the greenlet C extension and don't touch any of the probed symbols.
 
+### Rust (Tokio) task polls
+
+When a worker begins polling a tracked Tokio task, OBI publishes the task’s
+saved trace and span IDs in `traces_ctx_v1` for that worker thread. If the task
+has no saved context, OBI clears the entry. When a poll returns, OBI restores
+the enclosing task’s context for a nested poll or clears the entry when the
+worker leaves the outermost poll.
+
 ## Per-runtime stdout buffering
 
 The logenricher reads `traces_ctx_v1[pid_tgid]` at the moment the `write()` syscall fires. If the runtime buffers stdout and flushes asynchronously — on a different thread or after the request handler returns — the trace context for that TID will already be gone, and the log line will not be enriched.
@@ -185,6 +194,7 @@ Each runtime behaves differently:
 | Java | `System.out.println()` flushes immediately (PrintStream `autoFlush=true` by default) | Yes — on platform threads (see below for virtual threads) |
 | Ruby | `puts` / `STDOUT.syswrite` — both issue `write()`/`writev()` synchronously on the request thread | Yes |
 | Python | stdout is block-buffered when not a TTY (Docker) | **No** — set `PYTHONUNBUFFERED=1` |
+| Rust (Tokio) | `std::io::stdout()` is line-buffered on a terminal | Yes when the write reaches stdout during a tracked poll with an active context |
 | .NET | `Console.Out` (StreamWriter) is block-buffered when stdout is a pipe | **No** — see below |
 
 ### Java virtual threads

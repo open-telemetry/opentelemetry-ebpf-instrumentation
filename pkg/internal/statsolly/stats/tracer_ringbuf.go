@@ -165,6 +165,7 @@ func readTCPIoIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 		Type: ebpf.StatTypeTCPIo,
 		TCPIo: &ebpf.TCPIo{
 			Direction: event.Direction,
+			Role:      event.Role,
 			Bytes:     total,
 		},
 		CommonAttrs: connToCommonAttrs(event.Conn),

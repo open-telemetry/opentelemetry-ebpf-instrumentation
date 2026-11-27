@@ -18,5 +18,6 @@ struct {
     __type(key, log_pipe_key_t);
     __type(value, u8);
     __uint(max_entries, 1 << 13);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
     __uint(pinning, OBI_PIN_INTERNAL);
 } log_pipes SEC(".maps");

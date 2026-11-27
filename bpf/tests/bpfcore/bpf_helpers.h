@@ -15,7 +15,7 @@
 #define NULL ((void *)0)
 #endif
 
-#define __uint(name, val) int (*name)[val]
+#define __uint(name, val) int(*name)[val]
 #define __type(name, val) typeof(val) *name
 #define __array(name, val) typeof(val) *name[]
 
@@ -36,12 +36,17 @@ static void *(*bpf_map_lookup_elem_hook)(void *map, const void *key);
 static inline void *bpf_map_lookup_elem(void *map, const void *key) {
     return bpf_map_lookup_elem_hook ? bpf_map_lookup_elem_hook(map, key) : NULL;
 }
+static long (*bpf_map_update_elem_hook)(void *map,
+                                        const void *key,
+                                        const void *val,
+                                        unsigned long long flags);
 static inline long
 bpf_map_update_elem(void *map, const void *key, const void *val, unsigned long long flags) {
-    return 0;
+    return bpf_map_update_elem_hook ? bpf_map_update_elem_hook(map, key, val, flags) : 0;
 }
+static long (*bpf_map_delete_elem_hook)(void *map, const void *key);
 static inline long bpf_map_delete_elem(void *map, const void *key) {
-    return 0;
+    return bpf_map_delete_elem_hook ? bpf_map_delete_elem_hook(map, key) : 0;
 }
 static inline long bpf_probe_read(void *dst, unsigned int size, const void *src) {
     return 0;
@@ -62,6 +67,8 @@ bpf_ringbuf_output(void *rb, void *data, unsigned long long sz, unsigned long lo
 }
 static inline void *bpf_ringbuf_reserve(void *rb, unsigned long long sz, unsigned long long flags) {
     return NULL;
+}
+static inline void bpf_ringbuf_discard(void *data, unsigned long long flags) {
 }
 static inline void bpf_ringbuf_submit(void *data, unsigned long long flags) {
 }

@@ -103,6 +103,26 @@ A patch version bump is allowed only for backward-compatible fixes that do not r
 - documentation-only changes
 - dependency updates that do not create observable incompatibility in stable surfaces
 
+### Correctness fixes
+
+A correctness fix can change observable behavior, including for an unchanged
+configuration, and remain patch-compatible when it corrects behavior outside
+the documented stable contract while preserving all applicable guarantees. For
+example, correcting span parentage can qualify when prior parent relationships
+are unspecified by the stable contract and the fix brings emitted spans into
+line with their documented semantics ([TELEMETRY.md](./TELEMETRY.md#compatibility-caveats)).
+
+Stable configuration defaults have a separate rule: changing a default so an
+unchanged, valid configuration behaves materially differently requires a major
+release. A compatible fix can add a rollback setting while preserving existing
+configuration defaults.
+
+An opt-out can mitigate an unexpected effect -
+the applicable contract determines compatibility.
+A compatible fix may offer its opt-out in Config v2 only.
+Config v1 remains frozen, with its applicable guarantees intact;
+deprecation likewise preserves applicable guarantees.
+
 ### Surface-specific rules after v1
 
 #### Go module API

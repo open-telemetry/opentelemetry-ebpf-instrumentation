@@ -18,7 +18,6 @@
 #include <bpfcore/utils.h>
 
 #include <common/common.h>
-#include <common/exception_emit.h>
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
@@ -306,7 +305,8 @@ go_runtime_collect_heap_stats_totals(const go_runtime_metric_target_t *target,
 
     if (small_alloc_count_pos % sizeof(u64) || small_free_count_pos % sizeof(u64) ||
         small_free_count_pos <= small_alloc_count_pos) {
-        bpf_dbg_printk("invalid Go runtime size-class layout pid=%d ns=%d", pid->user_pid, pid->ns);
+        bpf_dbg_printk(
+            "invalid Go runtime size-class layout pid=%d, ns=%d", pid->user_pid, pid->ns);
         return;
     }
 
@@ -317,7 +317,7 @@ go_runtime_collect_heap_stats_totals(const go_runtime_metric_target_t *target,
     if (size_class_arrays_gap <= intervening_fields_size ||
         (size_class_arrays_gap - intervening_fields_size) % sizeof(u64)) {
         bpf_dbg_printk(
-            "invalid Go runtime size-class array gap pid=%d ns=%d", pid->user_pid, pid->ns);
+            "invalid Go runtime size-class array gap pid=%d, ns=%d", pid->user_pid, pid->ns);
         return;
     }
 
@@ -326,7 +326,7 @@ go_runtime_collect_heap_stats_totals(const go_runtime_metric_target_t *target,
     if (!derived_size_class_count || derived_size_class_count > k_go_runtime_max_size_classes ||
         small_free_count_pos + size_class_counts_size < small_free_count_pos) {
         bpf_dbg_printk(
-            "unsupported Go runtime size-class layout pid=%d ns=%d", pid->user_pid, pid->ns);
+            "unsupported Go runtime size-class layout pid=%d, ns=%d", pid->user_pid, pid->ns);
         return;
     }
     const u32 size_class_count = (u32)derived_size_class_count;
@@ -421,12 +421,12 @@ go_runtime_collect_heap_stats_totals(const go_runtime_metric_target_t *target,
 
     if (collect_memory_used && !(totals->valid_mask & go_runtime_metric_valid_memory_used)) {
         bpf_dbg_printk(
-            "can't read Go runtime memory-used heap stats pid=%d ns=%d", pid->user_pid, pid->ns);
+            "can't read Go runtime memory-used heap stats pid=%d, ns=%d", pid->user_pid, pid->ns);
     }
     if (collect_memory_allocations &&
         !(totals->valid_mask & go_runtime_metric_valid_memory_allocations)) {
         bpf_dbg_printk(
-            "can't read Go runtime allocation heap stats pid=%d ns=%d", pid->user_pid, pid->ns);
+            "can't read Go runtime allocation heap stats pid=%d, ns=%d", pid->user_pid, pid->ns);
     }
 
     totals->committed = committed;
@@ -471,7 +471,7 @@ static __always_inline void go_runtime_collect_heap_stats(const go_runtime_metri
             sizeof(stacks_sys),
             target->memstats_addr,
             go_offset_of(ot, (go_offset){.v = _runtime_memstats_stacks_sys_pos}))) {
-        bpf_dbg_printk("can't read Go runtime stacks_sys pid=%d ns=%d", pid->user_pid, pid->ns);
+        bpf_dbg_printk("can't read Go runtime stacks_sys pid=%d, ns=%d", pid->user_pid, pid->ns);
         return;
     }
     if (!go_runtime_read_offset(
@@ -479,7 +479,7 @@ static __always_inline void go_runtime_collect_heap_stats(const go_runtime_metri
             sizeof(mspan_sys),
             target->memstats_addr,
             go_offset_of(ot, (go_offset){.v = _runtime_memstats_mspan_sys_pos}))) {
-        bpf_dbg_printk("can't read Go runtime mspan_sys pid=%d ns=%d", pid->user_pid, pid->ns);
+        bpf_dbg_printk("can't read Go runtime mspan_sys pid=%d, ns=%d", pid->user_pid, pid->ns);
         return;
     }
     if (!go_runtime_read_offset(
@@ -487,7 +487,7 @@ static __always_inline void go_runtime_collect_heap_stats(const go_runtime_metri
             sizeof(mcache_sys),
             target->memstats_addr,
             go_offset_of(ot, (go_offset){.v = _runtime_memstats_mcache_sys_pos}))) {
-        bpf_dbg_printk("can't read Go runtime mcache_sys pid=%d ns=%d", pid->user_pid, pid->ns);
+        bpf_dbg_printk("can't read Go runtime mcache_sys pid=%d, ns=%d", pid->user_pid, pid->ns);
         return;
     }
     if (!go_runtime_read_offset(
@@ -495,7 +495,7 @@ static __always_inline void go_runtime_collect_heap_stats(const go_runtime_metri
             sizeof(buckhash_sys),
             target->memstats_addr,
             go_offset_of(ot, (go_offset){.v = _runtime_memstats_buckhash_sys_pos}))) {
-        bpf_dbg_printk("can't read Go runtime buckhash_sys pid=%d ns=%d", pid->user_pid, pid->ns);
+        bpf_dbg_printk("can't read Go runtime buckhash_sys pid=%d, ns=%d", pid->user_pid, pid->ns);
         return;
     }
     if (!go_runtime_read_offset(
@@ -503,7 +503,7 @@ static __always_inline void go_runtime_collect_heap_stats(const go_runtime_metri
             sizeof(gc_misc_sys),
             target->memstats_addr,
             go_offset_of(ot, (go_offset){.v = _runtime_memstats_gc_misc_sys_pos}))) {
-        bpf_dbg_printk("can't read Go runtime gc_misc_sys pid=%d ns=%d", pid->user_pid, pid->ns);
+        bpf_dbg_printk("can't read Go runtime gc_misc_sys pid=%d, ns=%d", pid->user_pid, pid->ns);
         return;
     }
     if (!go_runtime_read_offset(
@@ -511,7 +511,7 @@ static __always_inline void go_runtime_collect_heap_stats(const go_runtime_metri
             sizeof(other_sys),
             target->memstats_addr,
             go_offset_of(ot, (go_offset){.v = _runtime_memstats_other_sys_pos}))) {
-        bpf_dbg_printk("can't read Go runtime other_sys pid=%d ns=%d", pid->user_pid, pid->ns);
+        bpf_dbg_printk("can't read Go runtime other_sys pid=%d, ns=%d", pid->user_pid, pid->ns);
         return;
     }
 
@@ -625,7 +625,7 @@ int GUARDED_PROG(obi_uprobe_go_runtime_metrics, struct pt_regs *, ctx) {
     pid_info_t key = {};
     task_pid(&key);
 
-    bpf_dbg_printk("collecting Go runtime metrics pid=%d ns=%d", key.user_pid, key.ns);
+    bpf_dbg_printk("collecting Go runtime metrics pid=%d, ns=%d", key.user_pid, key.ns);
 
     go_runtime_metric_target_t *target = go_runtime_metric_target_lookup(&key);
     if (!target) {
@@ -754,7 +754,8 @@ int GUARDED_PROG(obi_uprobe_runtime_newproc1_return, struct pt_regs *, ctx) {
     if (g_metadata) {
         // Don't create cycles at one level on immediate goroutine reuse
         if (g_metadata->parent.addr == (u64)goroutine_addr) {
-            bpf_dbg_printk("avoiding cycle %llx -> %llx", parent_goroutine, goroutine_addr);
+            bpf_dbg_printk(
+                "avoiding cycle parent=%llx, goroutine=%llx", parent_goroutine, goroutine_addr);
             goto done;
         }
     }
@@ -1277,6 +1278,14 @@ enum offsets : u8 {
     k_g_m_off = 0x30,
 };
 
+SEC("uprobe/runtime.goexit1")
+int GUARDED_PROG(obi_uprobe_runtime_goexit1, struct pt_regs *, ctx) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
+    return 0;
+}
+
 // gp *g, oldval, newval uint32
 SEC("uprobe/runtime.casgstatus")
 int GUARDED_PROG(obi_uprobe_runtime_casgstatus, struct pt_regs *, ctx) {
@@ -1309,11 +1318,6 @@ int GUARDED_PROG(obi_uprobe_runtime_casgstatus, struct pt_regs *, ctx) {
         // Go reuses g objects: drop the stack before the next goroutine gets it
         bpf_map_delete_elem(&obi_ctx_stacks, &g_key);
         obi_ctx__del(g_pid_tgid);
-        // Goexit skips the request's normal return: retire it, so exceptions
-        // raised by the next goroutine reusing this g are not attributed to it
-        if (g_exceptions_enabled) {
-            bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
-        }
         break;
     default:
         obi_ctx__del(g_pid_tgid);

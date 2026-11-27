@@ -11,5 +11,5 @@ WORKDIR /
 # Copy the source code into the image for building
 COPY internal/test/integration/components/pythonserver .
 
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:7773", "main_7773:app"]
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:7773", "--no-control-socket", "main_7773:app"]
 # CMD uwsgi --http 0.0.0.0:7770 --master -p 4 -w main:app

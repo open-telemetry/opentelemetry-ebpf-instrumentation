@@ -7,10 +7,9 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/connection_info.h>
+#include <common/http2_conn_info_data.h>
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
-
-#include <generictracer/types/http2_conn_info_data.h>
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);

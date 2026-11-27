@@ -116,7 +116,7 @@ func readRailsEngineName(ctx context.Context, path string) (string, error) {
 			}
 			continue
 		}
-		line = stripRailsComment(line)
+		line = stripHashComment(line)
 		if line == "" {
 			continue
 		}

@@ -6,13 +6,13 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/barrier.h>
 #include <common/connection_info.h>
 #include <common/http_info.h>
 #include <common/http_types.h>
 #include <common/lw_thread.h>
 #include <common/preempt_guard.h>
 #include <common/protocol_http_helpers.h>
-#include <common/usdt.h>
 
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>

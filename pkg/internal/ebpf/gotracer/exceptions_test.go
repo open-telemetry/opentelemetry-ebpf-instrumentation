@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/generictracer"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -51,7 +52,7 @@ func TestGoExceptionProbesAreProcessScoped(t *testing.T) {
 	tracer := New(nil, exceptionsConfig(true), nil)
 	assert.Equal(t, true, tracer.constants(0)["g_exceptions_enabled"])
 	assert.Equal(t, []string{
-		goErrorfSymbol, goLegacyErrorfSymbol, goPanicSymbol, goCleanupSymbol,
+		goErrorfSymbol, goLegacyErrorfSymbol, goPanicSymbol, goExitSymbol,
 	}, exceptionGroupSymbols(t, tracer), "fmt.errorf registers before fmt.Errorf")
 	for _, symbol := range GoExceptionProbeSymbols() {
 		assert.NotContains(t, tracer.GoProbes(), symbol, "not attached to the whole executable")
@@ -59,12 +60,15 @@ func TestGoExceptionProbesAreProcessScoped(t *testing.T) {
 }
 
 func TestGoExceptionCleanupWithTraceContext(t *testing.T) {
+	disableContextPropagationForTest(t)
+
 	cfg := exceptionsConfig(true)
 	cfg.EBPF.PopulateTraceContext = true
 	tracer := New(nil, cfg, nil)
 
-	assert.Contains(t, tracer.GoProbes(), goCleanupSymbol)
-	assert.NotContains(t, exceptionGroupSymbols(t, tracer), goCleanupSymbol)
+	assert.Contains(t, exceptionGroupSymbols(t, tracer), goExitSymbol)
+	assert.Contains(t, tracer.GoProbes(), "runtime.casgstatus")
+	assert.NotContains(t, exceptionGroupSymbols(t, tracer), "runtime.casgstatus")
 }
 
 func TestGoExceptionCleanupFollowsCaptureSources(t *testing.T) {
@@ -84,7 +88,7 @@ func TestGoExceptionCleanupFollowsCaptureSources(t *testing.T) {
 			links := &exceptionLinks{attached: map[app.PID][]uint64{}, open: map[app.PID]int{}}
 			tracer.attachGoExceptionProbe = links.attach
 			executable := executableIdentity{Dev: 7, Ino: 11}
-			tracer.RegisterProcessScopedGoProbe(executable.Dev, executable.Ino, exceptionProbe(goCleanupSymbol, 40))
+			tracer.RegisterProcessScopedGoProbe(executable.Dev, executable.Ino, exceptionProbe(goExitSymbol, 40))
 			tracer.trackExceptionProcess(1, executable, tc.flags)
 			require.Equal(t, tc.want, links.open[1])
 
@@ -122,7 +126,7 @@ func (l *exceptionLinks) attach(pid app.PID, _ executableIdentity, probe *ebpfco
 
 func exceptionProbe(symbol string, offset uint64) ebpfcommon.GoProbe {
 	probe := &ebpfcommon.ProbeDesc{End: &ebpf.Program{}, ReturnOffsets: []uint64{offset}}
-	if symbol == goPanicSymbol || symbol == goCleanupSymbol {
+	if symbol == goPanicSymbol || symbol == goExitSymbol {
 		probe = &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}, StartOffset: offset}
 	}
 	return ebpfcommon.GoProbe{Symbol: symbol, Probe: probe, ProcessScoped: true}
@@ -219,6 +223,36 @@ func TestPrivateExceptionEvents(t *testing.T) {
 	New(nil, exceptionsConfig(false), nil).privateExceptionEvents(disabled)
 	require.Equal(t, ebpf.PinNone, disabled.Maps[BpfMapExceptionEvents].Pinning)
 	require.Equal(t, uint32(os.Getpagesize()), disabled.Maps[BpfMapExceptionEvents].MaxEntries)
+}
+
+func TestPythonExceptionMapCompatibility(t *testing.T) {
+	disableContextPropagationForTest(t)
+	for _, enabled := range []bool{false, true} {
+		name := "disabled"
+		if enabled {
+			name = "enabled"
+		}
+		t.Run(name, func(t *testing.T) {
+			cfg := exceptionsConfig(enabled)
+			goBundles, err := New(nil, cfg, nil).LoadSpecs()
+			require.NoError(t, err)
+			genericBundles, err := generictracer.New(nil, cfg, nil).LoadSpecs()
+			require.NoError(t, err)
+			for _, name := range []string{BpfMapPythonExceptionProcs, BpfMapPythonExceptionPending} {
+				goMap := goBundles[0].Spec.Maps[name]
+				genericMap := genericBundles[0].Spec.Maps[name]
+				require.NotNil(t, goMap, name)
+				require.NotNil(t, genericMap, name)
+				assert.Equal(t, genericMap.MaxEntries, goMap.MaxEntries, name)
+				assert.Equal(t, genericMap.Pinning, goMap.Pinning, name)
+				if enabled {
+					assert.Greater(t, goMap.MaxEntries, uint32(1), name)
+				} else {
+					assert.Equal(t, uint32(1), goMap.MaxEntries, name)
+				}
+			}
+		})
+	}
 }
 
 func TestGoExceptionProbeSelection(t *testing.T) {

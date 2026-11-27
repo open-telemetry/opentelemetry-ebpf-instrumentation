@@ -97,11 +97,11 @@ static __always_inline int rb_obj_alloc(const u64 item, const u64 id) {
     } else if (!obi_bpf_memcmp(buf, PUMA_SRV, sizeof(PUMA_SRV) - 1)) {
         ssl_pid_connection_info_t *info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
         if (!info) {
-            bpf_dbg_printk("rb_obj_call_init_kw no connection info for id %lld", id);
+            bpf_dbg_printk("rb_obj_call_init_kw no connection info for id=%lld", id);
             return 0;
         }
 
-        bpf_dbg_printk("rb_obj_call_init_kw ==> item %llx, thread %s", item, buf);
+        bpf_dbg_printk("rb_obj_call_init_kw ==> item=%llx, thread=%s", item, buf);
 
         const u32 host_pid = pid_from_pid_tgid(id);
         connection_info_part_t conn_part = {};
@@ -179,7 +179,7 @@ int GUARDED_PROG(obi_rb_ary_shift, struct pt_regs *, ctx) {
     u64 item = 0;
     bpf_probe_read_user(&item, sizeof(u64), (void *)(item_ptr + k_rb_ary_embedded_ptr_pos));
 
-    bpf_dbg_printk("rb_ary_shift ret ==> slice %llx, item %llx, flags %x", item_ptr, item, flags);
+    bpf_dbg_printk("rb_ary_shift ret ==> slice=%llx, item=%llx, flags=%x", item_ptr, item, flags);
 
     // If we don't have an embedded array, item is the current array length.
     // Zero length means we don't have elements in the array.
@@ -190,7 +190,7 @@ int GUARDED_PROG(obi_rb_ary_shift, struct pt_regs *, ctx) {
                 &heap_arr_ptr, sizeof(u64), (void *)(item_ptr + k_rb_ary_heap_ptr_pos));
             if (heap_arr_ptr) {
                 bpf_probe_read_user(&item, sizeof(u64), (void *)(heap_arr_ptr));
-                bpf_dbg_printk("heap %llx, value item %llx", heap_arr_ptr, item);
+                bpf_dbg_printk("heap=%llx, item=%llx", heap_arr_ptr, item);
             } else {
                 bpf_dbg_printk("empty heap pointer, 0 array length?");
                 return 0;
@@ -206,7 +206,7 @@ int GUARDED_PROG(obi_rb_ary_shift, struct pt_regs *, ctx) {
 
         connection_info_part_t *conn_part = bpf_map_lookup_elem(&puma_task_connections, &task_id);
         if (conn_part) {
-            bpf_dbg_printk("stored item to id correlation, id = %llx, item %llx", id, item);
+            bpf_dbg_printk("stored item to id correlation, id=%llx, item=%llx", id, item);
             bpf_map_update_elem(&puma_worker_tasks, &id, &task_id, BPF_ANY);
 
             // Refresh traces_ctx_v1 for the worker thread. This handles the
@@ -221,7 +221,7 @@ int GUARDED_PROG(obi_rb_ary_shift, struct pt_regs *, ctx) {
                 obi_ctx__del(id);
             }
         } else {
-            bpf_dbg_printk("untracked item %llx, ignoring...", item);
+            bpf_dbg_printk("untracked item=%llx, ignoring...", item);
             obi_ctx__del(id);
         }
     }

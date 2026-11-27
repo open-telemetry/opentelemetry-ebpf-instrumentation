@@ -27,7 +27,7 @@ func TestExtractPythonRoutesDoesNotBlockOnAFIFORecord(t *testing.T) {
 
 	done := make(chan *RouteHarvesterResult, 1)
 	go func() {
-		result, err := extractPythonRoutes(t.Context(), app)
+		result, err := extractPythonRoutes(t.Context(), app, app)
 		assert.NoError(t, err)
 		done <- result
 	}()

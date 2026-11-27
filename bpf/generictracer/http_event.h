@@ -17,7 +17,7 @@ static __always_inline void submit_http_event(http_info_t *info) {
     info->submitted = 1;
     info->flags = k_event_type_k_http_request;
 
-    bpf_dbg_printk("Sending trace %lx, response length %d", info, info->resp_len);
+    bpf_dbg_printk("Sending trace info=%lx, resp_len=%d", info, info->resp_len);
     if (events_ringbuf_output(info, sizeof(*info)) != 0) {
         bpf_dbg_printk("failed to write the trace to the ringbuf");
     }

@@ -536,6 +536,10 @@
               "$ref": "#/$defs/Exceptions/properties/go"
             }
           }
+        },
+        "group_job_spans": {
+          "type": "boolean",
+          "description": "Group the client spans of each job matched workloads take off a queue into one trace, rooted at the fetch that took the job. Redis fetches are recognized.\nOn when omitted; false keeps each call of a job in a trace of its own. See devdocs/queue-job-traces.md.\n"
         }
       }
     },
@@ -1024,6 +1028,18 @@
               },
               "type": "array",
               "description": "Metric features using the same names as Config v1. An explicit list replaces the selection inferred from protocol and network switches; [] disables all metric features. When omitted, protocol and network enablement determines the features."
+            },
+            "target_info": {
+              "type": "object",
+              "description": "Controls the target.info and traces.target.info metrics, exported as target_info and traces_target_info by the Prometheus reader.",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Export the target.info and traces.target.info metrics.\nIf omitted, true is used.\n"
+                }
+              }
             }
           }
         },
@@ -1187,7 +1203,8 @@
                         "type": "string"
                       },
                       "default": [],
-                      "description": "Additional span resource attributes to include in OBI-generated Prometheus span metrics.\nIf omitted, no extra attributes are added.\n"
+                      "deprecated": true,
+                      "description": "Deprecated: select span metric dimensions with `capture.attributes.select`.\nAdditional span resource attributes to include in OBI-generated Prometheus span metrics, in addition to the selection.\nIf omitted, no extra attributes are added.\n"
                     }
                   }
                 }
@@ -1630,7 +1647,7 @@
         "sanitize_query_text": {
           "type": "boolean",
           "default": false,
-          "description": "Replace literal values in `db.query.text` with `?`: string, numeric, hexadecimal and boolean literals of SQL and SQL++ spans, and Redis argument values (keys are kept). Elasticsearch query bodies and Couchbase key-value spans are not sanitized. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
+          "description": "Replace literal values in `db.query.text` with `?`: string, numeric, hexadecimal and boolean literals of SQL and SQL++ spans, Redis argument values and Couchbase key-value document values (keys are kept), and the values in Elasticsearch and OpenSearch request bodies (field names are kept). By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
         }
       }
     },
@@ -2373,7 +2390,8 @@
                 "cidrs": {
                   "$ref": "#/$defs/CIDRDefinitions"
                 }
-              }
+              },
+              "description": "Names the IP ranges of stats peers: each source and destination address gets the name of the narrowest matching CIDR as `src.cidr` and `dst.cidr`. It does not drop traffic; use `filters` for that.\nIf omitted, stats telemetry has no CIDR attributes.\n"
             },
             "filters": {
               "$ref": "#/$defs/SignalFilters",
@@ -2467,7 +2485,7 @@
                       "items": {
                         "type": "string"
                       },
-                      "description": "Optional allowlist of discovered hosted zones.\nDiscovery includes account public zones and private zones associated with the detected VPC. Without a detected VPC and region, only public zones are eligible. Explicit IDs retain the same VPC and address filters. All configurations require route53:ListHostedZones and, when the VPC and region are known, route53:ListHostedZonesByVPC.\n"
+                      "description": "Explicit hosted zones are read directly with route53:ListResourceRecordSets permissions.\nWhen omitted, discovery includes account public zones and private zones associated with the detected VPC and additionally requires route53:ListHostedZones and, when the VPC and region are known, route53:ListHostedZonesByVPC.\n"
                     }
                   }
                 }
@@ -2721,6 +2739,14 @@
             "formatted_errors": { "type": "boolean" }
           },
           "description": "Go capture selection. Panics default to enabled and formatted errors to disabled; workload overrides inherit omitted fields."
+        },
+        "python": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" }
+          },
+          "description": "Python exception capture. Enabled by default when exception capture is enabled; workload overrides inherit omitted fields."
         },
         "enabled": {
           "type": "boolean",

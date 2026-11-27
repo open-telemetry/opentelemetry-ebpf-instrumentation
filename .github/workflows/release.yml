@@ -29,6 +29,7 @@ jobs:
   validate-tag:
     name: Validate Tag Format
     runs-on: ubuntu-26.04
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
     permissions:
       contents: read
     steps:

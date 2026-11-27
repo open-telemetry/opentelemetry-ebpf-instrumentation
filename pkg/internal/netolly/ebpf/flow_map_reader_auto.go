@@ -16,26 +16,38 @@ func dlog(implementation string) *slog.Logger {
 	return slog.With("component", "ebpf.FlowMapReader", "implementation", implementation)
 }
 
+// addFlow adds to the flow read before: the programs may create it again after the reader deleted it.
+func addFlow(flows map[NetFlowId]*NetFlowMetrics, id NetFlowId, metrics *NetFlowMetrics) {
+	if stored, ok := flows[id]; ok {
+		stored.Accumulate(metrics)
+		return
+	}
+	copied := *metrics
+	flows[id] = &copied
+}
+
 type flowMapReader interface {
 	lookupAndDeleteMap() (map[NetFlowId]*NetFlowMetrics, error)
 }
 
-func chooseMapReader(forcedType config.EBPFMapReader, flowMap *ebpf.Map, cacheMaxSize int, startTime uint64) flowMapReader {
+func chooseMapReader(forcedType config.EBPFMapReader, flowMap *ebpf.Map, cacheMaxSize int, lockedValues bool) flowMapReader {
 	batchLen := defaultReadBatchLen
-	possibleCPUs := ebpf.MustPossibleCPU()
+	// BPF_F_LOCK fails on maps whose values have no spin lock
+	var batchOpts *ebpf.BatchOptions
+	if lockedValues {
+		batchOpts = &ebpf.BatchOptions{ElemFlags: uint64(ebpf.LookupLock)}
+	}
 	batch := &flowMapBatchReader{
 		flowMap:      flowMap,
 		cacheMaxSize: cacheMaxSize,
-		possibleCPUs: possibleCPUs,
-		lastReadNS:   startTime,
+		opts:         batchOpts,
 		cachedKeys:   make([]NetFlowId, batchLen),
-		cachedValues: make([]NetFlowMetrics, batchLen*possibleCPUs),
+		cachedValues: make([]NetFlowMetrics, batchLen),
 	}
 	legacy := &flowMapLegacyReader[*ebpf.MapIterator]{
 		log:          dlog("legacy"),
 		flowMap:      flowMap,
 		cacheMaxSize: cacheMaxSize,
-		lastReadNS:   startTime,
 	}
 	switch forcedType {
 	case config.MapReaderLegacy:

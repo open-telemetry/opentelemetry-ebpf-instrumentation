@@ -23,6 +23,7 @@ jobs:
     name: "Roll up weekly CI test results"
     runs-on: ubuntu-26.04
     timeout-minutes: 30
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -115,7 +116,16 @@ jobs:
 
           git checkout -B "$branch"
           git commit -m "$message" -- scripts/integration-test-weights.generated.json
-          git push --force origin "$branch"
+          # a rejected push leaves the shard weights stale for a whole week
+          for attempt in 1 2 3; do
+            if git push --force origin "$branch"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
 
           pr="$(gh pr list --head "$branch" --state open --json number --jq '.[].number')"
           if [ -z "$pr" ]; then

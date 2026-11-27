@@ -7,17 +7,18 @@
 #include <bpfcore/utils.h>
 
 #include <common/event_defs.h>
+#include <common/go_goroutine.h>
 #include <common/runtime.h>
+#include <common/rust_task.h>
 #include <common/trace_key.h>
 #include <common/tracing.h>
 
 #include <maps/cp_support_connect_info.h>
+#include <maps/go_trace_map.h>
 #include <maps/incoming_trace_map.h>
 #include <maps/java_vt_threads.h>
 #include <maps/outgoing_trace_map.h>
 #include <maps/server_traces.h>
-
-#include <gotracer/go_common.h>
 
 #include <shared/obi_ctx.h>
 
@@ -40,9 +41,21 @@ static __always_inline void obi_ctx__restore_server(const tp_info_t *client_tp) 
     if (!client_tp) {
         return;
     }
+    const u64 id = bpf_get_current_pid_tgid();
     // only when the thread still points at this client span
-    const obi_ctx_info_t *current = obi_ctx__get(bpf_get_current_pid_tgid());
+    const obi_ctx_info_t *current = obi_ctx__get(id);
     if (!current || *(const u64 *)current->span_id != *(const u64 *)client_tp->span_id) {
+        return;
+    }
+    // Task tracking is checked once here, so the parent comes from the thread state directly.
+    // Threads that never polled a Tokio task restore their thread-keyed server span below.
+    const rust_thread_state_t *thread = rust_task_context_enabled(id) ? rust_task_thread(id) : NULL;
+    if (thread) {
+        const tp_info_pid_t *parent = rust_thread_context(id, thread);
+        if (parent && parent->valid &&
+            *(const u64 *)parent->tp.span_id == *(const u64 *)client_tp->parent_id) {
+            obi_ctx__set(id, &parent->tp);
+        }
         return;
     }
     trace_key_t t_key = {0};
@@ -54,7 +67,7 @@ static __always_inline void obi_ctx__restore_server(const tp_info_t *client_tp) 
     tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces, &t_key);
     if (server_tp && server_tp->valid &&
         *(const u64 *)server_tp->tp.span_id == *(const u64 *)client_tp->parent_id) {
-        obi_ctx__set(bpf_get_current_pid_tgid(), &server_tp->tp);
+        obi_ctx__set(id, &server_tp->tp);
     }
 }
 
@@ -117,7 +130,7 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
                     bpf_dbg_printk("setting the client info as used");
                 } else {
                     bpf_dbg_printk("incompatible trace info, not using the correlated tp, type=%d, "
-                                   "other type=%d",
+                                   "other_type=%d",
                                    type,
                                    existing_tp->req_type);
                 }
@@ -162,6 +175,7 @@ static __always_inline void server_or_client_trace(const u8 type,
                        conn_part.port);
 
         bpf_map_update_elem(&server_traces_aux, &conn_part, tp_p, BPF_ANY);
+        rust_set_context(id, tp_p);
 
         tp_info_pid_t *existing = bpf_map_lookup_elem(&server_traces, &t_key);
         if (existing && existing->req_type == tp_p->req_type &&

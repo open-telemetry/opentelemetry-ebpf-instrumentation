@@ -31,8 +31,8 @@ const (
 )
 
 const (
-	goPanicSymbol   = "runtime.gopanic"
-	goCleanupSymbol = "runtime.casgstatus"
+	goPanicSymbol = "runtime.gopanic"
+	goExitSymbol  = "runtime.goexit1"
 	// Go 1.26+ splits fmt.Errorf into an inlinable wrapper and this helper
 	goErrorfSymbol       = "fmt.errorf"
 	goLegacyErrorfSymbol = "fmt.Errorf"
@@ -40,7 +40,7 @@ const (
 
 // GoExceptionProbeSymbols returns every symbol the exception probes can attach to.
 func GoExceptionProbeSymbols() []string {
-	return []string{goPanicSymbol, goErrorfSymbol, goLegacyErrorfSymbol, goCleanupSymbol}
+	return []string{goPanicSymbol, goErrorfSymbol, goLegacyErrorfSymbol, goExitSymbol}
 }
 
 func isGoExceptionSymbol(symbol string) bool {
@@ -59,13 +59,7 @@ func (p *Tracer) goExceptionProbeGroups() []ebpfcommon.GoProbeGroup {
 		{Symbol: goErrorfSymbol, Probe: &ebpfcommon.ProbeDesc{End: p.bpfObjects.ObiUprobeFmtErrorfRet}},
 		{Symbol: goLegacyErrorfSymbol, Probe: &ebpfcommon.ProbeDesc{End: p.bpfObjects.ObiUprobeFmtErrorfRet}},
 		{Symbol: goPanicSymbol, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeRuntimeGopanic}},
-	}
-
-	if !p.traceCtxMapEnabled {
-		probes = append(probes, ebpfcommon.GoProbe{
-			Symbol: goCleanupSymbol,
-			Probe:  &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus},
-		})
+		{Symbol: goExitSymbol, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeRuntimeGoexit1}},
 	}
 
 	groups := make([]ebpfcommon.GoProbeGroup, 0, len(probes))
@@ -252,6 +246,7 @@ func (p *Tracer) readExceptionEvents(ctx context.Context, eventContext *ebpfcomm
 // UnregisterExecutable, for whichever of its processes captures exceptions.
 // The symbol table is only loaded for the first exception.
 func (p *Tracer) RegisterExecutable(fileInfo *exec.FileInfo) {
+	p.markGoOffsetsActive(fileInfo)
 	if !p.exceptionsEnabled || fileInfo == nil {
 		return
 	}
@@ -262,6 +257,7 @@ func (p *Tracer) RegisterExecutable(fileInfo *exec.FileInfo) {
 }
 
 func (p *Tracer) UnregisterExecutable(dev, ino uint64) {
+	p.markGoOffsetsStale(dev, ino)
 	if !p.exceptionsEnabled {
 		return
 	}
@@ -320,7 +316,7 @@ func (p *Tracer) unregisterExceptionPID(pid app.PID) {
 
 func goExceptionProbeEnabled(flags uint8, symbol string) bool {
 	switch symbol {
-	case goCleanupSymbol:
+	case goExitSymbol:
 		return flags&(goExceptionPIDPanics|goExceptionPIDFormattedErrors) != 0
 	case goPanicSymbol:
 		return flags&goExceptionPIDPanics != 0

@@ -328,6 +328,66 @@ func testGoExceptions(t *testing.T, goVersion, goImage string, builds []goExcept
 	})
 }
 
+// OBI in the fixture's PID namespace sees other PIDs than the kernel, as on a
+// node that is itself a container (kind). Exceptions must still be captured,
+// owned and symbolized.
+func TestGoExceptionsNestedPIDNamespace(t *testing.T) {
+	builder := goExceptionsBuilders[len(goExceptionsBuilders)-1]
+	out := path.Join(pathOutput, "go-exceptions")
+	require.NoError(t, os.RemoveAll(out))
+	require.NoError(t, os.MkdirAll(out, 0o777))
+	// the collector writes as another user
+	require.NoError(t, os.Chmod(out, 0o777))
+
+	compose, err := docker.ComposeSuiteWithOverrides("docker-compose-go-exceptions.yml",
+		path.Join(pathOutput, "test-suite-go-exceptions-pid-ns.log"), "docker-compose-go-exceptions-pid-ns.yml")
+	require.NoError(t, err)
+	compose.Env = append(compose.Env, "GO_EXCEPTIONS_GO_IMAGE="+builder.image, "GO_EXCEPTIONS_TAG="+builder.version)
+	require.NoError(t, compose.Up())
+	t.Cleanup(func() { require.NoError(t, compose.Close()) })
+	t.Cleanup(func() { runWeaverValidation(t) })
+
+	attempt := 0
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		attempt++
+		goExceptionsGet(ct, goExceptionsDefault, "fmt", fmt.Sprintf("warmup-%d", attempt), http.StatusInternalServerError)
+		logs, _ := readGoExceptionTelemetry(ct, out)
+		assert.NotEmpty(ct, goLogsOfService(logs, goExceptionsDefault), "no exception log yet")
+	}, 3*testTimeout, time.Second)
+
+	cases := []goExceptionCase{
+		{name: "fmt", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.error", messagePrefix: "fmt:", owned: true},
+		}},
+		// the runtime error type is looked up in the process's symbols
+		{name: "panic-nil-pointer", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "runtime error: invalid memory address or nil pointer dereference", owned: true},
+		}},
+	}
+	for _, c := range cases {
+		goExceptionsGet(t, goExceptionsDefault, c.name, goCaseID(c.name), c.status)
+	}
+
+	var logs []goExceptionLog
+	var spans []goServerSpan
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		logs, spans = readGoExceptionTelemetry(ct, out)
+		for _, c := range cases {
+			_, ok := goSpanFor(spans, goExceptionsDefault, goCasePath(c.name, goCaseID(c.name)))
+			assert.True(ct, ok, "no server span for %s", c.name)
+		}
+	}, testTimeout, time.Second)
+	// records come through another ring than spans, and can arrive later
+	time.Sleep(2 * time.Second)
+	logs, spans = readGoExceptionTelemetry(t, out)
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			requireGoExceptionCase(t, logs, spans, goExceptionsDefault, c)
+		})
+	}
+}
+
 func testGoExceptionGoexitCleanup(t *testing.T, compose *docker.Compose) {
 	namespace, err := compose.ExecOutput("default", "readlink", "/proc/1/ns/pid")
 	require.NoError(t, err)

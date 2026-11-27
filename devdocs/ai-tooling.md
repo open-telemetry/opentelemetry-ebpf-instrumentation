@@ -76,3 +76,10 @@ cases that should be accepted as well as rejected. For example:
 Instruction-loading checks and Markdown lint do not establish that an agent will
 make these decisions reliably. Record actual responses and limitations when
 reporting a behavioral check.
+
+## BPF debugging
+
+Follow the [BPF debug logging rules](../AGENTS.md#bpf-debug-logging).
+Enable `OTEL_EBPF_BPF_DEBUG=true` and set `OTEL_EBPF_LOG_LEVEL=DEBUG` to see
+BPF ring-buffer messages in OBI's logs. Read `bpf_d_printk` output from
+`/sys/kernel/tracing/trace_pipe`.

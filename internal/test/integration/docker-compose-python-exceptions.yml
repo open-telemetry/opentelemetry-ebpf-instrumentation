@@ -1,0 +1,46 @@
+services:
+  obi:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/pythonexceptions/Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_EXCEPTION_IMAGE:-python:3.12.13-slim-bookworm}
+        PYTHON_VERSION: ${PYTHON_EXCEPTION_VERSION:-3.12.13}
+        PYTHON_EXCEPTION_BUILD: ${PYTHON_EXCEPTION_BUILD:-shared}
+    image: hatest-python-exceptions:${PYTHON_EXCEPTION_TAG:-3.12.13-slim}
+    privileged: true
+    pid: host
+    volumes:
+      - ../../..:/src
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+      - python-go-build-cache:/tmp/go-build-cache
+      - python-go-mod-cache:/tmp/go-mod-cache
+    working_dir: /src
+    environment:
+      PYTHON_EXCEPTION_ASYNC_SKIP_REASON: ${PYTHON_EXCEPTION_ASYNC_SKIP_REASON:-}
+      PYTHON_EXCEPTION_CONTAINER: "true"
+      GOFLAGS: -buildvcs=false
+      GOCACHE: /tmp/go-build-cache
+      GOMODCACHE: /tmp/go-mod-cache
+      PYTHON_EXCEPTION_FIXTURE: /src/internal/test/integration/components/pythonexceptions/server.py
+      PYTHON_EXCEPTION_BUILD: ${PYTHON_EXCEPTION_BUILD:-shared}
+    entrypoint:
+      - sh
+      - -c
+      - go build -o /tmp/obi ./cmd/obi && exec "$@"
+      - --
+    command:
+      - go
+      - test
+      - -tags=python_exceptions_integration
+      - ./internal/test/integration
+      - -run
+      - ^TestPythonExceptions$
+      - -count=1
+      - -v
+      - -timeout=40m
+
+volumes:
+  python-go-build-cache:
+  python-go-mod-cache:

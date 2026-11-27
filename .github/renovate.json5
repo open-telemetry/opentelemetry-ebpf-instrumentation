@@ -21,6 +21,8 @@
   ],
   "prConcurrentLimit": 10,
   "prHourlyLimit": 3,
+  // the post-process workflow commits on top of Renovate branches as this bot; ignoring it lets Renovate keep rebasing them
+  "gitIgnoredAuthors": ["358818252+otelbot-ebpf-instrumentation[bot]@users.noreply.github.com"],
   "pip-compile": {
     "managerFilePatterns": [
       "/^internal\\/test\\/integration\\/components\\/.*\\/requirements(-[^/]+)?\\.txt$/",

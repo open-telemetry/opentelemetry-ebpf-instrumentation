@@ -44,8 +44,6 @@ RUN cat <<EOF > /generate.sh
 #!/bin/sh
 export PATH="/usr/lib/llvm22/bin:\$PATH"
 export BPF2GO=/go/bin/bpf2go
-export BPF_CLANG=clang-22
-export BPF_CFLAGS="-O2 -g -Wall -Werror"
 export GOCACHE=/tmp/go-build
 make generate
 EOF

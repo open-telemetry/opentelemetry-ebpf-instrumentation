@@ -28,6 +28,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -45,6 +46,11 @@ var cache = expirable2.NewLRU[svc.UID, []attribute.KeyValue](1024, nil, 5*time.M
 var hostID = &metadata.NodeMeta{HostID: "host-id"}
 
 func BenchmarkGenerateTraces(b *testing.B) {
+	b.Run("spans=1", benchmarkGenerateTracesSingleSpan)
+	b.Run("spans=1000", benchmarkGenerateTracesPipeline)
+}
+
+func benchmarkGenerateTracesSingleSpan(b *testing.B) {
 	start := time.Now()
 
 	span := &request.Span{
@@ -74,6 +80,49 @@ func BenchmarkGenerateTraces(b *testing.B) {
 
 		if traces.ResourceSpans().Len() == 0 {
 			b.Fatal("Generated traces is empty")
+		}
+	}
+}
+
+// benchmarkGenerateTracesPipeline measures grouping, OTLP generation and proto
+// marshaling of a batch of HTTP server spans.
+func benchmarkGenerateTracesPipeline(b *testing.B) {
+	const spanCount = 1000
+
+	spans := make([]request.Span, spanCount)
+	for i := range spans {
+		spans[i] = request.Span{
+			Service:      svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Name: "svc", Instance: "foo"}},
+			Type:         request.EventTypeHTTP,
+			Method:       "GET",
+			Route:        "/route/" + strconv.Itoa(i%50),
+			Status:       200,
+			Path:         "/foo/bar",
+			Peer:         "10.0.0.1",
+			Host:         "svc.local",
+			HostName:     "svc.local",
+			PeerName:     "client",
+			RequestStart: 100,
+			Start:        150,
+			End:          250,
+			TraceID:      [16]byte{1, byte(i), byte(i >> 8)},
+			SpanID:       [8]byte{2, byte(i), byte(i >> 8)},
+		}
+	}
+
+	traceAttrs, err := tracesgen.UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(b, err)
+	selection := instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationALL})
+	var marshaler ptrace.ProtoMarshaler
+
+	b.ReportAllocs()
+	for b.Loop() {
+		groups := tracesgen.GroupSpansWithOptions(b.Context(), spans, traceAttrs, sdktrace.AlwaysSample(), selection, tracesgen.GroupSpansOptions{})
+		for _, group := range groups {
+			traces := tracesgen.GenerateTracesWithSelectedResourceAttributes(cache, &group[0].Span.Service, nil,
+				hostID, group, reporterName, attributes.Selection{})
+			_, err := marshaler.MarshalTraces(traces)
+			require.NoError(b, err)
 		}
 	}
 }

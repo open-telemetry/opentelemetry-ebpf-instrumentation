@@ -220,6 +220,10 @@ spec:
         # this label will trigger a deletion of OBI pods before tearing down
         # kind, to force OBI writing the coverage data
         teardown: delete
+      # scrape each replica: a scrape through the Service keeps hitting the replica its connection landed on
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8999'
     spec:
       # required to let the service accessing the K8s API
       serviceAccountName: obi
