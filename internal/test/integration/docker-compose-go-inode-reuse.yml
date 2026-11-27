@@ -21,6 +21,8 @@ services:
       GRPC_TLS_PORT: 18552
       JSRONRPC_PORT: 18088
       RESTFUL_PORT: 18089
+      ECHO_PORT: 18099
+      ECHO_V4_PORT: 18098
 
   testserver-b:
     build:
@@ -44,6 +46,8 @@ services:
       GRPC_TLS_PORT: 18652
       JSRONRPC_PORT: 18188
       RESTFUL_PORT: 18189
+      ECHO_PORT: 18199
+      ECHO_V4_PORT: 18198
 
   obi:
     build:

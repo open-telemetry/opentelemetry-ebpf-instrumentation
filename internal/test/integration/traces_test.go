@@ -255,6 +255,61 @@ func testHTTPTracesRestfulRoutes(t *testing.T) {
 	}
 }
 
+func testHTTPTracesEchoRoutes(t *testing.T) {
+	testHTTPTracesEchoRoutesAt(t, instrumentedServiceEchoURL)
+}
+
+func testHTTPTracesEchoV4Routes(t *testing.T) {
+	testHTTPTracesEchoRoutesAt(t, instrumentedServiceEchoV4URL)
+}
+
+func testHTTPTracesEchoRoutesAt(t *testing.T, baseURL string) {
+	t.Helper()
+	waitForHTTPServerTrace(t, instrumentedServiceStdURL)
+	for _, tc := range []struct {
+		method, path, route string
+		status              int
+	}{
+		{"GET", "/api/rolldice/4", "/api/rolldice/:id", http.StatusOK},
+		{"GET", "/api/rolldice/42", "/api/rolldice/:id", http.StatusOK},
+		{"GET", "/api/health", "/api/health", http.StatusOK},
+		{"GET", "/api/files/a/b", "/api/files/*", http.StatusOK},
+		{"GET", "/api/lookup/42", "/api/lookup/:id", http.StatusOK},
+		{"GET", "/api/prelookup/42", "/api/prelookup/:id", http.StatusOK},
+		{"GET", "/api/with-context/42", "/api/with-context/42", http.StatusOK},
+		{"GET", "/api/clone/42", "/api/clone/42", http.StatusOK},
+		{"POST", "/api/rolldice/42", "/api/rolldice/:id", http.StatusMethodNotAllowed},
+		{"GET", "/missing-after-match", "/missing-after-match", http.StatusNotFound},
+	} {
+		t.Run(tc.method+tc.path, func(t *testing.T) {
+			traceID := createTraceID()
+			req, err := http.NewRequest(tc.method, baseURL+tc.path, nil)
+			require.NoError(t, err)
+			req.Header.Set("Traceparent", createTraceparent(traceID, createParentID()))
+			resp, err := testHTTPClient.Do(req)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+			require.Equal(t, tc.status, resp.StatusCode)
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				resp, err := getJaeger(jaegerQueryURL + "/" + traceID)
+				require.NoError(ct, err)
+				defer resp.Body.Close()
+				require.Equal(ct, http.StatusOK, resp.StatusCode)
+				var tq jaeger.TracesQuery
+				require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+				require.Len(ct, tq.Data, 1)
+				spans := tq.Data[0].FindByOperationNameServiceAndKind(tc.method+" "+tc.route, "testserver", "server")
+				require.Len(ct, spans, 1)
+				diff := spans[0].Diff(
+					jaeger.Tag{Key: "http.route", Type: "string", Value: tc.route},
+					jaeger.Tag{Key: "url.path", Type: "string", Value: tc.path},
+				)
+				assert.Empty(ct, diff, diff.String())
+			}, testTimeout, 100*time.Millisecond)
+		})
+	}
+}
+
 func testGRPCTraces(t *testing.T) {
 	testGRPCTracesForServiceName(t, "testserver")
 }

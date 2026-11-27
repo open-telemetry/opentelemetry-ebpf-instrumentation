@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"runtime"
 	"testing"
 
 	"github.com/grafana/go-offsets-tracker/pkg/offsets"
@@ -364,6 +365,89 @@ func TestRestfulOffsetsFromDwarf(t *testing.T) {
 	pathOffset := uint64(dwarfStructField(t, routeType, "Path").ByteOffset)
 
 	assert.Equal(t, pathOffset, offsets[RestfulRoutePathPos])
+}
+
+func TestEchoV5OffsetsAndProbes(t *testing.T) {
+	testEchoOffsetsAndProbes(t, "echo-v5", "github.com/labstack/echo/v5.(*DefaultRouter).Route",
+		"github.com/labstack/echo/v5.Context", "5.0.0", EchoV5ContextPathPos, EchoV5ContextRequestPos)
+}
+
+func TestEchoV4OffsetsAndProbes(t *testing.T) {
+	testEchoOffsetsAndProbes(t, "echo-v4", "github.com/labstack/echo/v4.(*Router).Find",
+		"github.com/labstack/echo/v4.context", "4.13.4", EchoV4ContextPathPos, EchoV4ContextRequestPos)
+}
+
+func TestPrefetchedEchoOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name, typeName, version string
+		path, request           uint64
+	}{
+		{"v4 minimum", "github.com/labstack/echo/v4.context", "4.13.4", 88, 16},
+		{"v4 latest tracked", "github.com/labstack/echo/v4.context", "4.16.6", 88, 16},
+		{"v5 minimum", "github.com/labstack/echo/v5.Context", "5.0.0", 88, 0},
+		{"v5 path moved", "github.com/labstack/echo/v5.Context", "5.2.0", 128, 0},
+		{"v5 latest tracked", "github.com/labstack/echo/v5.Context", "5.4.7", 128, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertPrefetchedOffset(t, track, tc.typeName, "path", tc.version, tc.path)
+			assertPrefetchedOffset(t, track, tc.typeName, "request", tc.version, tc.request)
+		})
+	}
+}
+
+func testEchoOffsetsAndProbes(t *testing.T, fixture, symbol, typeName, version string, pathField, requestField GoOffset) {
+	t.Helper()
+	for _, arch := range []string{"amd64", "arm64"} {
+		t.Run(arch, func(t *testing.T) {
+			source := tools.ProjectDir() + "/configs/offsets/" + fixture + "/inspect.go"
+			debugFile, err := compileELFWithEnv(source, []string{"GOARCH=" + arch})
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, debugFile.Close()) })
+			data, err := debugFile.DWARF()
+			require.NoError(t, err)
+			contextType := dwarfStruct(t, data, typeName)
+			pathOffset := uint64(dwarfStructField(t, contextType, "path").ByteOffset)
+			requestOffset := uint64(dwarfStructField(t, contextType, "request").ByteOffset)
+			track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+			require.NoError(t, err)
+			assertPrefetchedOffset(t, track, typeName, "path", version, pathOffset)
+			assertPrefetchedOffset(t, track, typeName, "request", version, requestOffset)
+			for _, stripped := range []bool{false, true} {
+				t.Run(fmt.Sprintf("stripped=%t", stripped), func(t *testing.T) {
+					file := debugFile
+					if stripped {
+						var err error
+						file, err = compileELFWithEnv(source, []string{"GOARCH=" + arch}, "-ldflags", "-s -w")
+						require.NoError(t, err)
+						t.Cleanup(func() { require.NoError(t, file.Close()) })
+					}
+					if !stripped {
+						fields, _ := structMemberOffsetsFromDwarf(data)
+						require.Equal(t, pathOffset, fields[pathField])
+						require.Equal(t, requestOffset, fields[requestField])
+					} else {
+						fields, err := structMemberOffsets(file)
+						require.NoError(t, err)
+						require.Equal(t, pathOffset, fields[pathField])
+						require.Equal(t, requestOffset, fields[requestField])
+					}
+					// Instruction decoding is compiled for the host architecture.
+					if arch != runtime.GOARCH {
+						return
+					}
+					points, err := instrumentationPoints(file, []string{symbol})
+					require.NoError(t, err)
+					require.NotEmpty(t, points[symbol])
+					for _, point := range points[symbol] {
+						require.NotZero(t, point.Start)
+						require.NotEmpty(t, point.Returns)
+					}
+				})
+			}
+		})
+	}
 }
 
 func TestRestfulOffsetsWithoutDwarf(t *testing.T) {

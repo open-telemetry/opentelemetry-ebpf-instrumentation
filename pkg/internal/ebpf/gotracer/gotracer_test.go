@@ -155,6 +155,52 @@ func TestSetFramerPaddingOffsetUsesExactLayout(t *testing.T) {
 	assert.Equal(t, missingGoOffset, offTable.Table[goexec.FramerPadLengthStackPos])
 }
 
+func TestEchoV4ProbesFollowRouteHarvesting(t *testing.T) {
+	disableContextPropagationForTest(t)
+	const symbol = "github.com/labstack/echo/v4.(*Router).Find"
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+	require.Contains(t, spec.Programs, "obi_uprobe_echoV4Find")
+	require.Contains(t, spec.Programs, "obi_uprobe_echoV4FindReturns")
+	assert.NotContains(t, spec.Maps, "ongoing_echo_v4_routes")
+	assert.NotContains(t, spec.Maps, "ongoing_echo_v5_routes")
+	require.Contains(t, spec.Maps, "ongoing_http_server_requests")
+
+	tracer := &Tracer{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	entry, exit := new(ebpf.Program), new(ebpf.Program)
+	tracer.bpfObjects.ObiUprobeEchoV4Find = entry
+	tracer.bpfObjects.ObiUprobeEchoV4FindReturns = exit
+	probes := tracer.GoProbes()
+	require.Len(t, probes[symbol], 1)
+	assert.Same(t, entry, probes[symbol][0].Start)
+	assert.Same(t, exit, probes[symbol][0].End)
+	tracer.disabledRouteHarvesting = true
+	assert.NotContains(t, tracer.GoProbes(), symbol)
+}
+
+func TestEchoV5ProbesFollowRouteHarvesting(t *testing.T) {
+	disableContextPropagationForTest(t)
+	const symbol = "github.com/labstack/echo/v5.(*DefaultRouter).Route"
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+	require.Contains(t, spec.Programs, "obi_uprobe_echoV5Route")
+	require.Contains(t, spec.Programs, "obi_uprobe_echoV5RouteReturns")
+	assert.NotContains(t, spec.Maps, "ongoing_echo_v4_routes")
+	assert.NotContains(t, spec.Maps, "ongoing_echo_v5_routes")
+	require.Contains(t, spec.Maps, "ongoing_http_server_requests")
+
+	tracer := &Tracer{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	entry, exit := new(ebpf.Program), new(ebpf.Program)
+	tracer.bpfObjects.ObiUprobeEchoV5Route = entry
+	tracer.bpfObjects.ObiUprobeEchoV5RouteReturns = exit
+	probes := tracer.GoProbes()
+	require.Len(t, probes[symbol], 1)
+	assert.Same(t, entry, probes[symbol][0].Start)
+	assert.Same(t, exit, probes[symbol][0].End)
+	tracer.disabledRouteHarvesting = true
+	assert.NotContains(t, tracer.GoProbes(), symbol)
+}
+
 func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 	disableContextPropagationForTest(t)
 
@@ -257,6 +303,27 @@ func TestMissingGoGRPCBufWriterOffsetsUseSentinel(t *testing.T) {
 	} {
 		assert.Zero(t, offTable.Table[field])
 	}
+}
+
+func TestEchoOffsetsUseSentinelAndPreserveZero(t *testing.T) {
+	var offTable BpfOffTableT
+	setEchoOffsets(&offTable, &goexec.Offsets{})
+	for _, field := range []goexec.GoOffset{
+		goexec.EchoV4ContextPathPos,
+		goexec.EchoV5ContextPathPos,
+		goexec.EchoV4ContextRequestPos,
+		goexec.EchoV5ContextRequestPos,
+	} {
+		assert.Equal(t, missingGoOffset, offTable.Table[field])
+	}
+	setEchoOffsets(&offTable, &goexec.Offsets{Field: goexec.FieldOffsets{
+		goexec.EchoV5ContextRequestPos: uint64(0),
+		goexec.EchoV4ContextPathPos:    uint64(88),
+	}})
+	assert.Zero(t, offTable.Table[goexec.EchoV5ContextRequestPos])
+	assert.Equal(t, uint64(88), offTable.Table[goexec.EchoV4ContextPathPos])
+	assert.Equal(t, missingGoOffset, offTable.Table[goexec.EchoV4ContextRequestPos])
+	assert.Equal(t, missingGoOffset, offTable.Table[goexec.EchoV5ContextPathPos])
 }
 
 func TestGoAutoSDKSpanContextOffsetsUseSentinelAndPreserveZero(t *testing.T) {

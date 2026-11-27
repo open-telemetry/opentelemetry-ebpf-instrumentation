@@ -576,6 +576,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	initMissingGoOffsets(&offTable, goHTTPClientRequestOffsetFields[:])
 	initMissingGoOffsets(&offTable, goAutoSDKSpanContextOffsetFields[:])
 	initMissingGoOffsets(&offTable, goGRPCBufWriterOffsetFields[:])
+	setEchoOffsets(&offTable, offsets)
 	initMissingGoOffsets(&offTable, []goexec.GoOffset{
 		goexec.ReqProtoMajorPos,
 		goexec.ReqProtoMinorPos,
@@ -922,6 +923,21 @@ func setFramerPaddingOffset(
 		if fn.Symbol == symbol && fn.PadStart != 0 && fn.PadOffset != 0 {
 			offTable.Table[field] = fn.PadOffset
 			return
+		}
+	}
+}
+
+func setEchoOffsets(offTable *BpfOffTableT, offsets *goexec.Offsets) {
+	fields := [...]goexec.GoOffset{
+		goexec.EchoV5ContextPathPos,
+		goexec.EchoV4ContextPathPos,
+		goexec.EchoV5ContextRequestPos,
+		goexec.EchoV4ContextRequestPos,
+	}
+	initMissingGoOffsets(offTable, fields[:])
+	for _, field := range fields {
+		if value, ok := offsets.Field[field].(uint64); ok {
+			offTable.Table[field] = value
 		}
 	}
 }
@@ -2385,6 +2401,14 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		// go-restful router
 		m["github.com/emicklei/go-restful/v3.(*Route).wrapRequestResponse"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeRestfulRouteWrapRequestResponse,
+		}}
+		m["github.com/labstack/echo/v5.(*DefaultRouter).Route"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeEchoV5Route,
+			End:   p.bpfObjects.ObiUprobeEchoV5RouteReturns,
+		}}
+		m["github.com/labstack/echo/v4.(*Router).Find"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeEchoV4Find,
+			End:   p.bpfObjects.ObiUprobeEchoV4FindReturns,
 		}}
 	}
 

@@ -10,6 +10,8 @@ import (
 	"github.com/caarlos0/env/v11"
 	gin2 "github.com/gin-gonic/gin"
 
+	"go.opentelemetry.io/obi/internal/test/integration/components/testserver/echo"
+	"go.opentelemetry.io/obi/internal/test/integration/components/testserver/echo-v4"
 	"go.opentelemetry.io/obi/internal/test/integration/components/testserver/gin"
 	"go.opentelemetry.io/obi/internal/test/integration/components/testserver/go-restful"
 	"go.opentelemetry.io/obi/internal/test/integration/components/testserver/gorilla"
@@ -42,6 +44,8 @@ type config struct {
 	GRPCTLSPort     int    `env:"GRPC_TLS_PORT" envDefault:"50051"`
 	JSONRPCPort     int    `env:"JSRONRPC_PORT" envDefault:"8088"`
 	RestfulPort     int    `env:"RESTFUL_PORT" envDefault:"8089"`
+	EchoPort        int    `env:"ECHO_PORT" envDefault:"8099"`
+	EchoV4Port      int    `env:"ECHO_V4_PORT" envDefault:"8098"`
 	LogLevel        string `env:"LOG_LEVEL" envDefault:"INFO"`
 }
 
@@ -69,6 +73,14 @@ func main() {
 	}()
 	go func() {
 		restful.Setup(cfg.RestfulPort)
+		close(wait)
+	}()
+	go func() {
+		echo.Setup(cfg.EchoPort)
+		close(wait)
+	}()
+	go func() {
+		echov4.Setup(cfg.EchoV4Port)
 		close(wait)
 	}()
 	go func() {

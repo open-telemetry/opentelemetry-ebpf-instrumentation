@@ -101,6 +101,7 @@ int GUARDED_PROG(obi_uprobe_ServeHTTP, struct pt_regs *, ctx) {
 
     bpf_memset(invocation, 0, sizeof(*invocation));
     invocation->start_monotime_ns = bpf_ktime_get_ns();
+    invocation->request_addr = (u64)req;
 
     if (req) {
         server_trace_parent(goroutine_addr, &invocation->tp, decoded_tp);
@@ -315,6 +316,98 @@ int GUARDED_PROG(obi_uprobe_restfulRouteWrapRequestResponse, struct pt_regs *, c
     // The selected route is more specific than the outer ServeMux pattern.
     read_go_str("pattern", route, path_off, invocation->pattern, k_pattern_max_len);
 
+    return 0;
+}
+
+static __always_inline void save_echo_context(const go_addr_key_t *g_key, void *context) {
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, g_key);
+    if (invocation) {
+        invocation->echo_context = (u64)context;
+    }
+}
+
+static __always_inline void
+harvest_echo_route(const go_addr_key_t *g_key, const u64 path_off, const u64 request_off) {
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, g_key);
+    if (!invocation) {
+        return;
+    }
+    void *context = (void *)invocation->echo_context;
+    invocation->echo_context = 0;
+    if (!context || path_off == (u64)-1 || request_off == (u64)-1 || !invocation->request_addr) {
+        return;
+    }
+
+    u64 request_addr = 0;
+    if (bpf_probe_read_user(&request_addr, sizeof(request_addr), context + request_off) ||
+        request_addr != invocation->request_addr) {
+        return;
+    }
+
+    go_string_t path = {};
+    if (bpf_probe_read_user(&path, sizeof(path), context + path_off) || !path.str ||
+        path.len <= 0) {
+        return;
+    }
+
+    server_http_func_invocation_t *scratch = serve_http_inv_mem();
+    if (!scratch) {
+        return;
+    }
+    unsigned char *pattern = scratch->pattern;
+    bpf_memset(pattern, 0, sizeof(scratch->pattern));
+    u64 size = path.len;
+    bpf_clamp_umax(size, sizeof(scratch->pattern) - 1);
+    if (bpf_probe_read_user(pattern, size, path.str) || pattern[0] != '/') {
+        return;
+    }
+
+    // Read final router state, including 405 metadata, before replacing an outer ServeMux match.
+    bpf_memcpy(invocation->pattern, pattern, sizeof(scratch->pattern));
+}
+
+SEC("uprobe/echoV4Find")
+int GUARDED_PROG(obi_uprobe_echoV4Find, struct pt_regs *, ctx) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+
+    // Receiver, two strings, then Context's type and data words.
+    save_echo_context(&g_key, GO_PARAM7(ctx));
+    return 0;
+}
+
+SEC("uprobe/echoV4FindReturns")
+int GUARDED_PROG(obi_uprobe_echoV4FindReturns, struct pt_regs *, ctx) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+
+    off_table_t *ot = get_offsets_table();
+    harvest_echo_route(&g_key,
+                       go_offset_of(ot, (go_offset){.v = _echo_v4_context_path_pos}),
+                       go_offset_of(ot, (go_offset){.v = _echo_v4_context_request_pos}));
+    return 0;
+}
+
+SEC("uprobe/echoV5Route")
+int GUARDED_PROG(obi_uprobe_echoV5Route, struct pt_regs *, ctx) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+
+    save_echo_context(&g_key, GO_PARAM2(ctx));
+    return 0;
+}
+
+SEC("uprobe/echoV5RouteReturns")
+int GUARDED_PROG(obi_uprobe_echoV5RouteReturns, struct pt_regs *, ctx) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+
+    off_table_t *ot = get_offsets_table();
+    harvest_echo_route(&g_key,
+                       go_offset_of(ot, (go_offset){.v = _echo_v5_context_path_pos}),
+                       go_offset_of(ot, (go_offset){.v = _echo_v5_context_request_pos}));
     return 0;
 }
 
