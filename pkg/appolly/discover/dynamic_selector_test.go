@@ -506,13 +506,15 @@ func TestDynamicSelector_SetPID_UpdatesFileInfo(t *testing.T) {
 			DynamicSelectorPID: 42,
 		},
 	})
+	fi.SetAutoServiceNamespace("acme")
 	d.RegisterFileInfo(42, fi)
 
 	entry := selection.DynamicPIDEntry{
 		PID:         42,
 		ServiceName: "live-svc",
 		ResourceAttributes: map[string]string{
-			"team": "payments",
+			"team":              "payments",
+			"service.namespace": "payments",
 		},
 	}
 	require.True(t, d.SetPID(entry))
@@ -520,6 +522,8 @@ func TestDynamicSelector_SetPID_UpdatesFileInfo(t *testing.T) {
 	snap := fi.ServiceAttrs()
 	assert.Equal(t, "live-svc", snap.UID.Name)
 	assert.Equal(t, "payments", snap.Metadata["team"])
+	assert.Equal(t, "payments", snap.UID.Namespace)
+	assert.False(t, snap.AutoNamespace())
 }
 
 func TestDynamicSelector_SetPID_NotifiesFileInfoUpdate(t *testing.T) {

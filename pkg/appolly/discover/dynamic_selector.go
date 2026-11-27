@@ -4,6 +4,7 @@
 package discover // import "go.opentelemetry.io/obi/pkg/appolly/discover"
 
 import (
+	"cmp"
 	"context"
 	"iter"
 	"maps"
@@ -38,6 +39,10 @@ type dynamicPIDAttributes struct {
 	serviceName        string
 	serviceNamespace   string
 	resourceAttributes map[string]string
+}
+
+func (a dynamicPIDAttributes) namespace() string {
+	return cmp.Or(a.resourceAttributes[string(attr.ServiceNamespace)], a.serviceNamespace)
 }
 
 func (a dynamicPIDAttributes) equal(b dynamicPIDAttributes) bool {
@@ -445,8 +450,8 @@ func (d *DynamicSelector) applyAttrsToInstrumented(pid app.PID, attrs dynamicPID
 		return
 	}
 	updated := false
-	if attrs.serviceName != "" || attrs.serviceNamespace != "" {
-		fi.SetSelectedServiceIdentity(attrs.serviceName, attrs.serviceNamespace)
+	if namespace := attrs.namespace(); attrs.serviceName != "" || namespace != "" {
+		fi.SetSelectedServiceIdentity(attrs.serviceName, namespace)
 		updated = true
 	}
 	if len(attrs.resourceAttributes) > 0 {
@@ -570,7 +575,7 @@ func newDynamicPIDCriteriaAdapter(pid app.PID, attrs dynamicPIDAttributes) *dyna
 }
 
 func (a *dynamicPIDCriteriaAdapter) GetName() string      { return a.attrs.serviceName }
-func (a *dynamicPIDCriteriaAdapter) GetNamespace() string { return a.attrs.serviceNamespace }
+func (a *dynamicPIDCriteriaAdapter) GetNamespace() string { return a.attrs.namespace() }
 func (a *dynamicPIDCriteriaAdapter) GetPath() services.StringMatcher {
 	return &emptyMatcher{}
 }
