@@ -39,19 +39,25 @@ func (d *rustDwarfTypes) typeOffset(t dwarf.Type) (dwarf.Offset, error) {
 func (d *rustDwarfTypes) variant(offset dwarf.Offset, name string) (uint32, dwarf.Type, error) {
 	r := d.data.Reader()
 	r.Seek(offset)
-	depth := 0
+	parent, err := r.Next()
+	if err != nil {
+		return 0, nil, err
+	}
+	if parent == nil || !parent.Children {
+		return 0, nil, fmt.Errorf("rust variant %s is missing", name)
+	}
 
-	for {
+	for depth := 1; depth > 0; {
 		e, err := r.Next()
-		if err != nil || e == nil {
+		if err != nil {
+			return 0, nil, err
+		}
+		if e == nil {
 			break
 		}
 
 		if e.Tag == 0 {
 			depth--
-			if depth == 0 {
-				break
-			}
 			continue
 		}
 
@@ -178,32 +184,44 @@ func (d *rustDwarfTypes) callback(t dwarf.Type, path ...string) (uint32, uint32,
 		return 0, 0, 0, err
 	}
 
-	option, sender, err := d.path(callback, "Retry", "__0")
+	retrySome, retryPointer, err := d.callbackSender(callback, base, "Retry")
 	if err != nil {
 		return 0, 0, 0, err
 	}
-
-	some, err := d.discriminant(sender)
-
-	pointerPath := []string{"inner", "Some", "__0", "ptr", "pointer"}
-	if err == nil {
-		some += base + option
-		pointerPath = append([]string{"Some", "__0"}, pointerPath...)
-	} else {
-		some = 0
+	noRetrySome, noRetryPointer, err := d.callbackSender(callback, base, "NoRetry")
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if retrySome != noRetrySome || retryPointer != noRetryPointer {
+		return 0, 0, 0, errors.New("rust callback variants have different sender layouts")
 	}
 
-	pointer, ptrType, err := d.path(sender, pointerPath...)
+	return base + tag, retrySome, retryPointer, nil
+}
+
+// Both callback variants use one BPF layout. A plain sender has no outer Some tag.
+func (d *rustDwarfTypes) callbackSender(callback dwarf.Type, base uint32, variant string) (uint32, uint32, error) {
+	offset, sender, err := d.path(callback, variant, "__0")
+	if err != nil {
+		return 0, 0, fmt.Errorf("rust callback %s sender: %w", variant, err)
+	}
+	base += offset
+
+	var some uint32
+	if tag, err := d.discriminant(sender); err == nil {
+		some = base + tag
+		offset, sender, err = d.path(sender, "Some", "__0")
+		if err != nil {
+			return 0, 0, fmt.Errorf("rust callback %s option: %w", variant, err)
+		}
+		base += offset
+	}
+
+	offset, ptrType, err := d.path(sender, "inner", "Some", "__0", "ptr", "pointer")
 	if err != nil || ptrType.Size() != 8 {
-		return 0, 0, 0, errors.New("rust oneshot pointer is not validated")
+		return 0, 0, fmt.Errorf("rust callback %s oneshot pointer is not validated", variant)
 	}
-
-	other, _, err := d.path(callback, append([]string{"NoRetry", "__0"}, pointerPath...)...)
-	if err != nil || other != option+pointer {
-		return 0, 0, 0, errors.New("rust callback variants have different pointer locations")
-	}
-
-	return base + tag, some, base + option + pointer, nil
+	return some, base + offset, nil
 }
 
 // messageLayouts measures the Tokio queue slots, callback fields, and request headers for each supported Hyper envelope type.

@@ -194,7 +194,7 @@ type testELFSection struct {
 	Data []byte
 }
 
-func testELF(t *testing.T, sections []testELFSection) *elf.File {
+func testELFImage(t *testing.T, sections []testELFSection) []byte {
 	t.Helper()
 
 	var names []byte
@@ -244,7 +244,12 @@ func testELF(t *testing.T, sections []testELFSection) *elf.File {
 		require.NoError(t, binary.Write(&data, binary.LittleEndian, sectionHeader))
 	}
 
-	f, err := elf.NewFile(bytes.NewReader(data.Bytes()))
+	return data.Bytes()
+}
+
+func testELF(t *testing.T, sections []testELFSection) *elf.File {
+	t.Helper()
+	f, err := elf.NewFile(bytes.NewReader(testELFImage(t, sections)))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, f.Close()) })
 	return f
