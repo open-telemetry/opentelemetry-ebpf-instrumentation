@@ -811,6 +811,80 @@ Name, from the first template that applies: `{messaging.operation.name} {messagi
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
+## `obi.messaging.rabbitmq.client`
+
+OBI RabbitMQ (AMQP 0-9-1) span for a Basic.Get-Ok, a pulled message.
+
+| Span kind | Stability |
+| --- | --- |
+| client | development |
+
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `messaging.destination.name` | string | `required` | development | The message destination name | MyQueue; MyTopic |
+| `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
+| `messaging.operation.type` | enum | `conditionally_required`: upstream declares it conditional; OBI always emits it, since group membership requires the operation to have been parsed | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
+| `messaging.rabbitmq.destination.routing_key` | string | `conditionally_required`: if the routing key is not empty | development | RabbitMQ message routing key. | myKey |
+| `messaging.rabbitmq.message.delivery_tag` | int | `required` | development | RabbitMQ message delivery tag | 123 |
+| `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
+| `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
+| `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
+| `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+
+## `obi.messaging.rabbitmq.consumer`
+
+OBI RabbitMQ (AMQP 0-9-1) span for a Basic.Deliver.
+
+| Span kind | Stability |
+| --- | --- |
+| consumer | development |
+
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `messaging.destination.name` | string | `required` | development | The message destination name | MyQueue; MyTopic |
+| `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
+| `messaging.operation.type` | enum | `conditionally_required`: upstream declares it conditional; OBI always emits it, since group membership requires the operation to have been parsed | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
+| `messaging.rabbitmq.destination.routing_key` | string | `conditionally_required`: if the routing key is not empty | development | RabbitMQ message routing key. | myKey |
+| `messaging.rabbitmq.message.delivery_tag` | int | `required` | development | RabbitMQ message delivery tag | 123 |
+| `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
+| `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
+| `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
+| `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+
+## `obi.messaging.rabbitmq.producer`
+
+OBI RabbitMQ (AMQP 0-9-1) span for a Basic.Publish.
+
+| Span kind | Stability |
+| --- | --- |
+| producer | development |
+
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `messaging.destination.name` | string | `required` | development | The message destination name | MyQueue; MyTopic |
+| `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
+| `messaging.operation.type` | enum | `conditionally_required`: upstream declares it conditional; OBI always emits it, since group membership requires the operation to have been parsed | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
+| `messaging.rabbitmq.destination.routing_key` | string | `conditionally_required`: if the routing key is not empty | development | RabbitMQ message routing key. | myKey |
+| `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
+| `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
+| `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
+| `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+
 ## `obi.request.phase`
 
 OBI child span splitting a request that waited before it was processed into its queued and processing phases.

@@ -805,6 +805,53 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpType), "send")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpName), "publish")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingSystem), "amqp")
+		ensureTraceAttrNotExists(t, attrs, semconv.MessagingDestinationNameKey)
+	})
+
+	t.Run("test RabbitMQ trace generation", func(t *testing.T) {
+		publish := request.Span{
+			Type:          request.EventTypeAMQPClient,
+			SubType:       request.AMQPSubtype091,
+			Method:        request.MessagingPublish,
+			Path:          "logs:warning",
+			HostPort:      5672,
+			MessagingInfo: &request.MessagingInfo{RoutingKey: "warning"},
+		}
+		deliver := request.Span{
+			Type:          request.EventTypeAMQPClient,
+			SubType:       request.AMQPSubtype091,
+			Method:        request.MessagingProcess,
+			Path:          "logs:warning",
+			HostPort:      5672,
+			MessagingInfo: &request.MessagingInfo{RoutingKey: "warning", DeliveryTag: 7, HasDeliveryTag: true},
+		}
+
+		for _, tc := range []struct {
+			span request.Span
+			name string
+			kind ptrace.SpanKind
+		}{
+			{publish, "publish logs:warning", ptrace.SpanKindProducer},
+			{deliver, "process logs:warning", ptrace.SpanKindConsumer},
+		} {
+			tAttrs := tracesgen.TraceAttributesSelector(&tc.span, map[attr.Name]struct{}{})
+			traces := tracesgen.GenerateTracesWithAttributes(cache, &tc.span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&tc.span, tAttrs), reporterName)
+
+			spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+			assert.Equal(t, tc.name, spans.At(0).Name())
+			assert.Equal(t, tc.kind, spans.At(0).Kind())
+
+			attrs := spans.At(0).Attributes()
+			ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingSystem), "rabbitmq")
+			ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "logs:warning")
+			ensureTraceStrAttr(t, attrs, semconv.MessagingRabbitMQDestinationRoutingKeyKey, "warning")
+			ensureTraceIntAttr(t, attrs, semconv.ServerPortKey, 5672)
+			if tc.span.MessagingInfo.HasDeliveryTag {
+				ensureTraceIntAttr(t, attrs, semconv.MessagingRabbitMQMessageDeliveryTagKey, 7)
+			} else {
+				ensureTraceAttrNotExists(t, attrs, semconv.MessagingRabbitMQMessageDeliveryTagKey)
+			}
+		}
 	})
 
 	t.Run("test Kafka trace generation omits unknown operation type", func(t *testing.T) {

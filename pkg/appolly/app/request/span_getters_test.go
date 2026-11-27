@@ -1088,6 +1088,20 @@ func TestSpanOTELGetters_MessagingAttributes_NATS(t *testing.T) {
 	assert.Equal(t, MessagingProcess, opTypeGetter(span).Value.AsString())
 }
 
+// AMQP 0-9-1 is RabbitMQ's protocol; AMQP 1.0 spans keep the protocol name
+func TestSpanOTELGetters_MessagingAttributes_AMQP(t *testing.T) {
+	systemGetter, ok := spanOTELGetters(attr.MessagingSystem)
+	require.True(t, ok)
+	destinationGetter, ok := spanOTELGetters(attr.MessagingDestination)
+	require.True(t, ok)
+
+	rabbitmq := &Span{Type: EventTypeAMQPClient, SubType: AMQPSubtype091, Method: MessagingProcess, Path: "tasks"}
+	assert.Equal(t, "rabbitmq", systemGetter(rabbitmq).Value.AsString())
+	assert.Equal(t, "tasks", destinationGetter(rabbitmq).Value.AsString())
+
+	assert.Equal(t, "amqp", systemGetter(&Span{Type: EventTypeAMQPClient, Method: MessagingProcess}).Value.AsString())
+}
+
 // AMQP spans carry no destination: the attribute is omitted, not emitted empty.
 func TestSpanOTELGetters_MessagingDestinationOmittedWhenUnknown(t *testing.T) {
 	getter, ok := spanOTELGetters(attr.MessagingDestination)

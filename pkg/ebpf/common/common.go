@@ -720,6 +720,9 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoChannelLink:
 		return readGoChannelLinkEvent(parseCtx, record)
+	case EventTypeAMQPMessage:
+		span, ignore, err := ReadAMQP091MessageIntoSpan(record, filter)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	}
 
 	event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)

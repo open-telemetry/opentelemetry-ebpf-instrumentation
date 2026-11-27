@@ -710,6 +710,24 @@ func messagingOperationAttrs(method string) []attribute.KeyValue {
 	}
 }
 
+func rabbitMQAttributes(span *request.Span) []attribute.KeyValue {
+	attrs := []attribute.KeyValue{
+		request.ServerPort(span.HostPort),
+		semconv.MessagingSystemRabbitMQ,
+	}
+	attrs = appendIfSet(attrs, semconv.MessagingDestinationName, span.Path)
+
+	info := span.MessagingInfo
+	if info == nil {
+		return attrs
+	}
+	attrs = appendIfSet(attrs, semconv.MessagingRabbitMQDestinationRoutingKey, info.RoutingKey)
+	if info.HasDeliveryTag {
+		attrs = append(attrs, semconv.MessagingRabbitMQMessageDeliveryTag(int(info.DeliveryTag)))
+	}
+	return attrs
+}
+
 func appendMessagingSubscription(attrs []attribute.KeyValue, span *request.Span) []attribute.KeyValue {
 	if span.MessagingInfo == nil {
 		return attrs
@@ -1788,9 +1806,13 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = appendPeerService(attrs, span, optionalAttrs)
 		}
 	case request.EventTypeAMQPClient:
-		attrs = []attribute.KeyValue{
-			request.ServerPort(span.HostPort),
-			messagingSystemAMQP,
+		if span.SubType == request.AMQPSubtype091 {
+			attrs = rabbitMQAttributes(span)
+		} else {
+			attrs = []attribute.KeyValue{
+				request.ServerPort(span.HostPort),
+				messagingSystemAMQP,
+			}
 		}
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
