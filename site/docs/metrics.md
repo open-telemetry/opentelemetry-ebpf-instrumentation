@@ -424,6 +424,38 @@ OBI-emitted go.schedule.duration
 
 No attributes.
 
+## `gpu.clock.frequency`
+
+Frequency of a clock of the GPU.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| gauge | Hz | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `gpu.clock.type` | enum | `recommended` | development | Which clock of the GPU a frequency belongs to. | processor; memory |
+| `hw.driver_version` | string | `opt_in` | development | Driver version for the hardware component | 10.2.1-3 |
+| `hw.id` | string | `required` | development | An identifier for the hardware component, unique within the monitored host | win32battery_battery_testsysa33_1 |
+| `hw.model` | string | `recommended` | development | Descriptive model name of the hardware component | PERC H740P; Intel(R) Core(TM) i7-10700K; Dell XPS 15 Battery |
+| `hw.vendor` | string | `opt_in` | development | Vendor name of the hardware component | Dell; HP; Intel; AMD; LSI; Lenovo |
+
+## `gpu.clock.throttled`
+
+Whether a reason is currently limiting the clocks of the GPU: `1` (true) or `0` (false) for each reason.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `gpu.clock.throttle.reason` | enum | `recommended` | development | A reason for which the NVIDIA driver can limit the clocks of a GPU. | sw_power_cap; hw_slowdown; sync_boost; sw_thermal_slowdown; hw_thermal_slowdown; hw_power_brake_slowdown |
+| `hw.driver_version` | string | `opt_in` | development | Driver version for the hardware component | 10.2.1-3 |
+| `hw.id` | string | `required` | development | An identifier for the hardware component, unique within the monitored host | win32battery_battery_testsysa33_1 |
+| `hw.model` | string | `recommended` | development | Descriptive model name of the hardware component | PERC H740P; Intel(R) Core(TM) i7-10700K; Dell XPS 15 Battery |
+| `hw.vendor` | string | `opt_in` | development | Vendor name of the hardware component | Dell; HP; Intel; AMD; LSI; Lenovo |
+
 ## `gpu.cuda.device.synchronize.calls`
 
 Count of CUDA device synchronizations observed (cudaDeviceSynchronize).
@@ -635,6 +667,148 @@ Count of CUDA stream synchronizations observed (cudaStreamSynchronize).
 | `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
 | `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
 
+## `gpu.memory.activity`
+
+Fraction of time during the last sample period that the GPU memory was being read or written.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| gauge | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `hw.driver_version` | string | `opt_in` | development | Driver version for the hardware component | 10.2.1-3 |
+| `hw.id` | string | `required` | development | An identifier for the hardware component, unique within the monitored host | win32battery_battery_testsysa33_1 |
+| `hw.model` | string | `recommended` | development | Descriptive model name of the hardware component | PERC H740P; Intel(R) Core(TM) i7-10700K; Dell XPS 15 Battery |
+| `hw.vendor` | string | `opt_in` | development | Vendor name of the hardware component | Dell; HP; Intel; AMD; LSI; Lenovo |
+
+## `gpu.memory.remapped_rows`
+
+Memory rows that the GPU replaced with spare ones, by the kind of memory error that caused it.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| gauge | {row} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `recommended` | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `hw.driver_version` | string | `opt_in` | development | Driver version for the hardware component | 10.2.1-3 |
+| `hw.id` | string | `required` | development | An identifier for the hardware component, unique within the monitored host | win32battery_battery_testsysa33_1 |
+| `hw.model` | string | `recommended` | development | Descriptive model name of the hardware component | PERC H740P; Intel(R) Core(TM) i7-10700K; Dell XPS 15 Battery |
+| `hw.vendor` | string | `opt_in` | development | Vendor name of the hardware component | Dell; HP; Intel; AMD; LSI; Lenovo |
+
+## `gpu.memory.reserved`
+
+GPU memory that the driver reserves for itself.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | By | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `hw.driver_version` | string | `opt_in` | development | Driver version for the hardware component | 10.2.1-3 |
+| `hw.id` | string | `required` | development | An identifier for the hardware component, unique within the monitored host | win32battery_battery_testsysa33_1 |
+| `hw.model` | string | `recommended` | development | Descriptive model name of the hardware component | PERC H740P; Intel(R) Core(TM) i7-10700K; Dell XPS 15 Battery |
+| `hw.vendor` | string | `opt_in` | development | Vendor name of the hardware component | Dell; HP; Intel; AMD; LSI; Lenovo |
+
+## `gpu.pcie.replays`
+
+PCIe packets that the link of the GPU had to send again, since the driver was loaded.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {replay} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `hw.driver_version` | string | `opt_in` | development | Driver version for the hardware component | 10.2.1-3 |
+| `hw.id` | string | `required` | development | An identifier for the hardware component, unique within the monitored host | win32battery_battery_testsysa33_1 |
+| `hw.model` | string | `recommended` | development | Descriptive model name of the hardware component | PERC H740P; Intel(R) Core(TM) i7-10700K; Dell XPS 15 Battery |
+| `hw.vendor` | string | `opt_in` | development | Vendor name of the hardware component | Dell; HP; Intel; AMD; LSI; Lenovo |
+
+## `gpu.process.memory.usage`
+
+GPU memory that a process is using.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | By | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `hw.driver_version` | string | `opt_in` | development | Driver version for the hardware component | 10.2.1-3 |
+| `hw.id` | string | `required` | development | An identifier for the hardware component, unique within the monitored host | win32battery_battery_testsysa33_1 |
+| `hw.model` | string | `recommended` | development | Descriptive model name of the hardware component | PERC H740P; Intel(R) Core(TM) i7-10700K; Dell XPS 15 Battery |
+| `hw.vendor` | string | `opt_in` | development | Vendor name of the hardware component | Dell; HP; Intel; AMD; LSI; Lenovo |
+| `k8s.cluster.name` | string | `recommended` | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.container.name` | string | `recommended` | release_candidate | The name of the Container from Pod specification, must be unique within a Pod. Container runtime usually uses different globally unique name (`container.name`). | redis |
+| `k8s.cronjob.name` | string | `recommended` | release_candidate | The name of the CronJob. | opentelemetry |
+| `k8s.daemonset.name` | string | `recommended` | release_candidate | The name of the DaemonSet. | opentelemetry |
+| `k8s.deployment.name` | string | `recommended` | release_candidate | The name of the Deployment. | opentelemetry |
+| `k8s.job.name` | string | `recommended` | release_candidate | The name of the Job. | opentelemetry |
+| `k8s.kind` | string | `recommended` | development | Kind of the top-level Kubernetes owner of the decorated Pod (falls back to the direct owner's kind when no top-level owner is resolved). Deliberately never `Pod`, to bound label cardinality. | Deployment; StatefulSet |
+| `k8s.namespace.name` | string | `recommended` | release_candidate | The name of the namespace that the pod is running in. | default |
+| `k8s.node.name` | string | `recommended` | release_candidate | The name of the Node. | node-1 |
+| `k8s.owner.name` | string | `recommended` | development | Name of the top-level Kubernetes owner (Deployment, StatefulSet, DaemonSet, CronJob, …) of the Pod OBI decorated the signal with. | frontend |
+| `k8s.pod.name` | string | `recommended` | release_candidate | The name of the Pod. | opentelemetry-pod-autoconf |
+| `k8s.pod.start_time` | string | `recommended` | release_candidate | The start timestamp of the Pod. | 2025-12-04T08:41:03Z |
+| `k8s.pod.uid` | string | `recommended` | release_candidate | The UID of the Pod. | 275ecb36-5aa8-4c2a-9c47-d8bb681b9aff |
+| `k8s.replicaset.name` | string | `recommended` | release_candidate | The name of the ReplicaSet. | opentelemetry |
+| `k8s.statefulset.name` | string | `recommended` | release_candidate | The name of the StatefulSet. | opentelemetry |
+| `process.executable.name` | string | `recommended` | development | The name of the process executable. On Linux based systems, this SHOULD be set to the base name of the target of `/proc/[pid]/exe`. On Windows, this SHOULD be set to the base name of `GetProcessImageFileNameW`. | otelcol |
+| `process.pid` | int | `recommended` | development | Process identifier (PID). | 1234 |
+
+## `gpu.process.utilization`
+
+Fraction of time the GPU spent on a task of a process.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| gauge | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `hw.driver_version` | string | `opt_in` | development | Driver version for the hardware component | 10.2.1-3 |
+| `hw.gpu.task` | enum | `recommended` | development | Type of task the GPU is performing | decoder; encoder; general |
+| `hw.id` | string | `required` | development | An identifier for the hardware component, unique within the monitored host | win32battery_battery_testsysa33_1 |
+| `hw.model` | string | `recommended` | development | Descriptive model name of the hardware component | PERC H740P; Intel(R) Core(TM) i7-10700K; Dell XPS 15 Battery |
+| `hw.vendor` | string | `opt_in` | development | Vendor name of the hardware component | Dell; HP; Intel; AMD; LSI; Lenovo |
+| `k8s.cluster.name` | string | `recommended` | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.container.name` | string | `recommended` | release_candidate | The name of the Container from Pod specification, must be unique within a Pod. Container runtime usually uses different globally unique name (`container.name`). | redis |
+| `k8s.cronjob.name` | string | `recommended` | release_candidate | The name of the CronJob. | opentelemetry |
+| `k8s.daemonset.name` | string | `recommended` | release_candidate | The name of the DaemonSet. | opentelemetry |
+| `k8s.deployment.name` | string | `recommended` | release_candidate | The name of the Deployment. | opentelemetry |
+| `k8s.job.name` | string | `recommended` | release_candidate | The name of the Job. | opentelemetry |
+| `k8s.kind` | string | `recommended` | development | Kind of the top-level Kubernetes owner of the decorated Pod (falls back to the direct owner's kind when no top-level owner is resolved). Deliberately never `Pod`, to bound label cardinality. | Deployment; StatefulSet |
+| `k8s.namespace.name` | string | `recommended` | release_candidate | The name of the namespace that the pod is running in. | default |
+| `k8s.node.name` | string | `recommended` | release_candidate | The name of the Node. | node-1 |
+| `k8s.owner.name` | string | `recommended` | development | Name of the top-level Kubernetes owner (Deployment, StatefulSet, DaemonSet, CronJob, …) of the Pod OBI decorated the signal with. | frontend |
+| `k8s.pod.name` | string | `recommended` | release_candidate | The name of the Pod. | opentelemetry-pod-autoconf |
+| `k8s.pod.start_time` | string | `recommended` | release_candidate | The start timestamp of the Pod. | 2025-12-04T08:41:03Z |
+| `k8s.pod.uid` | string | `recommended` | release_candidate | The UID of the Pod. | 275ecb36-5aa8-4c2a-9c47-d8bb681b9aff |
+| `k8s.replicaset.name` | string | `recommended` | release_candidate | The name of the ReplicaSet. | opentelemetry |
+| `k8s.statefulset.name` | string | `recommended` | release_candidate | The name of the StatefulSet. | opentelemetry |
+| `process.executable.name` | string | `recommended` | development | The name of the process executable. On Linux based systems, this SHOULD be set to the base name of the target of `/proc/[pid]/exe`. On Windows, this SHOULD be set to the base name of `GetProcessImageFileNameW`. | otelcol |
+| `process.pid` | int | `recommended` | development | Process identifier (PID). | 1234 |
+
+## `gpu.xid.errors`
+
+Xid errors that the GPU driver reported since OBI started reading the GPU.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {error} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `gpu.xid.code` | string | `recommended` | development | Code of an Xid error, the error report of the NVIDIA GPU driver. | 48; 79 |
+| `hw.driver_version` | string | `opt_in` | development | Driver version for the hardware component | 10.2.1-3 |
+| `hw.id` | string | `required` | development | An identifier for the hardware component, unique within the monitored host | win32battery_battery_testsysa33_1 |
+| `hw.model` | string | `recommended` | development | Descriptive model name of the hardware component | PERC H740P; Intel(R) Core(TM) i7-10700K; Dell XPS 15 Battery |
+| `hw.vendor` | string | `opt_in` | development | Vendor name of the hardware component | Dell; HP; Intel; AMD; LSI; Lenovo |
+
 ## `http.client.request.body.size`
 
 OBI-emitted http.client.request.body.size
@@ -751,6 +925,20 @@ OBI-emitted http.server.response.body.size
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+
+## `hw.errors`
+
+OBI-emitted hw.errors, the memory errors of a GPU over its lifetime.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {error} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `conditionally_required`: if and only if an error has occurred | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `hw.id` | string | `required` | development | An identifier for the hardware component, unique within the monitored host | win32battery_battery_testsysa33_1 |
+| `hw.type` | enum | `required` | development | Type of the component | battery; cpu; disk_controller; enclosure; fan; gpu; logical_disk; memory; … |
 
 ## `jvm.class.count`
 

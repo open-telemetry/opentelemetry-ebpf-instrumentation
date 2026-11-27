@@ -179,10 +179,15 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 	}
 
 	gpu := protocols[protocolGPU]
+	gpuDeviceMetrics := cfg.GPUDevices.Enabled
 	gpuInstrumentation := schema.GPUInstrumentation{
 		Enabled:     gpu.Enabled,
 		Filters:     gpu.Filters,
 		EnabledMode: cfg.EBPF.InstrumentCuda,
+		DeviceMetrics: schema.GPUDeviceMetrics{
+			Enabled:  &gpuDeviceMetrics,
+			Interval: schema.Duration(cfg.GPUDevices.Interval),
+		},
 	}
 
 	aerospike := protocols[protocolAerospike]

@@ -430,7 +430,7 @@ func getDefinitions(
 		extraGroupAttributes[GroupMessaging],
 	)
 
-	return map[Section]AttrReportGroup{
+	defs := map[Section]AttrReportGroup{
 		NetworkFlow.Section: {
 			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkGeoIP, &networkKubeAttributes},
 		},
@@ -1033,6 +1033,57 @@ func getDefinitions(
 				attr.TelemetrySDKLanguage: false,
 			},
 		},
+	}
+
+	addGPUDefinitions(defs, &appKubeAttributes)
+
+	return defs
+}
+
+// addGPUDefinitions adds the GPU device metrics. Their process metrics carry
+// the same Kubernetes attributes as the application metrics.
+func addGPUDefinitions(defs map[Section]AttrReportGroup, kubeAttributes *AttrReportGroup) {
+	// the attributes that the semantic conventions define for any hardware component,
+	// except temperatures, which they report for a sensor of the component
+	hwComponent := NewAttrReportGroup(false, nil, map[attr.Name]Default{attr.HWID: true, attr.HWType: true}, nil)
+	sensor := NewAttrReportGroup(false, nil, map[attr.Name]Default{attr.HWID: true}, nil)
+	device := NewAttrReportGroup(false, nil, map[attr.Name]Default{
+		attr.HWID: true, attr.HWModel: true, attr.HWVendor: false, attr.HWDriverVersion: false,
+	}, nil)
+	process := NewAttrReportGroup(false, []*AttrReportGroup{&device, kubeAttributes}, map[attr.Name]Default{
+		attr.ProcessPID: true, attr.ProcessExecutableName: true,
+	}, nil)
+
+	// kind is the attribute that tells apart the readings of one metric
+	for section, m := range map[Section]struct {
+		group *AttrReportGroup
+		kind  attr.Name
+	}{
+		HWGPUUtilization.Section:       {&device, attr.HWGPUTask},
+		HWGPUMemoryUsage.Section:       {&device, ""},
+		HWGPUMemoryLimit.Section:       {&device, ""},
+		HWGPUMemoryUtilization.Section: {&device, ""},
+		HWPower.Section:                {&hwComponent, ""},
+		HWEnergy.Section:               {&hwComponent, ""},
+		HWTemperature.Section:          {&sensor, attr.HWSensorLocation},
+		HWTemperatureLimit.Section:     {&sensor, attr.HWLimitType},
+		HWErrors.Section:               {&hwComponent, attr.ErrorType},
+		HWStatus.Section:               {&hwComponent, attr.HWState},
+		GPUClockFrequency.Section:      {&device, attr.GPUClockType},
+		GPUClockThrottled.Section:      {&device, attr.GPUClockThrottleReason},
+		GPUMemoryRemappedRows.Section:  {&device, attr.ErrorType},
+		GPUMemoryActivity.Section:      {&device, ""},
+		GPUMemoryReserved.Section:      {&device, ""},
+		GPUPCIeReplays.Section:         {&device, ""},
+		GPUXidErrors.Section:           {&device, attr.GPUXidCode},
+		GPUProcessMemoryUsage.Section:  {&process, ""},
+		GPUProcessUtilization.Section:  {&process, attr.HWGPUTask},
+	} {
+		attrs := map[attr.Name]Default{}
+		if m.kind != "" {
+			attrs[m.kind] = true
+		}
+		defs[section] = AttrReportGroup{SubGroups: []*AttrReportGroup{m.group}, Attributes: attrs}
 	}
 }
 

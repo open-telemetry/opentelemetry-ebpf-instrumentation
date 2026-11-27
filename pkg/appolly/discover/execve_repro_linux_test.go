@@ -37,6 +37,11 @@ func TestExecveDiscovery(t *testing.T) {
 	processInfo = execveProcessInfo
 	t.Cleanup(func() { processInfo = previous })
 
+	// The test process starts the launcher, and OBI skips the processes it starts.
+	previousPid := osPidFunc
+	osPidFunc = func() int { return 0 }
+	t.Cleanup(func() { osPidFunc = previousPid })
+
 	launcher, target := buildExecveRepro(t)
 	child := startExecveRepro(t, launcher, target)
 	child.expect(t, 'L')

@@ -248,6 +248,27 @@ var (
 		Unit:    "By",
 		Type:    InstrumentCounter,
 	})
+	// GPU device metrics, read through NVML
+	HWGPUUtilization       = metric(Name{Section: "hw.gpu.utilization", OTEL: "hw.gpu.utilization", Unit: "1", Type: InstrumentGauge})
+	HWGPUMemoryUsage       = metric(Name{Section: "hw.gpu.memory.usage", OTEL: "hw.gpu.memory.usage", Unit: "By", Type: InstrumentUpDownCounter})
+	HWGPUMemoryLimit       = metric(Name{Section: "hw.gpu.memory.limit", OTEL: "hw.gpu.memory.limit", Unit: "By", Type: InstrumentUpDownCounter})
+	HWGPUMemoryUtilization = metric(Name{Section: "hw.gpu.memory.utilization", OTEL: "hw.gpu.memory.utilization", Unit: "1", Type: InstrumentGauge})
+	HWPower                = metric(Name{Section: "hw.power", OTEL: "hw.power", Unit: "W", Type: InstrumentGauge})
+	HWEnergy               = metric(Name{Section: "hw.energy", OTEL: "hw.energy", Unit: "J", Type: InstrumentCounter})
+	HWTemperature          = metric(Name{Section: "hw.temperature", OTEL: "hw.temperature", Unit: "Cel", Type: InstrumentGauge})
+	HWTemperatureLimit     = metric(Name{Section: "hw.temperature.limit", OTEL: "hw.temperature.limit", Unit: "Cel", Type: InstrumentGauge})
+	HWErrors               = metric(Name{Section: "hw.errors", OTEL: "hw.errors", Unit: "{error}", Type: InstrumentCounter})
+	HWStatus               = metric(Name{Section: "hw.status", OTEL: "hw.status", Unit: "1", Type: InstrumentUpDownCounter})
+	GPUClockFrequency      = metric(Name{Section: "gpu.clock.frequency", OTEL: "gpu.clock.frequency", Unit: "Hz", Type: InstrumentGauge})
+	GPUClockThrottled      = metric(Name{Section: "gpu.clock.throttled", OTEL: "gpu.clock.throttled", Unit: "1", Type: InstrumentUpDownCounter})
+	GPUMemoryRemappedRows  = metric(Name{Section: "gpu.memory.remapped_rows", OTEL: "gpu.memory.remapped_rows", Unit: "{row}", Type: InstrumentGauge})
+	GPUMemoryActivity      = metric(Name{Section: "gpu.memory.activity", OTEL: "gpu.memory.activity", Unit: "1", Type: InstrumentGauge})
+	GPUMemoryReserved      = metric(Name{Section: "gpu.memory.reserved", OTEL: "gpu.memory.reserved", Unit: "By", Type: InstrumentUpDownCounter})
+	GPUPCIeReplays         = metric(Name{Section: "gpu.pcie.replays", OTEL: "gpu.pcie.replays", Unit: "{replay}", Type: InstrumentCounter})
+	GPUXidErrors           = metric(Name{Section: "gpu.xid.errors", OTEL: "gpu.xid.errors", Unit: "{error}", Type: InstrumentCounter})
+	GPUProcessMemoryUsage  = metric(Name{Section: "gpu.process.memory.usage", OTEL: "gpu.process.memory.usage", Unit: "By", Type: InstrumentUpDownCounter})
+	GPUProcessUtilization  = metric(Name{Section: "gpu.process.utilization", OTEL: "gpu.process.utilization", Unit: "1", Type: InstrumentGauge})
+
 	DNSLookupDuration = metric(Name{
 		Section: "dns.lookup.duration",
 		OTEL:    "dns.lookup.duration",

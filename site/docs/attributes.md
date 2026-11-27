@@ -50,6 +50,16 @@ Attributes carried on OBI's CUDA GPU metrics.
 | `cuda.device.uuid` | string | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
 | `cuda.memcpy.kind` | enum | development | Direction of a CUDA memory copy, mirroring the `cudaMemcpyKind` enum of the CUDA Runtime API. | MemcpyHostToHost; MemcpyHostToDevice; MemcpyDeviceToHost; MemcpyDeviceToDevice; MemcpyDefault |
 
+## `registry.obi.gpu.device`
+
+Attributes carried on OBI's GPU device metrics.
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `gpu.clock.throttle.reason` | enum | development | A reason for which the NVIDIA driver can limit the clocks of a GPU. | sw_power_cap; hw_slowdown; sync_boost; sw_thermal_slowdown; hw_thermal_slowdown; hw_power_brake_slowdown |
+| `gpu.clock.type` | enum | development | Which clock of the GPU a frequency belongs to. | processor; memory |
+| `gpu.xid.code` | string | development | Code of an Xid error, the error report of the NVIDIA GPU driver. | 48; 79 |
+
 ## `registry.obi.http`
 
 HTTP attributes OBI emits that are not part of upstream semconv (captured request/response bodies).

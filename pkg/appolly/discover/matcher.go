@@ -250,6 +250,10 @@ func (m *Matcher) filterCreated(obj ProcessAttrs, findingCriteria []services.Sel
 		return Event[ProcessMatch]{}, false
 	}
 
+	if startedByOBI(proc) {
+		return Event[ProcessMatch]{}, false
+	}
+
 	if processMatch := m.matchCriteria(obj, proc, findingCriteria); processMatch != nil {
 		m.confirmCriteria(obj.pid, processMatch.Criteria)
 		if tracked {
@@ -551,6 +555,15 @@ func FindingCriteria(cfg *obi.Config) []services.Selector {
 			OpenPorts: cfg.Port,
 		},
 	}
+}
+
+// startedByOBI reports whether OBI started the process itself, as it does with
+// the NVML helper. An OBI that is PID 1 adopts the orphans of its PID namespace,
+// so there the parent does not identify the processes it started.
+func startedByOBI(proc *services.ProcessInfo) bool {
+	self := app.PID(osPidFunc())
+
+	return self != 1 && proc.PPid == self
 }
 
 func ExcludingCriteria(cfg *obi.Config) []services.Selector {

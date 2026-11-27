@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tracefs"
+	gpuagent "go.opentelemetry.io/obi/pkg/internal/gpuolly/agent"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/rdns"
 	"go.opentelemetry.io/obi/pkg/internal/shutdown"
 	"go.opentelemetry.io/obi/pkg/kube"
@@ -140,6 +141,15 @@ func runWithContextInfo(
 		g.Go(func() error {
 			if err := setupStatsO11y(ctx, ctxInfo, cfg); err != nil {
 				return fmt.Errorf("setupStatsO11y: %w", err)
+			}
+			return nil
+		})
+	}
+
+	if cfg.GPUDevices.Enabled {
+		g.Go(func() error {
+			if err := gpuagent.Run(ctx, ctxInfo, cfg); err != nil {
+				return fmt.Errorf("GPU device metrics: %w", err)
 			}
 			return nil
 		})

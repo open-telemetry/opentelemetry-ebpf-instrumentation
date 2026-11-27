@@ -49,6 +49,29 @@ attributes:
       CUDA introspection APIs. Omitted when the process never asked CUDA
       about the device.
     examples: ["NVIDIA H20-3e"]
+  - key: gpu.clock.type
+    type:
+      members:
+        - {id: processor, value: processor, stability: development, brief: "The clock of the processors of the GPU."}
+        - {id: memory, value: memory, stability: development, brief: "The clock of the memory of the GPU."}
+    stability: development
+    brief: Which clock of the GPU a frequency belongs to.
+  - key: gpu.clock.throttle.reason
+    type:
+      members:
+        - {id: sw_power_cap, value: sw_power_cap, stability: development, brief: "The driver is keeping the GPU under its power limit."}
+        - {id: hw_slowdown, value: hw_slowdown, stability: development, brief: "The hardware slowed the GPU down to protect it."}
+        - {id: sync_boost, value: sync_boost, stability: development, brief: "The GPU is matching the clocks of the other GPUs of its group."}
+        - {id: sw_thermal_slowdown, value: sw_thermal_slowdown, stability: development, brief: "The driver is keeping the GPU under its temperature limit."}
+        - {id: hw_thermal_slowdown, value: hw_thermal_slowdown, stability: development, brief: "The hardware slowed the GPU down because it is too hot."}
+        - {id: hw_power_brake_slowdown, value: hw_power_brake_slowdown, stability: development, brief: "The hardware slowed the GPU down because the power supply asked for it."}
+    stability: development
+    brief: A reason for which the NVIDIA driver can limit the clocks of a GPU.
+  - key: gpu.xid.code
+    type: string
+    stability: development
+    brief: Code of an Xid error, the error report of the NVIDIA GPU driver.
+    examples: ["48", "79"]
 
 attribute_groups:
   # CUDA GPU telemetry OBI emits from its gpuevent uprobes (enabled via
@@ -66,3 +89,16 @@ attribute_groups:
       - ref: cuda.device.index
       - ref: cuda.device.uuid
       - ref: cuda.device.model
+
+  # NVIDIA GPU device telemetry OBI reads through NVML (enabled via
+  # `capture.instrumentation.gpu.device_metrics`). The emitters are in
+  # `pkg/export/otel/metrics_gpu.go` and `pkg/export/prom/prom_gpu.go`.
+  - id: registry.obi.gpu.device
+    visibility: public
+    brief: >
+      Attributes carried on OBI's GPU device metrics.
+    stability: development
+    attributes:
+      - ref: gpu.clock.type
+      - ref: gpu.clock.throttle.reason
+      - ref: gpu.xid.code

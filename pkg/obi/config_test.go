@@ -398,6 +398,9 @@ discovery:
 			CacheTTL: 5 * time.Minute,
 		},
 		PeerMetadata: DefaultConfig.PeerMetadata,
+		GPUDevices: config.GPUDeviceMetrics{
+			Interval: 30 * time.Second,
+		},
 		CloudMetadata: transform.CloudMetadataConfig{
 			DetectionEnabled: true,
 			Route53:          transform.Route53MetadataConfig{RefreshInterval: 5 * time.Minute},
@@ -1243,6 +1246,14 @@ func TestConfigValidateForReceiverUsesHostMetricsForStats(t *testing.T) {
 
 	require.ErrorContains(t, cfg.Validate(), "at least one of 'network', 'application' or 'stats'")
 	require.NoError(t, cfg.ValidateForReceiver())
+}
+
+func TestConfigValidateAcceptsOnlyGPUDeviceMetrics(t *testing.T) {
+	cfg := loadConfig(t, envMap{"OTEL_EBPF_PROMETHEUS_PORT": "8080"})
+	require.ErrorContains(t, cfg.Validate(), "at least one of 'network', 'application' or 'stats'")
+
+	cfg.GPUDevices.Enabled = true
+	require.NoError(t, cfg.Validate())
 }
 
 func TestConfigValidateStaticSkipsHostCompatibility(t *testing.T) {

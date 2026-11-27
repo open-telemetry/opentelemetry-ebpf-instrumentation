@@ -745,6 +745,38 @@ scraped Prometheus endpoint at the same time, keep it enabled.
 The declarative Prometheus exporter field `without_target_info` is not
 supported; use this option instead.
 
+### `capture.instrumentation.gpu.device_metrics`
+
+Report metrics that describe the NVIDIA GPUs of the host: utilization, memory,
+power, energy, temperature, clocks, throttling, hardware errors and the GPU
+usage of each process. For standalone OBI:
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      instrumentation:
+        gpu:
+          device_metrics:
+            enabled: true
+            interval: 30s
+```
+
+In receiver mode, place this at `instrumentation.gpu.device_metrics` in the OBI
+receiver body.
+
+`enabled` defaults to `false`. `interval` is the time between two readings of
+the GPUs and defaults to `30s`. The option is independent of
+`gpu.enabled_mode`, which controls the CUDA instrumentation.
+
+OBI reads the GPUs through the NVIDIA Management Library (NVML), which the
+NVIDIA driver installs on the host. OBI must therefore share the PID namespace
+of the host and run as root with the `SYS_CHROOT` and `SYS_PTRACE`
+capabilities and, on hosts that use AppArmor, without an AppArmor profile. See
+[gpu-monitoring.md](../../gpu-monitoring.md#requirements) for the metrics and
+the requirements. The option has no Config v1 equivalent.
+
 ### `capture.attributes.select` Section
 
 Select optional span attributes and metric dimensions before aggregation.
@@ -1133,6 +1165,7 @@ Important mapping notes:
 | `otel_metrics_export.reporters_cache_len` | `extensions.obi.capture.telemetry.metrics.reporters_cache_len` | Move to capture telemetry tuning |
 | `otel_metrics_export.ttl` | `extensions.obi.capture.telemetry.metrics.ttl` | Move to capture telemetry tuning |
 | N/A | `extensions.obi.capture.telemetry.metrics.connection_info_ttl` | Config v2-only connection-info edge retention, defaults to 15 minutes |
+| N/A | `extensions.obi.capture.instrumentation.gpu.device_metrics` | Config v2-only NVIDIA GPU device metrics, disabled by default |
 | `otel_traces_export.endpoint` | `tracer_provider.processors[0].batch.exporter.otlp_grpc.endpoint` or, with gated HTTP support, `.otlp_http.endpoint` | OTel ownership move; automatic migration emits gRPC, while HTTP requires the documented manual mapping |
 | `otel_traces_export.instrumentations` | `extensions.obi.capture.instrumentation.<protocol>.enabled.traces` | Only protocols modeled by v2 |
 | `otel_traces_export.protocol` | Selects `tracer_provider.processors[0].batch.exporter.otlp_grpc` or, with gated HTTP support, `.otlp_http` plus its `encoding` | The exporter shape encodes the protocol; automatic migration currently supports gRPC |

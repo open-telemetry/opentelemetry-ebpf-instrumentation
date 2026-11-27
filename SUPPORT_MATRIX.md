@@ -283,6 +283,19 @@ OBI currently documents the following GPU execution instrumentation support:
 
 Since the CUDA runtime implements the driver API, launches in a process that maps both libraries would be observed twice; OBI deduplicates them in the eBPF programs by suppressing the driver API call that a runtime API call on the same thread is still executing.
 
+### GPU device metrics
+
+The opt-in GPU device metrics are `development` stability and read the NVIDIA Management Library (NVML):
+
+| Requirement | Supported |
+|:------------|:----------|
+| GPU vendor | NVIDIA, through the `libnvidia-ml.so.1` that the driver installs on the host |
+| Host C library | GNU C library |
+| Deployment | OBI runs as root, shares the PID namespace of the host, and has the `SYS_CHROOT` and `SYS_PTRACE` capabilities; on hosts that use AppArmor, it runs with the `unconfined` profile |
+| Configuration | Config v2 only, `capture.instrumentation.gpu.device_metrics` |
+
+See [devdocs/gpu-monitoring.md](devdocs/gpu-monitoring.md#device-metrics) for the metrics and their limitations.
+
 ## Explicitly Out Of Scope
 
 The following environments are outside the documented OBI support matrix:

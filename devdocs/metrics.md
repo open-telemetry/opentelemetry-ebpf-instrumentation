@@ -9,6 +9,7 @@
 - [NetO11y](#neto11y)
 - [AppO11y](#appo11y)
 - [StatsO11y](#statso11y)
+- [GPU device metrics](#gpu-device-metrics)
 - [General notes](#general-notes)
 
 Each component has its own pipeline, described in the [pipeline-map doc](pipeline-map.md). In short, each component has its own maps, events, and a set of userspace nodes that add, modify, and export the data obtained from eBPF probes.
@@ -199,6 +200,20 @@ Some stat metrics attach to kernel functions that are called very frequently (e.
 We decided to create a component separate from **AppO11y** and **NetO11y**, focusing only on **statistical metrics** calculated for all applications running on the node. This is because statistical metrics are important if correlated to all applications, and also because some hook points can cause unreliable PID calculations and lead to false positives.
 
 The user can then filter the metrics in userspace using appropriate filters or even the collector.
+
+## GPU device metrics
+
+The GPU device metrics are read through NVML by a helper process instead of
+eBPF; [gpu-monitoring.md](gpu-monitoring.md#device-metrics) describes how. To
+add one:
+
+1. Write its value in `sampleDevice` or `processes` in
+   `pkg/internal/nvml/helper/collector.go`, in the unit of the metric. Add any
+   NVML function it needs to the `library` struct in `library.go`.
+2. Define its `Name` in `pkg/export/attributes/metric.go`, add it to the table
+   in `addGPUDefinitions` in `attr_defs.go`, and to `gpuolly.Metrics`. Both
+   exporters report every metric in that list.
+3. Declare it in `schemas/obi/groups/gpu/`.
 
 ## General notes
 

@@ -13,6 +13,7 @@ Check the in-code documentation for more information about each symbol.
 - [Application instrumentation pipeline](#application-instrumentation-pipeline)
 - [Network metrics pipeline](#network-metrics-pipeline)
 - [Stat metrics pipeline](#stat-metrics-pipeline)
+- [GPU device metrics pipeline](#gpu-device-metrics-pipeline)
 
 ## Application instrumentation pipeline
 
@@ -114,4 +115,20 @@ flowchart TD
     FLTR(Attributes<br/>filter):::optional --> OTEL(OpenTelemetry<br/>metrics<br/>export):::optional
     FLTR --> PROM(Prometheus<br/>metrics<br/>export):::optional
     FLTR --> StatPrinter(Stat Printer):::optional
+```
+
+## GPU device metrics pipeline
+
+The GPU device metrics do not come from eBPF. OBI runs an embedded helper that
+polls NVML and keeps the values of its most recent sample, which the exporters
+read each time they collect. See [gpu-monitoring.md](gpu-monitoring.md#device-metrics).
+
+```mermaid
+flowchart TD
+    classDef optional stroke-dasharray: 3 3;
+    HELPER("NVML helper<br/>(child process in the host root)") --> |JSON sample per interval| CONV(gpuolly.Convert)
+    KSTORE(Kube Store):::optional -.-> |Pod of each GPU process| CONV
+    CONV --> SNAP(Readings snapshot)
+    SNAP --> |read at each collection| OTEL(OpenTelemetry<br/>metrics<br/>export):::optional
+    SNAP --> |read at each scrape| PROM(Prometheus<br/>metrics<br/>export):::optional
 ```

@@ -230,6 +230,14 @@ type GPUInstrumentation struct {
 	Enabled     ProtocolEnablement `yaml:"enabled"`
 	Filters     SignalFilters      `yaml:"filters"`
 	EnabledMode config.CudaMode    `yaml:"enabled_mode"`
+
+	DeviceMetrics GPUDeviceMetrics `yaml:"device_metrics"`
+}
+
+// GPUDeviceMetrics describes the metrics read from the NVIDIA GPUs of the host.
+type GPUDeviceMetrics struct {
+	Enabled  *bool    `yaml:"enabled,omitempty"`
+	Interval Duration `yaml:"interval"`
 }
 
 // SignalFilters groups attribute filters by telemetry signal.

@@ -344,6 +344,25 @@ const (
 	CudaDeviceModel = Name("cuda.device.model")
 )
 
+// Attributes of the GPU device metrics.
+const (
+	HWID             = Name("hw.id")
+	HWType           = Name("hw.type")
+	HWModel          = Name("hw.model")
+	HWVendor         = Name("hw.vendor")
+	HWDriverVersion  = Name("hw.driver_version")
+	HWState          = Name("hw.state")
+	HWLimitType      = Name("hw.limit_type")
+	HWGPUTask        = Name("hw.gpu.task")
+	HWSensorLocation = Name("hw.sensor_location")
+
+	GPUClockType           = Name("gpu.clock.type")
+	GPUClockThrottleReason = Name("gpu.clock.throttle.reason")
+	GPUXidCode             = Name("gpu.xid.code")
+
+	ProcessPID = Name("process.pid")
+)
+
 // JSON-RPC attributes (current semconv, replacing deprecated rpc.jsonrpc.* attributes)
 const (
 	JSONRPCProtocolVersion = Name(semconv.JSONRPCProtocolVersionKey)
