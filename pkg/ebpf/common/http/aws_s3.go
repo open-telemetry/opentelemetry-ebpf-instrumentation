@@ -130,6 +130,9 @@ func inferS3Method(req *http.Request) string {
 			return "ListBuckets"
 		}
 		if hasBucket && !hasObject {
+			if req.URL.Query().Get("list-type") == "2" {
+				return "ListObjectsV2"
+			}
 			return "ListObjects"
 		}
 		return "GetObject"

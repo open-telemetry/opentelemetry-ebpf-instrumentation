@@ -42,6 +42,10 @@ async def createobject():
         Body="Hello from OBI!"
     )
 
+@app.get("/listobjectsv1")
+async def listobjectsv1():
+    return s3.list_objects(Bucket=BUCKET_NAME)
+
 @app.get("/listobjects")
 async def listobjects():
     return s3.list_objects_v2(Bucket=BUCKET_NAME)

@@ -373,3 +373,20 @@ func TestParseAWSS3(t *testing.T) {
 		})
 	}
 }
+
+func TestInferS3ListingMethod(t *testing.T) {
+	for _, tc := range []struct {
+		target string
+		want   string
+	}{
+		{"https://s3.amazonaws.com/bucket?list-type=2&encoding-type=url", "ListObjectsV2"},
+		{"https://bucket.s3.amazonaws.com/?list-type=2&encoding-type=url", "ListObjectsV2"},
+		{"https://s3.amazonaws.com/bucket?prefix=photos", "ListObjects"},
+		{"https://bucket.s3.amazonaws.com/?prefix=photos", "ListObjects"},
+	} {
+		t.Run(tc.target, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.target, nil)
+			assert.Equal(t, tc.want, inferS3Method(req))
+		})
+	}
+}

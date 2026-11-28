@@ -206,6 +206,11 @@ section empty once drained.
   stats configuration documents. Deployments that set `stats.cidrs` only for `filter.stats`
   get the attributes too, and their series split by range when more than one range is
   exported. `attributes.select` can exclude them.
+- AWS S3 `ListObjectsV2` requests now report `S3.ListObjectsV2` and
+  `rpc.method=S3/ListObjectsV2` instead of `S3.ListObjects` and
+  `rpc.method=S3/ListObjects`. Span metrics using `span.name` change accordingly;
+  update queries that grouped V2 calls under `S3.ListObjects`. Legacy
+  `ListObjects` calls are unchanged.
 
 ## Hosting notes
 
