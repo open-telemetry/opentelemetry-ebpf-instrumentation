@@ -266,7 +266,7 @@
       "Addr": {
         "versions": {
           "oldest": "1.5.0",
-          "newest": "1.10.2"
+          "newest": "1.11.0"
         },
         "offsets": [
           {
@@ -280,7 +280,7 @@
       "cfg": {
         "versions": {
           "oldest": "1.5.0",
-          "newest": "1.10.2"
+          "newest": "1.11.0"
         },
         "offsets": [
           {
@@ -372,7 +372,7 @@
       "bw": {
         "versions": {
           "oldest": "9.0.0",
-          "newest": "9.24.0"
+          "newest": "9.24.1"
         },
         "offsets": [
           {
