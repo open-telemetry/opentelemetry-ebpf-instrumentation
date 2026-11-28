@@ -309,3 +309,28 @@ func TestJSONRPCSpan_PayloadOnlyMethodStaysUnqualified(t *testing.T) {
 	assert.False(t, result.JSONRPC.ServiceQualified)
 	assert.Equal(t, "inventory.lookup.v2", result.JSONRPC.QualifiedMethod())
 }
+
+type failingBodyReader struct {
+	data []byte
+	sent bool
+}
+
+func (r *failingBodyReader) Read(p []byte) (int, error) {
+	if r.sent {
+		return 0, io.ErrUnexpectedEOF
+	}
+	r.sent = true
+	return copy(p, r.data), io.ErrUnexpectedEOF
+}
+
+func TestTryParseJSONRPC_RestoresBodyOnReadError(t *testing.T) {
+	partial := []byte(`{"jsonrpc":"2.0","method":"tools/call"`)
+	req := httptest.NewRequest(http.MethodPost, "/rpc", nil)
+	req.Body = io.NopCloser(&failingBodyReader{data: partial})
+
+	assert.Nil(t, TryParseJSONRPC(req))
+
+	restored, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	assert.Equal(t, partial, restored)
+}

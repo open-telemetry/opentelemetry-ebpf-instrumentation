@@ -65,10 +65,12 @@ func TryParseJSONRPC(req *http.Request) *ParsedJSONRPC {
 	}
 
 	reqB, err := io.ReadAll(req.Body)
+	// Restore whatever was read even on failure so later detectors and
+	// enrichment still see the (possibly truncated) body.
+	req.Body = io.NopCloser(bytes.NewBuffer(reqB))
 	if err != nil {
 		return nil
 	}
-	req.Body = io.NopCloser(bytes.NewBuffer(reqB))
 
 	rpcReq, err := parseJSONRPCRequest(reqB, headerDetected)
 	if err != nil {
